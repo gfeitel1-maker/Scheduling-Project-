@@ -547,6 +547,69 @@ describe('wireMutualAuth — connectivity event emission (T212)', () => {
     expect(handle.dial).not.toHaveBeenCalled()
   })
 
+  // Packaged two-instance run (2dd5fb7a): a joined device's node discovered the Host before it had a
+  // token, logged NO_TOKEN, and — mDNS not re-announcing an already-reported peer — never tried
+  // again. A token that arrives later must re-run the skipped attempt itself.
+  it('a token arriving after discovery re-attempts the peers skipped for NO_TOKEN', async () => {
+    const handle = fakeHandle()
+    let token = null
+    const auth = wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => token, isPeerTrusted: () => true, emitter: fakeEmitter() })
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.authenticateWith).not.toHaveBeenCalled()
+
+    token = 'tok-late'
+    auth.retryPeersAwaitingToken()
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.authenticateWith).toHaveBeenCalledWith('peer-b', expect.objectContaining({ token: 'tok-late' }), expect.anything())
+  })
+
+  it('non-vacuous: the token retry still runs the trust check — an untrusted peer is not authenticated to', async () => {
+    const handle = fakeHandle()
+    let token = null
+    let trusted = true
+    const auth = wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => token, isPeerTrusted: () => trusted, emitter: fakeEmitter() })
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+    trusted = false // revoked between discovery and the token arriving
+    token = 'tok-late'
+    auth.retryPeersAwaitingToken()
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.authenticateWith).not.toHaveBeenCalled()
+  })
+
+  // A peer that authenticated to us must be proved to back, even if it was refused moments earlier
+  // (a joining device, before approval) and even if an earlier connection to the same peer id
+  // already succeeded and was since dropped (its join node replaced by its persistent node).
+  it('reciprocate authenticates back to a peer held in the denial cache, after forget() of a dropped connection', async () => {
+    const handle = fakeHandle()
+    let trusted = false
+    const auth = wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => trusted, emitter: fakeEmitter() })
+    handle.fireDiscovery('peer-b') // refused: now in the 5s denial cache
+    await new Promise((r) => setTimeout(r, 10))
+    trusted = true // the director approved it
+    auth.reciprocate('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.authenticateWith).toHaveBeenCalledTimes(1)
+
+    auth.reciprocate('peer-b') // still connected: no second attempt
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.authenticateWith).toHaveBeenCalledTimes(1)
+
+    auth.forget('peer-b') // connection dropped; the peer comes back and authenticates to us
+    auth.reciprocate('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.authenticateWith).toHaveBeenCalledTimes(2)
+  })
+
+  it('non-vacuous: reciprocate never authenticates to an untrusted (revoked) peer', async () => {
+    const handle = fakeHandle()
+    const auth = wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => false, emitter: fakeEmitter() })
+    auth.reciprocate('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.authenticateWith).not.toHaveBeenCalled()
+  })
+
   it('emits DIAL_FAILED with reused:true and does NOT also emit AUTH_ERROR when a redial after a stale-connection auth failure itself fails (Code Reviewer, coverage gap)', async () => {
     const handle = fakeHandle()
     handle.getPeers = () => ['peer-b']          // stale: claims connected

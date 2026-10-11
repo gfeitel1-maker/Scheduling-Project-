@@ -1088,6 +1088,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // Stage 5d-2b: a returning device that already holds a token hands it to
       // the libp2p node so it can authenticate to peers without a fresh login.
       if (isNonEmptyString(token)) {
+        nodeAuthToken = token
         getAutomergeNode()?.setAuthToken(token)
       }
     }
@@ -2954,6 +2955,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // an app restart mid-join starts over, which is correct — nothing has been
   // written yet at any point before login.
   let activeJoin = null
+  // This Client's session token for the libp2p node (from the join's sign-in or chooseMode). Held
+  // here because the node may not exist yet when it arrives; the starter reads it at node start
+  // (getNodeAuthToken). A Host never needs it — it self-issues.
+  let nodeAuthToken = null
   // Pair again stopped the persistent node to run the join node on the same peer identity; any
   // exit that is not a completed join must start it again.
   let activeJoinIsRejoin = false
@@ -3044,7 +3049,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
   async function joinLogin({ name, pin, deviceSecretIdentifier } = {}) {
     if (!activeJoin) throw new Error('no join in progress')
-    return activeJoin.login({ name, pin, deviceSecretIdentifier })
+    const result = await activeJoin.login({ name, pin, deviceSecretIdentifier })
+    // The persistent node starts only after joinAwaitData, and the renderer's chooseMode can run
+    // before it exists — kept here so the starter hands it over when the node comes up.
+    if (result?.status === 'ok' && isNonEmptyString(result.token)) nodeAuthToken = result.token
+    return result
   }
 
   // The camp's data, as distinct from its identity — see joinSession's own
@@ -3243,6 +3252,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     handoffDecline,
     joinStart,
     joinFindHost,
+    getNodeAuthToken: () => nodeAuthToken,
     joinRequestPairing,
     joinAwaitPairingDecision,
     joinLogin,

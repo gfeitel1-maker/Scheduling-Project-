@@ -118,6 +118,10 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
   // gets a fresh attempt on the next discovery event rather than being
   // stuck forever.
   const attempted = new Set()
+  // Peers skipped only because this device had no token yet. mDNS does not re-announce a peer it
+  // has already reported (a packaged run waited 4 minutes for one), so a token arriving after
+  // discovery must re-run these attempts itself — see retryPeersAwaitingToken below.
+  const awaitingToken = new Set()
 
   // peerId -> monotonic attempt counter. A fresh id per attempt (not per peer) lets an analyst
   // reading the emitted log tell which events belong to which attempt, and lets rate computations
@@ -307,9 +311,12 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
         attempted.delete(peerId)
         ownerOf.delete(peerId)
       }
+      awaitingToken.add(peerId)
+      if (awaitingToken.size > NEGATIVE_CACHE_MAX_SIZE) awaitingToken.delete(awaitingToken.keys().next().value)
       if (!stalled) emitter.emit(EVENTS.NO_TOKEN, { peerId, attemptId })
       return
     }
+    awaitingToken.delete(peerId)
 
     // A libp2p connection is BIDIRECTIONAL: once either side has dialed, both ends can open streams
     // on it. So if this peer is already connected — because IT dialed US — we must not try to dial
@@ -440,5 +447,38 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     })
   })
 
-  return { tryAuthenticate }
+  // Called when a token becomes available: re-attempt every peer that was discovered while there was
+  // none. Goes through tryAuthenticate, so the trust check and every other guard still apply.
+  function retryPeersAwaitingToken() {
+    const peers = [...awaitingToken]
+    awaitingToken.clear()
+    for (const peerId of peers) {
+      tryAuthenticate(peerId).catch((err) => {
+        console.error(`mutualAuth: unexpected error authenticating after a token arrived: ${err?.message ?? err}`)
+      })
+    }
+  }
+
+  // Called when a peer has just authenticated TO this device. Admission is mutual (a node only sends
+  // to peers that authenticated to it), so this device must prove itself back — and it cannot wait
+  // for discovery: a peer refused moments earlier (a joining device, before the director approved
+  // it) sits in the denial cache, and mDNS does not re-announce a peer it already reported. The
+  // fresh trust check inside tryAuthenticate still decides; only the cached denial is dropped.
+  function reciprocate(peerId) {
+    deniedRecently.delete(peerId)
+    tryAuthenticate(peerId).catch((err) => {
+      console.error(`mutualAuth: unexpected error authenticating back to ${peerId}: ${err?.message ?? err}`)
+    })
+  }
+
+  // Called when the connection to a peer is gone. A completed attempt stays in `attempted` so a
+  // healthy peer's re-announces are not re-dialed — but once the connection is gone, that
+  // admission is gone with it (the far side forgets it on disconnect), and a peer that comes back
+  // (a joined device's persistent node replacing its join node, on the same peer id) must be
+  // proved to afresh. An attempt still in flight is left alone; it settles on its own.
+  function forget(peerId) {
+    if (!ownerOf.has(peerId)) attempted.delete(peerId)
+  }
+
+  return { tryAuthenticate, retryPeersAwaitingToken, reciprocate, forget }
 }

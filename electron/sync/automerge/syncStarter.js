@@ -735,8 +735,11 @@ export function createAutomergeSyncStarter({
       try {
         automergeSyncNode.setAuthToken(issueDeviceToken(db, deviceId))
       } catch {
-        // Not the Host — no host_signing_key row. Expected for a Client;
-        // its token arrives later via login()/chooseMode.
+        // Not the Host — no host_signing_key row. Expected for a Client: its
+        // token comes from the join's sign-in or chooseMode, which may have
+        // run BEFORE this node existed (a just-joined device), so take it now.
+        const clientToken = getLiveHandlers()?.getNodeAuthToken?.()
+        if (clientToken) automergeSyncNode.setAuthToken(clientToken)
       }
       const listenCount = automergeSyncNode.getMultiaddrs?.().length ?? 0
       if (listenCount > 0) console.log(`automerge sync: node started, listening on ${listenCount} address(es)`)
