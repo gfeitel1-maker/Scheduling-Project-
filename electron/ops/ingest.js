@@ -1785,6 +1785,13 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
         })
       }
+      // A field the director already accepted (the review flag's dismiss) is confirmed from the first import.
+      for (const field of UNKNOWN_FIELD_CANDIDATES) {
+        const res = resolutionFor('activities', item._name, field)
+        if (res?.reason === 'unknown_field' && res.choice === 'confirm') {
+          confirmUnknownFieldEvidence(db, { camp_id, entity_type: 'activities', entity_id: entityId, field, author_user_id })
+        }
+      }
       // recurrence_truth_status classifier (ADR §3.2/§3.4/§4.1). Only computed
       // when the director hasn't already hand-set it earlier in THIS same
       // import — the seed-guard: `fields.recurrence_truth_status` already has
