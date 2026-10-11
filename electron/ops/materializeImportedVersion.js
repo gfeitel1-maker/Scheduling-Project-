@@ -129,5 +129,5 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
   }
 
   if (!snapshotId) return { created: false, snapshotId: null, unchanged: true, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
-  return { created: true, snapshotId, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
+  return { created: true, snapshotId, versionName: name, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
 }
