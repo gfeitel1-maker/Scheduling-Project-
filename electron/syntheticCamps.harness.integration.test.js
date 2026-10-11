@@ -175,6 +175,9 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
     seenCounts: proposal.seenCounts ?? null,
     electiveHeaderFindings: proposal.electiveHeaderFindings ?? [],
     activityPeriods: proposal.activityPeriods ?? {},
+    // As ImportScreen sends them: the fold marks elective cells on these, and
+    // the app materializes the folded placements (main.js ingestCommit).
+    placements,
   }
   const common = { camp_id: id, cohort_id: null, author_user_id: userId, device_id: deviceId, mode }
   const dry = commitIngest(d, { ...common, ...baseInputs, dryRun: true })
@@ -197,7 +200,7 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
   const answers = Object.fromEntries(report.decisions.map((dec) => [dec.id, answerFor(dec)]).filter(([, a]) => a))
   const folded = foldTriageInputs(baseInputs, report.decisions, answers)
   const committed = commitIngest(d, { ...common, ...baseInputs, ...folded, openDecisions: heldBackDecisions(report.decisions, answers) })
-  return { parsed, proposal, placements, pinOnly, dualUseNames, dry, report, answers, committed }
+  return { parsed, proposal, placements: folded.placements ?? placements, pinOnly, dualUseNames, dry, report, answers, committed }
 }
 
 const CONFIRM_ALL = (dec) => {
@@ -882,6 +885,14 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
     hard(FAITHFUL_ALL, (r) => { expect(r.confirmAllFaithful?.first).toEqual([]) })
     hard(FILLS_ZERO, (r) => { expect(fillsAgain(r.generate)).toEqual({ stillNeeded: 0, unfillable: 0 }) })
     hard(FILLS_ALL, (r) => { expect(fillsAgain(r.confirmAllGenerate)).toEqual({ stillNeeded: 0, unfillable: 0 }) })
+    hard('Manual from import leaves no placement unresolved (zero answers)', (r) => {
+      expect(r.manual?.error).toBeUndefined()
+      expect({ unresolvedCount: r.manual?.unresolvedCount, unresolvedNames: r.manual?.unresolvedNames }).toEqual({ unresolvedCount: 0, unresolvedNames: [] })
+    })
+    hard('Manual from import leaves no placement unresolved (confirm all)', (r) => {
+      expect(r.confirmAllManual?.error).toBeUndefined()
+      expect({ unresolvedCount: r.confirmAllManual?.unresolvedCount, unresolvedNames: r.confirmAllManual?.unresolvedNames }).toEqual({ unresolvedCount: 0, unresolvedNames: [] })
+    })
     hard('re-import with Keep writes zero new records', (r) => {
       expect(r.reimportKeep).toEqual({ ok: true, newRecords: {} })
     })
