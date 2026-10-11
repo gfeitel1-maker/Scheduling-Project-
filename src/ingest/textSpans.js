@@ -31,7 +31,8 @@ import { activityNamesFromCell, canonicalDay, dayNameFromTitle, cleanTitle } fro
 import { normalizeName } from './preview.js'
 
 // (group, day) -> ordered [{ blockLabel, names }] in the page's row order.
-function groupDaySequences(parsed, proposal) {
+// Exported for tripDetection.js, which must read cells exactly as span inference does.
+export function groupDaySequences(parsed, proposal) {
   const pages = parsed?.pages ?? []
   const orientation = proposal?.orientation ?? {}
   const groupNameByTitle = proposal?.groupNameByTitle ?? {}
