@@ -166,7 +166,9 @@ export function buildLearnedGroups(data) {
 
 // "Your camp changed since you answered" (ADR 3.5): the answer's camp shape differs from the camp's
 // now, and this viewer has not already been shown the current shape. A missing last-shown means shown.
-export const LAST_SHOWN_SHAPE_KEY = 'learned.lastShownShape'
+// One key per surface, so seeing the camp's shape in the view never silences the import's warning.
+export const REVIEW_SHAPE_KEY = 'learned.lastShownShape.review'
+export const VIEW_SHAPE_KEY = 'learned.lastShownShape.view'
 export const campShapeKey = (s) => `${s?.groups ?? '?'}|${s?.days ?? '?'}`
 export function campChanged(answerShape, currentShape, lastShownKey) {
   if (!answerShape || !currentShape) return false
@@ -182,9 +184,9 @@ export function matchesQuery(row, query) {
 
 // ---------------------------------------------------------------- the review cards
 
-// Flags the director's controls add to an answer (the explicit-write taps and the classification
-// control). They change how an answer is written, not which answer it is.
-const FLAG_KEYS = ['tap', 'rememberNear', 'notAnEvent']
+// Flags the director's controls add to an answer (the explicit-write taps). They change how an
+// answer is written, not which answer it is.
+const FLAG_KEYS = ['tap', 'rememberNear']
 export function answerCore(a) {
   if (!a || typeof a !== 'object') return a
   const out = { ...a }
@@ -252,6 +254,7 @@ const SKIP_WORDS = {
   unwritable: 'they couldn’t be stored',
   too_large: 'they were too large to store',
   malformed: 'they couldn’t be read',
+  camper_name: 'they look like camper names, which Shoresh never keeps',
 }
 
 // `unchanged` and the by-design skips stay silent; the rest the director is told.

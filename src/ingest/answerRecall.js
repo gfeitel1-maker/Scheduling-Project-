@@ -1,6 +1,7 @@
 // The renderer-side seam of import answer memory (docs/adr/2026-10-11-import-answer-memory.md 3.5).
 // Pure. Recall comes IN as `decision.recalled`; answers go OUT as entries for rememberImportAnswers.
 import { classifyDecision } from './answerMemory.js'
+import { sameAnswer } from './learnedView.js'
 
 // Attach what the store remembered onto each decision it knows about. `recalled` is
 // { tier, source, match, answer, why, progress, autoApply, ... }; a screen may ignore it.
@@ -41,12 +42,16 @@ export function answerMemoryEntries(decisions, answers, { bulkIds = new Set() } 
   for (const d of decisions ?? []) {
     const answer = (answers ?? {})[d.id]
     if (!answer || !classifyDecision(d)) continue
-    const entry = { decision: compactDecision(d), answer, bulk: bulkIds.has(d.id) }
-    if (answer.tap === true) entry.tap = true
+    const bulk = bulkIds.has(d.id)
+    const entry = { decision: compactDecision(d), answer, bulk }
+    // An explicit tap wins over the recall it was given on; one carried by a grouped answer is not explicit.
+    if (answer.tap === true && !bulk) entry.tap = true
     if (answer.rememberNear === true) entry.rememberNear = true
-    // Only a recall the director was SHOWN counts as recalled (PR 2's UI sets `recallShown`): an
+    // An answer Shoresh applied itself is remembered for recall but is not a fresh vote for its own pattern.
+    if (d.recalled?.autoApply === true && d.recalled.source === 'pattern' && sameAnswer(answer, d.recalled.answer)) entry.autoApplied = true
+    // Only a recall the director was SHOWN counts as recalled (the UI sets `recallShown`): an
     // answer given without seeing the memory is a fresh answer, not an override or a tap-through.
-    if (d.recalled && d.recallShown === true) entry.recalled = { match: d.recalled.match, memoryId: d.recalled.memoryId }
+    if (d.recalled && d.recallShown === true && entry.tap !== true) entry.recalled = { match: d.recalled.match, memoryId: d.recalled.memoryId }
     entries.push(entry)
   }
   return entries

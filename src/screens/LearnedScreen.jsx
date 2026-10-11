@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import {
-  buildLearnedGroups, formerAnswersSentence, matchesQuery, campChanged, campShapeKey, LAST_SHOWN_SHAPE_KEY, GROUP_LABELS,
+  buildLearnedGroups, formerAnswersSentence, matchesQuery, campChanged, campShapeKey, VIEW_SHAPE_KEY, GROUP_LABELS,
 } from '../ingest/learnedView.js'
 import { Flag, LinkButton } from '../components/learned/parts.jsx'
 import Collapse from '../components/learned/Collapse.jsx'
@@ -71,7 +71,7 @@ export default function LearnedScreen({ campId }) {
     try {
       const [data, shape, local] = await Promise.all([localClient.listLearned(), currentCampShape(), deviceLocalItems(campId)])
       if (mine !== gen.current) return
-      setState({ status: 'ready', data, shape, local, lastShown: store.get(LAST_SHOWN_SHAPE_KEY) })
+      setState({ status: 'ready', data, shape, local, lastShown: store.get(VIEW_SHAPE_KEY) })
     } catch {
       if (mine === gen.current) setState({ status: 'error' })
     }
@@ -84,7 +84,7 @@ export default function LearnedScreen({ campId }) {
 
   // The shape is remembered once it has been on screen, so the flag shows once per change.
   useEffect(() => {
-    if (state.status === 'ready' && state.shape) store.set(LAST_SHOWN_SHAPE_KEY, campShapeKey(state.shape))
+    if (state.status === 'ready' && state.shape) store.set(VIEW_SHAPE_KEY, campShapeKey(state.shape))
   }, [state])
 
   useEffect(() => {

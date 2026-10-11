@@ -35,7 +35,6 @@ export const OUTCOMES = Object.freeze({
 // `express` decisions are shown but demand nothing; `standard` wants a look;
 // `hold` must be answered. Recorded as PRESENTED so the journal can later show
 // which lane a question actually arrived in, independent of how it was answered.
-
 function laneOf(decision) {
   return decision._lane ?? null
 }

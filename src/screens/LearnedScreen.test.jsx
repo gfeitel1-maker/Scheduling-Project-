@@ -9,6 +9,7 @@ const client = vi.hoisted(() => ({
 vi.mock('../localClient', () => ({ localClient: client }))
 
 import LearnedScreen from './LearnedScreen.jsx'
+import { REVIEW_SHAPE_KEY, VIEW_SHAPE_KEY } from '../ingest/learnedView.js'
 
 const ans = (over = {}) => ({
   id: 'a1', qkind: 'classify', role: 'instance', name: 'Lunch 1', verdict: 'accept', label: 'Fixed event', features: {},
@@ -248,5 +249,14 @@ describe('LearnedScreen: load failure', () => {
     client.listLearned.mockResolvedValue(learned())
     fireEvent.click(screen.getByText('Try again'))
     await screen.findByText(/Progress:/)
+  })
+})
+
+describe('LearnedScreen: camp-shape bookkeeping', () => {
+  it('visiting the view never updates the shape the import review last showed', async () => {
+    await open()
+    await waitFor(() => expect(window.localStorage.getItem(VIEW_SHAPE_KEY)).not.toBeNull())
+    expect(REVIEW_SHAPE_KEY).not.toBe(VIEW_SHAPE_KEY)
+    expect(window.localStorage.getItem(REVIEW_SHAPE_KEY)).toBeNull()
   })
 })

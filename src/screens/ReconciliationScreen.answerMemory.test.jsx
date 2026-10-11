@@ -27,6 +27,7 @@ vi.mock('../localClient', () => ({
 }))
 
 import ReconciliationScreen from './ReconciliationScreen.jsx'
+import { importSessions } from './importSessions.js'
 import { localClient } from '../localClient'
 
 const baseInputs = { approved: {}, cohort_id: null, mode: 'add' }
@@ -48,8 +49,12 @@ const suggest = { source: 'pattern', match: 'pattern', band: 'suggest', autoAppl
 const near = { source: 'instance', match: 'near', nearKind: null, autoApply: false, answer: { action: 'edited' }, memoryId: 'm-near', answeredByYou: true, answeredAt: '2026-10-12T10:00:00Z' }
 
 function recallByName(map) {
-  localClient.matchImportAnswers.mockImplementation(async ({ decisions }) => Object.fromEntries(
-    decisions.map((d) => [d.id, map[d.entityName] ? { ...map[d.entityName] } : null]),
+  localClient.matchImportAnswers.mockImplementation(async ({ decisions, suppressed = [] }) => Object.fromEntries(
+    decisions.map((d) => {
+      const r = map[d.entityName] ? { ...map[d.entityName] } : null
+      if (r && suppressed.includes(d.id)) { r.autoApply = false; r.suppressed = true }
+      return [d.id, r]
+    }),
   ))
 }
 
@@ -59,6 +64,7 @@ function mount(props = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  importSessions.clear()
   const mem = {}
   vi.stubGlobal('localStorage', { getItem: (k) => mem[k] ?? null, setItem: (k, v) => { mem[k] = v }, removeItem: (k) => { delete mem[k] } })
   localClient.list.mockResolvedValue([{ id: 'x' }])
@@ -230,15 +236,187 @@ describe('what could not be remembered is said, inline', () => {
 })
 
 describe('"Not an event, treat as an activity" through the screen', () => {
-  it('answers a fixed-event card and is remembered as the rejecting answer', async () => {
-    localClient.ingestReconcile.mockResolvedValue(reconcileResult(['Specialty 1']))
-    mount()
+  const NAME = 'Specialty 1'
+  const event = { name: NAME, time_block: '12:00-12:40', days: ['Monday'] }
+  const inputs = { approved: { activities: [NAME] }, cohort_id: null, mode: 'add', fixedEvents: [event], pinOnlyActivityNames: [NAME] }
+
+  it('imports the item as a catalogue activity and NOT as a fixed event, and remembers the answer', async () => {
+    localClient.ingestReconcile.mockResolvedValue(reconcileResult([NAME]))
+    mount({ baseInputs: inputs })
     await screen.findByText(/0 of 1 question/)
     await userEvent.click(screen.getByText('Not an event, treat as an activity'))
     await screen.findByText(/1 of 1 question/)
     await userEvent.click(screen.getByRole('button', { name: 'Use this setup' }))
+    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
+    const sent = localClient.ingestCommit.mock.calls.at(-1)[0]
+    expect(sent.approved.activities).toContain(NAME)
+    expect(sent.fixedEvents).toEqual([])
+    expect(sent.pinOnlyActivityNames).not.toContain(NAME)
     await waitFor(() => expect(localClient.rememberImportAnswers).toHaveBeenCalled())
     const entry = localClient.rememberImportAnswers.mock.calls[0][0].entries[0]
     expect(entry.answer).toMatchObject({ action: 'edited', notAnEvent: true })
+  })
+
+  it('"Don\u2019t add" still imports no activity-claim change: the event stays claimed', async () => {
+    localClient.ingestReconcile.mockResolvedValue(reconcileResult([NAME]))
+    mount({ baseInputs: inputs })
+    await screen.findByText(/0 of 1 question/)
+    await userEvent.click(screen.getByText('Don’t add'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use this setup' }))
+    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
+    expect(localClient.ingestCommit.mock.calls.at(-1)[0].pinOnlyActivityNames).toContain(NAME)
+  })
+})
+
+describe('a recall counts as recalled only by what the director could see', () => {
+  const suggestMon = { ...suggest }
+  async function commitEntries() {
+    await userEvent.click(screen.getByRole('button', { name: /Use this setup|Apply \d+ decision/ }))
+    await waitFor(() => expect(localClient.rememberImportAnswers).toHaveBeenCalledTimes(1))
+    return localClient.rememberImportAnswers.mock.calls[0][0].entries
+  }
+  const twoDays = () => ({
+    planItems: [],
+    fixedEventsReport: {
+      created: [
+        { name: 'Specialty 1', confidence: 'low', time_block: '12:00-12:40', days: ['Monday'], reason: 'r' },
+        { name: 'Specialty 1', confidence: 'low', time_block: '12:00-12:40', days: ['Tuesday'], reason: 'r' },
+      ],
+    },
+    legacyPriorityActivities: [], fieldProvenance: {}, evidenceSupport: {},
+  })
+  const byDay = (map) => localClient.matchImportAnswers.mockImplementation(async ({ decisions }) => Object.fromEntries(
+    decisions.map((d) => [d.id, map[d.days?.[0]] ? { ...map[d.days[0]] } : null]),
+  ))
+
+  it('a grouped card marks shown only the ids whose recall the representative displays', async () => {
+    localClient.ingestReconcile.mockResolvedValue(twoDays())
+    byDay({ Monday: suggestMon, Tuesday: { ...near, memoryId: 'm-hidden' } })
+    mount()
+    await screen.findByText(/0 of 2 questions/)
+    await userEvent.click(screen.getByText('Add it'))
+    const entries = await commitEntries()
+    const mon = entries.find((e) => e.decision.days[0] === 'Monday')
+    const tue = entries.find((e) => e.decision.days[0] === 'Tuesday')
+    expect(mon.recalled).toEqual({ match: 'pattern', memoryId: 'm-sug' })
+    expect(tue.recalled).toBeUndefined()
+  })
+
+  it('a card that mounts already answered with its recall invisible is not marked shown', async () => {
+    localClient.ingestReconcile.mockResolvedValue(reconcileResult(['Specialty 1']))
+    localClient.matchImportAnswers.mockResolvedValueOnce({})
+    recallByName({ 'Specialty 1': suggestMon })
+    mount()
+    await screen.findByText(/0 of 1 question/)
+    await userEvent.click(screen.getByText('Add it'))
+    await waitFor(() => expect(localClient.matchImportAnswers.mock.calls.length).toBeGreaterThan(1))
+    await screen.findByText(/1 of 1 question/)
+    await userEvent.click(await screen.findByText('1 resolved · Show all'))
+    const entries = await commitEntries()
+    expect(entries[0].recalled).toBeUndefined()
+  })
+})
+
+describe('"Remember as a pattern" on a shown suggestion', () => {
+  async function commitEntries() {
+    await userEvent.click(screen.getByRole('button', { name: /Use this setup|Apply \d+ decision/ }))
+    await waitFor(() => expect(localClient.rememberImportAnswers).toHaveBeenCalledTimes(1))
+    return localClient.rememberImportAnswers.mock.calls[0][0].entries
+  }
+
+  it('is written as an explicit answer, not as a tap-through of the recall', async () => {
+    localClient.ingestReconcile.mockResolvedValue(reconcileResult(['Specialty 3']))
+    recallByName({ 'Specialty 3': suggest })
+    mount()
+    await screen.findByText(/0 of 1 question/)
+    await userEvent.click(screen.getByText('Remember as a pattern'))
+    await userEvent.click(screen.getByText('Add it'))
+    const [entry] = await commitEntries()
+    expect(entry.tap).toBe(true)
+    expect(entry.recalled).toBeUndefined()
+    expect(entry.bulk).toBe(false)
+  })
+
+  it('a grouped card does not offer the pattern tap, since a grouped answer counts toward nothing', async () => {
+    localClient.ingestReconcile.mockResolvedValue({
+      planItems: [],
+      fixedEventsReport: { created: ['Monday', 'Tuesday'].map((d) => ({ name: 'Specialty 3', confidence: 'low', time_block: '12:00-12:40', days: [d], reason: 'r' })) },
+      legacyPriorityActivities: [], fieldProvenance: {}, evidenceSupport: {},
+    })
+    recallByName({ 'Specialty 3': suggest })
+    mount()
+    await screen.findByText(/0 of 2 questions/)
+    expect(screen.queryByText('Remember as a pattern')).toBeNull()
+    await userEvent.click(screen.getByText('Add it'))
+    const entries = await commitEntries()
+    expect(entries).toHaveLength(2)
+    for (const e of entries) {
+      expect(e.bulk).toBe(true)
+      expect(e.tap).toBeUndefined()
+    }
+  })
+})
+
+describe('auto-applied answers: visible, undoable, remount-proof, and not their own votes', () => {
+  beforeEach(() => {
+    localClient.ingestReconcile.mockResolvedValue(reconcileResult(['Specialty 1', 'Specialty 2']))
+    recallByName({ 'Specialty 1': autoPattern })
+  })
+
+  it('lists which answers were auto-applied even when it is not the first time', async () => {
+    window.localStorage.setItem('learned.autoApplySeen', '1')
+    mount()
+    await screen.findByText('Auto-applied answers (1)')
+  })
+
+  it('after Undo the card itself says it is back to unanswered', async () => {
+    mount()
+    await userEvent.click(await screen.findByText('Undo for this import'))
+    await screen.findByText(/Back to unanswered/)
+  })
+
+  it('an Undo survives the screen remounting for the same import', async () => {
+    const first = mount()
+    await userEvent.click(await screen.findByText('Undo for this import'))
+    await screen.findByText(/Auto-applied: 0/)
+    first.unmount()
+    mount()
+    await screen.findByText(/0 of 2 questions/)
+    expect(localClient.matchImportAnswers.mock.calls.at(-1)[0].suppressed).toHaveLength(1)
+    expect(screen.queryByTestId('auto-applied-line')).toBeNull()
+  })
+
+  it('an auto-applied seed is written marked, so it is not a fresh vote for its own pattern', async () => {
+    mount()
+    await screen.findByTestId('auto-applied-line')
+    await userEvent.click(screen.getByText('Add it'))
+    await userEvent.click(await screen.findByRole('button', { name: /Use this setup|Apply \d+ decision/ }))
+    await waitFor(() => expect(localClient.rememberImportAnswers).toHaveBeenCalledTimes(1))
+    const entries = localClient.rememberImportAnswers.mock.calls[0][0].entries
+    expect(entries.find((e) => e.decision.entityName === 'Specialty 1').autoApplied).toBe(true)
+    expect(entries.find((e) => e.decision.entityName === 'Specialty 2').autoApplied).toBeUndefined()
+  })
+})
+
+describe('what could not be remembered, for a viewer who cannot write', () => {
+  it('does not offer Try again when the viewer cannot write import answers', async () => {
+    localClient.listLearned.mockResolvedValue({ canWrite: false, answers: [], patterns: [] })
+    localClient.rememberImportAnswers.mockRejectedValue(new Error('forbidden'))
+    localClient.ingestReconcile.mockResolvedValue(reconcileResult(['Specialty 1']))
+    mount()
+    await screen.findByText(/0 of 1 question/)
+    await userEvent.click(screen.getByText('Add it'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use this setup' }))
+    await screen.findByText(/Couldn’t remember your answers for next time/)
+    expect(screen.queryByText('Try again')).toBeNull()
+  })
+  it('tells the director when a name was left out because it looks like a camper', async () => {
+    localClient.rememberImportAnswers.mockResolvedValue({ written: [], skipped: [{ reason: 'camper_name' }] })
+    localClient.ingestReconcile.mockResolvedValue(reconcileResult(['Specialty 1']))
+    mount()
+    await screen.findByText(/0 of 1 question/)
+    await userEvent.click(screen.getByText('Add it'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use this setup' }))
+    await screen.findByText(/1 answer couldn’t be remembered: .*camper/)
   })
 })

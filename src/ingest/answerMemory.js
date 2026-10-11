@@ -22,7 +22,7 @@ export const LEARNING_BAR = Object.freeze({
 export const QKINDS = Object.freeze(['classify', 'exclusion', 'value', 'drift_ack', 'split', 'merge', 'residue'])
 
 export const VERDICTS = Object.freeze({
-  classify: ['accept', 'reject'],
+  classify: ['accept', 'reject', 'as_activity'],
   exclusion: ['all_camp', 'as_written'],
   value: ['accept', 'keep', 'edited'],
   drift_ack: ['ack'],
@@ -198,7 +198,10 @@ export function toRecordAnswer(d, ui) {
   switch (d.kind) {
     case 'confirm_value':
       if (ui.action === 'looks_right') return { verdict: 'accept' }
-      if (ui.action === 'edited') return { verdict: d.entity === 'fixed_events' ? 'reject' : 'edited' }
+      if (ui.action === 'edited') {
+        if (d.entity !== 'fixed_events') return { verdict: 'edited' }
+        return { verdict: ui.notAnEvent === true ? 'as_activity' : 'reject' }
+      }
       return null
     case 'confirm_change':
       if (isBackedConfirmChange(d)) {
@@ -233,13 +236,14 @@ export function toUiAnswer(d, rec) {
   switch (d.kind) {
     case 'confirm_value':
       if (v === 'accept') return { action: 'looks_right' }
+      if (v === 'as_activity') return { action: 'edited', notAnEvent: true }
       if (v === 'reject' || v === 'edited') return { action: 'edited' }
       return null
     case 'confirm_change':
       if (isBackedConfirmChange(d)) return v === 'accept' ? { choice: 'accept' } : v === 'keep' ? { choice: 'keep' } : null
       return v === 'ack' ? { ack: true } : null
     case 'name_kind':
-      return v === 'accept' ? { choice: 'fixed' } : v === 'reject' ? { choice: 'activity' } : null
+      return v === 'accept' ? { choice: 'fixed' } : v === 'reject' || v === 'as_activity' ? { choice: 'activity' } : null
     case 'elective_candidate':
       return v === 'accept' ? { choice: 'confirm' } : v === 'reject' ? { choice: 'decline' } : null
     case 'all_camp_override':
@@ -260,7 +264,7 @@ export function roleFor(qkind, answer) {
   return 'instance'
 }
 
-const EXPLICIT_VERDICTS = new Set(['reject', 'as_written', 'keep', 'edited', 'decline'])
+const EXPLICIT_VERDICTS = new Set(['reject', 'as_written', 'keep', 'edited', 'decline', 'as_activity'])
 
 // An edit or a decline on a card that was NOT recalled, or a "Remember as a pattern" tap on one.
 export function isExplicit(record) {

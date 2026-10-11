@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { localClient } from '../localClient'
 import { journalEntriesFor } from '../ingest/decisionJournal.js'
 import { attachRecall, answerMemoryEntries, trackBulk } from '../ingest/answerRecall.js'
-import { seedFromRecall, skippedNotice, sameAnswer, campChanged, campShapeKey, LAST_SHOWN_SHAPE_KEY } from '../ingest/learnedView.js'
+import { seedFromRecall, skippedNotice, sameAnswer, campChanged, campShapeKey, REVIEW_SHAPE_KEY } from '../ingest/learnedView.js'
 import { Flag, FailureFlag } from '../components/learned/parts.jsx'
 import { currentCampShape } from '../components/learned/campShape.js'
+import { importSessions, importKeyOf, sessionFor } from './importSessions.js'
 import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
 import { buildReconciliationReport } from '../ingest/reconciliationReport.js'
 import { applyTrayState, commitTrayState } from './reconciliationTray'
@@ -120,7 +121,9 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   // What the camp remembered (docs/adr/2026-10-11-import-answer-memory.md 3.5). Suppression is this
   // session only: cards the director took back (Change, Forget, Undo for this import) are never
   // re-seeded when the dry run re-runs.
-  const suppressedRef = useRef(new Set())
+  const importKey = importKeyOf(baseInputs, sourceLabel)
+  const [importSession] = useState(() => sessionFor(importKey))
+  const suppressedRef = useRef(importSession.suppressed)
   const shownRef = useRef(new Set())
   // Whether this viewer can write import answers: memory controls on the cards render only then.
   // Unknown (or a failed read) hides them, never shows controls that would fail.
@@ -132,7 +135,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       .catch(() => { if (live) setCanWriteMemory(false) })
     return () => { live = false }
   }, [])
-  const [returnedIds, setReturnedIds] = useState(new Set())
+  const [returnedIds, setReturnedIds] = useState(() => new Set(importSession.returned))
   const [undoing, setUndoing] = useState(false)
   const [undoneNote, setUndoneNote] = useState(false)
   const [answerNotice, setAnswerNotice] = useState(null)
@@ -345,7 +348,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       await rememberAnswers(answerMemoryEntries(decisions, answersForApply, { bulkIds: bulkIdsRef.current }), crypto.randomUUID())
       try {
         window.localStorage.setItem(AUTO_APPLY_SEEN_KEY, '1')
-        if (campShape) window.localStorage.setItem(LAST_SHOWN_SHAPE_KEY, JSON.stringify(campShapeKey(campShape)))
+        if (campShape) window.localStorage.setItem(REVIEW_SHAPE_KEY, JSON.stringify(campShapeKey(campShape)))
       } catch { /* per-viewer viewing state only */ }
       // Undo eligibility is structural, not a recomputed conditional
       // (Invariant 3: commitPlan throws on captureInverse && mode ===
@@ -362,6 +365,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       // the screen still looked like triage, letting a second click issue a
       // second ingestCommit that silently overwrites the first commit's
       // grace window (Invariant 5b).
+      importSessions.delete(importKey)
       await onCommitted?.(outcome)
     } catch (err) {
       setError(mapCommitError(err))
@@ -397,8 +401,13 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       const text = skippedNotice(result?.skipped)
       if (text) setAnswerNotice({ text })
     } catch {
-      setAnswerNotice({ text: 'Couldn’t remember your answers for next time.', retry: () => rememberAnswers(entries, importId) })
+      setAnswerNotice({ text: 'Couldn’t remember your answers for next time.', retry: canWriteMemory ? () => rememberAnswers(entries, importId) : undefined })
     }
+  }
+
+  function discard() {
+    importSessions.delete(importKey)
+    onDiscard?.()
   }
 
   async function forgetRecalled(decision) {
@@ -412,6 +421,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       suppressedRef.current.add(id)
       delete next[id]
     }
+    for (const id of autoIds) importSession.returned.add(id)
     setReturnedIds((prev) => new Set([...prev, ...autoIds]))
     setAnswers(next)
     setUndoneNote(true)
@@ -472,7 +482,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
     return (
       <div style={{ ...S.importFrame }}>
         <div style={styles.errorBanner}>{error}</div>
-        {onDiscard && <button className="press-97" onClick={onDiscard} style={S.btnSecondary}>Back</button>}
+        {onDiscard && <button className="press-97" onClick={discard} style={S.btnSecondary}>Back</button>}
       </div>
     )
   }
@@ -490,26 +500,32 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   const decisionsById = new Map([...lanes.hold, ...lanes.standard].map((d) => [d.id, d]))
 
   // What the camp remembered, as the review sees it (docs/work/specs/2026-10-11-what-shoresh-has-learned-view.md 4.3).
-  const lastShownShape = readStore(LAST_SHOWN_SHAPE_KEY)
+  const lastShownShape = readStore(REVIEW_SHAPE_KEY)
   const campChangedFor = (d) => campChanged(d.recalled?.campShape, campShape, lastShownShape)
   const stillRecalled = (d) => answers[d.id] !== undefined && sameAnswer(answers[d.id], d.recalled?.answer)
-  const allDecisions = [...lanes.hold, ...lanes.standard]
+  const allDecisions = [...lanes.hold, ...lanes.standard, ...lanes.express]
   const rememberedDecisions = allDecisions.filter((d) => d.recalled?.autoApply && d.recalled.source === 'instance' && d.recalled.match === 'exact')
-  const autoAppliedDecisions = allDecisions.filter((d) => d.recalled?.autoApply && d.recalled.source === 'pattern')
+  const autoAppliedDecisions = allDecisions.filter((d) => d.recalled?.autoApply && d.recalled.source === 'pattern' && stillRecalled(d))
   const recall = {
     rememberedDecisions,
     rememberedCount: rememberedDecisions.filter(stillRecalled).length,
     needLookCount: rememberedDecisions.filter((d) => stillRecalled(d) && campChangedFor(d)).length,
     autoAppliedDecisions,
-    autoCount: phase === 'committed' ? 0 : autoAppliedDecisions.filter(stillRecalled).length,
+    autoCount: phase === 'committed' ? 0 : autoAppliedDecisions.length,
     firstEver: readStore(AUTO_APPLY_SEEN_KEY) == null,
     undoing,
     undoneNote,
-    onUndoAuto: () => undoAutoApplied(autoAppliedDecisions.filter(stillRecalled).map((d) => d.id)),
+    onUndoAuto: () => undoAutoApplied(autoAppliedDecisions.map((d) => d.id)),
   }
   // The card reports a recall as shown once it renders one; only then does the answer count as recalled.
   const cardProps = (d, ids) => ({
-    onRecallShown: () => { for (const id of ids) shownRef.current.add(id) },
+    onRecallShown: () => {
+      // A grouped card shows the representative's recall only, so only the ids that share it were shown it.
+      for (const id of ids) {
+        const m = allDecisions.find((x) => x.id === id)
+        if (id === d.id || (m?.recalled?.memoryId === d.recalled?.memoryId && sameAnswer(m?.recalled?.answer, d.recalled?.answer))) shownRef.current.add(id)
+      }
+    },
     onForgetRecall: forgetRecalled,
     returned: returnedIds.has(d.id),
     campChangedFlag: campChangedFor(d),
@@ -667,7 +683,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
         <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tray.hint}</div>
         <div style={{ display: 'flex', gap: 10 }}>
           {onDiscard && (
-            <button className="press-97" disabled={applying} onClick={onDiscard} style={S.btnSecondary}>Cancel</button>
+            <button className="press-97" disabled={applying} onClick={discard} style={S.btnSecondary}>Cancel</button>
           )}
           <button
             className="press-97"

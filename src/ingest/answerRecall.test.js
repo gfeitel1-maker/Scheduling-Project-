@@ -80,3 +80,26 @@ describe('trackBulk', () => {
     expect(bulk.has('d')).toBe(false)
   })
 })
+
+describe('answerMemoryEntries: taps and auto-applied seeds', () => {
+  const shown = (name, recalled) => ({ ...fixed(name), recalled, recallShown: true })
+  const rec = { match: 'pattern', memoryId: 'm', source: 'pattern', answer: { action: 'looks_right' } }
+
+  it('an explicit tap on a shown recall is handed over as a tap, not as a tap-through', () => {
+    const [e] = answerMemoryEntries([shown('A', rec)], { 'fe:A': { action: 'looks_right', tap: true } })
+    expect(e.tap).toBe(true)
+    expect(e.recalled).toBeUndefined()
+  })
+  it('a tap carried by a grouped answer is dropped', () => {
+    const [e] = answerMemoryEntries([shown('A', rec)], { 'fe:A': { action: 'looks_right', tap: true } }, { bulkIds: new Set(['fe:A']) })
+    expect(e.tap).toBeUndefined()
+    expect(e.bulk).toBe(true)
+  })
+  it('an answer Shoresh applied itself is marked autoApplied; a changed one is not', () => {
+    const auto = { ...rec, autoApply: true }
+    const [kept] = answerMemoryEntries([shown('A', auto)], { 'fe:A': { action: 'looks_right' } })
+    const [changed] = answerMemoryEntries([shown('A', auto)], { 'fe:A': { action: 'edited' } })
+    expect(kept.autoApplied).toBe(true)
+    expect(changed.autoApplied).toBeUndefined()
+  })
+})

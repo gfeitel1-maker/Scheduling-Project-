@@ -239,7 +239,7 @@ export default function RootMapPanel({
               ))}
             </div>
           )}
-          {recall.firstEver && recall.autoCount > 0 && recall.autoAppliedDecisions.length > 0 && (
+          {recall.autoAppliedDecisions.length > 0 && (
             <div style={styles.rememberedGroup}>
               <div style={styles.domainGroupHeading}>{`Auto-applied answers (${recall.autoAppliedDecisions.length})`}</div>
               {recall.autoAppliedDecisions.map((d) => (

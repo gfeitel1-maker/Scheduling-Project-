@@ -528,14 +528,12 @@ export function DecisionCard({
   const [forgetError, setForgetError] = useState(null)
   const [tapLocal, setTapLocal] = useState(false)
   const [nearLocal, setNearLocal] = useState(false)
-  // A recall counts as recalled only once the director could see it (decision.recallShown).
-  useEffect(() => { if (hasRecall) onRecallShown?.() }, [hasRecall, onRecallShown])
-
   const qkind = classifyDecision(decision)
   const eligible = isAutoApplyEligible(decision, { verdict: 'accept' })
   // Memory-writing controls render only for someone who can write import answers (no dead controls).
   const offerNear = canWriteMemory && hasRecall && !r.autoApply && r.match === 'near'
-  const offerPattern = canWriteMemory && hasRecall && !r.autoApply && r.match !== 'exact' && r.nearKind !== 'name_key' && (qkind === 'classify' || qkind === 'exclusion')
+  // A grouped card answers several decisions at once, and a tap carried by that counts toward nothing.
+  const offerPattern = canWriteMemory && repeatCount === 1 && hasRecall && !r.autoApply && r.match !== 'exact' && r.nearKind !== 'name_key' && (qkind === 'classify' || qkind === 'exclusion')
   const tapOn = Boolean(answer?.tap) || tapLocal
   const nearOn = Boolean(answer?.rememberNear) || nearLocal
 
@@ -578,11 +576,15 @@ export function DecisionCard({
     }
   }
 
-  const showStrip = hasRecall && (r.autoApply ? (applied || unanswered) : r.source === 'instance')
+  const backToUnanswered = returned && unanswered
+  const showStrip = hasRecall && (r.autoApply ? (applied || unanswered) : (r.source === 'instance' || backToUnanswered))
+  // A recall counts as recalled only once the director could see it: the strip or the suggestion.
+  const recallVisible = showStrip || suggestion
+  useEffect(() => { if (recallVisible) onRecallShown?.() }, [recallVisible, onRecallShown])
   const stripText = !showStrip ? null
+    : backToUnanswered ? 'Back to unanswered for this import.'
     : (r.autoApply && unanswered)
-      ? (note === 'forgotten' ? 'Forgotten. Shoresh will ask this every time from now on.'
-        : returned ? 'Back to unanswered for this import.' : "You're changing a remembered answer")
+      ? (note === 'forgotten' ? 'Forgotten. Shoresh will ask this every time from now on.' : "You're changing a remembered answer")
       : r.source === 'pattern' ? suggestedReason(r, { eligible: true }) : memoryStripText(r)
 
   const rememberOptions = (offerPattern || offerNear) && (

@@ -196,6 +196,7 @@ export function liveRecords(db, campId, { permissions = PERMISSIONS } = {}) {
     vetoes: alive.filter((r) => r.kind === VETO_KIND && !isMarker(r)).sort(order),
     markers: alive.filter(isMarker),
     retired: kept.filter(isDead),
+    forgotten: kept.filter((r) => !isMarker(r) && forgotten.has(r.coverId)),
     diagnostics,
   }
 }
@@ -421,8 +422,10 @@ function planEntry(entry, ctx) {
     : toRecordAnswer(decision, entry.answer)
   if (answer && other && !validateAnswer(sig.qkind, answer)) return { skip: 'unanswered' }
   if (!answer) return { skip: 'unanswered' }
-  if (entry.recalled) answer.recalled = true
-  else if (entry.tap === true) answer.tap = true
+  // An explicit tap or "Remember this" on a shown recall wins over the recalled flag; a tap carried
+  // by a bulk answer is not explicit.
+  if (entry.tap === true && entry.bulk !== true) answer.tap = true
+  else if (entry.recalled && entry.rememberNear !== true) answer.recalled = true
   let role = roleFor(sig.qkind, answer)
   if (!role) return { skip: 'state_derived' }
   if (sig.parts.some((p) => camperNames.has(p))) return { skip: 'camper_name' }
@@ -442,7 +445,7 @@ function planEntry(entry, ctx) {
   return {
     insert: {
       qkind: sig.qkind, role, key, baseline: sig.baseline, refs: sig.refs, features: sig.features, answer, importId: entryImport,
-      supersedes, overrode: entry.recalled && !evidenceOnly ? supersedes : [], bulk: entry.bulk === true,
+      supersedes, overrode: entry.recalled && !evidenceOnly ? supersedes : [], bulk: entry.bulk === true || entry.autoApplied === true,
     },
   }
 }
@@ -469,15 +472,20 @@ export function rememberImportAnswers(db, { campId, authorUserId, deviceId, impo
   return { written, skipped }
 }
 
-function findAnswer(db, campId, memoryId) {
+// Only Change may find a retired record, and only one a Forget marker retired, and only while the
+// question has no live answer: the view's Undo writes it back, a stale id never touches a newer head.
+function findAnswer(db, campId, memoryId, { allowForgotten = false } = {}) {
   const state = liveRecords(db, campId)
-  // A just-forgotten answer is still findable, so the view's Undo can write it back through Change.
-  const found = state.answers.find((a) => a.id === memoryId) ?? state.retired.find((a) => a.id === memoryId && a.kind === ANSWER_KIND)
+  let found = state.answers.find((a) => a.id === memoryId)
+  if (!found && allowForgotten) {
+    const gone = state.forgotten.find((a) => a.id === memoryId && a.kind === ANSWER_KIND)
+    if (gone && !state.answers.some((a) => a.keyHash === gone.keyHash && a.qkind === gone.qkind)) found = gone
+  }
   return { state, found }
 }
 
 export function changeAnswer(db, { campId, authorUserId, deviceId, memoryId, verdict, now = () => new Date() } = {}) {
-  const { state, found } = findAnswer(db, campId, memoryId)
+  const { state, found } = findAnswer(db, campId, memoryId, { allowForgotten: true })
   if (!found) return { ok: false, error: 'NOT_FOUND' }
   if (!VERDICTS[found.qkind].includes(verdict)) return { ok: false, error: 'BAD_VERDICT' }
   const heads = state.answers.filter((a) => a.keyHash === found.keyHash && a.qkind === found.qkind)
@@ -517,12 +525,13 @@ export function keepAnswer(db, { campId, authorUserId, deviceId, memoryId, now =
   const { state, found } = findAnswer(db, campId, memoryId)
   if (!found) return { ok: false, error: 'NOT_FOUND' }
   if (found.qualifies) return { ok: true, unchanged: true, id: found.id }
+  const heads = state.answers.filter((a) => a.keyHash === found.keyHash && a.qkind === found.qkind)
   let res = null
   runAtomic(db, () => {
     res = insertAnswer(db, state, {
       campId, authorUserId, deviceId, confirmedAt: now().toISOString(), qkind: found.qkind, role: found.role,
       key: { parts: found.parts, keyHash: found.keyHash }, baseline: found.baseline, refs: found.refs, features: found.features,
-      shape: found.camp_shape, answer: found.answer, importId: found.import_id, supersedes: [found.id], overrode: [], bulk: found.bulk,
+      shape: found.camp_shape, answer: found.answer, importId: found.import_id, supersedes: heads.map((h) => h.id), overrode: [], bulk: found.bulk,
     })
   })
   return res.id ? { ok: true, id: res.id } : { ok: false, error: res.error === 'too_large' ? 'TOO_LARGE' : 'UNWRITABLE' }
