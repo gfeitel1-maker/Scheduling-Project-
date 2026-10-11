@@ -21,7 +21,6 @@ function importRules(text) {
   const parsed = parseTextGrid(text)
   const proposal = extractEntities(parsed)
   const { spans } = inferTextSpans({ pages: parsed.pages }, proposal)
-  // `spans` is passed as an F5 caller did; inferActivityRules must not turn it into span_blocks.
   const rules = inferActivityRules(
     proposal.entities.activities, proposal.activityPages, proposal.seenCounts,
     proposal.entities.days_of_operation.length, proposal.entities.groups, [], spans,
@@ -45,34 +44,30 @@ const BLANK = [
 ].join('\n\n')
 
 describe('F5 text-grid spans are one session of N blocks', () => {
-  it('r6 repro: a 2-block name printed once a week is detected as a 2-block span', () => {
+  it('r6 repro: a 2-block name printed once a week is span_blocks 2, min_per_week 1', () => {
     const text = readFileSync('docs/work/specs/samples/synthetic/repro/r6-partial-day-trip.txt', 'utf8')
-    const { spans, placements } = importRules(text)
-    expect(spans.get('museum trip')?.span_blocks).toBe(2)
+    const { rules, placements } = importRules(text)
+    const rule = rules.get('Museum Trip')
+    expect(rule.span_blocks).toBe(2)
+    expect(rule.min_per_week).toBe(1)
     expect(placements.filter((p) => p.activityName === 'Museum Trip')).toHaveLength(2)
   })
 
-  // The engine has no placement precedence or repair for spans yet
-  // (buildSchedule.js repair is single-block only), so a span_blocks rule left
-  // some synthetic camps' spans with ZERO placements on Generate. Until that
-  // engine change is made, the detected span is not written into the rule: the
-  // activity keeps its per-block count and is placed as singles, as before F5.
-  it('repeat: a detected span is withheld from the rule (no span_blocks, per-block count)', () => {
-    const { rules, placements, spans } = importRules(REPEAT)
-    expect(spans.get('ropes course')?.span_blocks).toBe(2)
+  it('repeat: name printed in both blocks, twice a week -> span 2, 2 sessions', () => {
+    const { rules, placements } = importRules(REPEAT)
     const rule = rules.get('Ropes Course')
-    expect(rule.span_blocks).toBeUndefined()
-    expect(rule.min_per_week).toBe(4)
+    expect(rule.span_blocks).toBe(2)
+    expect(rule.min_per_week).toBe(2)
     expect(placements.filter((p) => p.activityName === 'Ropes Course')).toHaveLength(4)
     // ordinary single-block activities are untouched
     expect(rules.get('Swim').span_blocks).toBeUndefined()
   })
 
-  it('blank: name printed once, next block blank -> span 2, all 4 cells captured', () => {
-    expect(BLANK).not.toBe(REPEAT)
-    const { rules, placements, spans } = importRules(BLANK)
-    expect(spans.get('ropes course')?.span_blocks).toBe(2)
-    expect(rules.get('Ropes Course').span_blocks).toBeUndefined()
+  it('blank: name printed once, next block blank -> span 2, 2 sessions, all 4 cells captured', () => {
+    const { rules, placements } = importRules(BLANK)
+    const rule = rules.get('Ropes Course')
+    expect(rule.span_blocks).toBe(2)
+    expect(rule.min_per_week).toBe(2)
     const ropes = placements.filter((p) => p.activityName === 'Ropes Course' && p.groupName === 'Otters 1')
     expect(ropes.map((p) => `${p.dayName} ${p.blockLabel}`).sort()).toEqual(
       ['Monday 09:00-09:45', 'Monday 10:00-10:45', 'Wednesday 09:00-09:45', 'Wednesday 10:00-10:45'].sort(),
