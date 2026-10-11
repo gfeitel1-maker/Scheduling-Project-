@@ -2,7 +2,7 @@
 ticket: T341
 document_type: ticket
 title: "Refine licensing + About (owner's personal content + user-agreement polish)"
-status: open
+status: in-progress
 created: 2026-10-03
 archive_when: "the owner's personal About content is in the About & Legal surface, and the user-agreement polish decisions (voice, accept-gate vs view-only, camper-data line, any legal review) are made and reflected"
 task_class: ui-ux-design
@@ -46,3 +46,13 @@ how-to/user guide** — i.e. the end of the owner's current plan. Do not pick it
   already complete and shipped; this ticket does not revisit the license choice unless the owner
   reopens it.
 - No schema, sync, or auth change (an accept-gate's remembered state stays device-local).
+
+## Decided 2026-10-11 (keeper, delegated owner authority)
+
+- Voice: first person singular ("I"). Shipped in `src/screens/AboutScreen.jsx`.
+- Accept-gate: none; the agreement stays view-only.
+- Camper-data responsibility line: kept as drafted.
+- Legal review: none before v1.
+- Version: the About screen and the sidebar footer both read it from `package.json` through `src/appVersion.js`.
+
+Still open: the owner's personal About paragraph, in his own words. The placeholder stays until he sends it.

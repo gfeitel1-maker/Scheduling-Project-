@@ -1,3 +1,4 @@
+import { APP_VERSION } from '../../appVersion'
 import { useState, useCallback, useRef, useEffect, forwardRef } from 'react'
 
 import RestoreControl from './RestoreControl'
@@ -504,7 +505,7 @@ export default function Sidebar({
             color: current === 'about' ? 'var(--text)' : 'var(--text-secondary)',
           }}
         >
-          About &amp; Legal · v0.1.0
+          About &amp; Legal · v{APP_VERSION}
         </button>
       </div>
     </aside>
