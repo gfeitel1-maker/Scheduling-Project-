@@ -52,7 +52,10 @@ const MISSING_TEXT = { another_import: 'needs one more import', explicit: 'needs
 
 export function progressLine(progress, { disagree = 0 } = {}) {
   const needed = progress.needed ?? 3
-  const count = `${progress.agreeing} of ${needed} answers`
+  // Past the bar, "4 of 3" reads as a mistake: say how many there are and how many were needed.
+  const count = progress.agreeing > needed
+    ? `${progress.agreeing} answers (${needed} needed)`
+    : `${progress.agreeing} of ${needed} answers`
   if (progress.neverAutoApply) return `${count} agree - once established it pre-selects the answer, and you still confirm.`
   if (progress.band === 'ask' && disagree > 0) {
     return `Your latest answer disagrees - ${SUGGEST_AGAIN_ANSWERS} more agreeing answers to suggest again`

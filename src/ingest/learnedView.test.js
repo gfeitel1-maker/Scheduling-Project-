@@ -213,3 +213,15 @@ describe('review-card state helpers', () => {
     expect(skippedNotice([{ reason: 'malformed' }])).toBe('1 answer couldn’t be remembered: they couldn’t be read.')
   })
 })
+
+describe('progressLine past the bar', () => {
+  it('says "4 answers (3 needed)", never "4 of 3"', () => {
+    const line = progressLine({ agreeing: 4, needed: 3, band: 'established', missing: [] })
+    expect(line).toContain('4 answers (3 needed)')
+    expect(line).not.toContain('4 of 3')
+  })
+  it('keeps "2 of 3 answers" below the bar', () => {
+    expect(progressLine({ agreeing: 2, needed: 3, band: 'suggest', missing: [] })).toContain('2 of 3 answers')
+  })
+})
+
