@@ -22,6 +22,7 @@ import SetupScreenShell, { SETUP_MAX_WIDTH } from '../components/setup/SetupScre
 import DuplicateNameDot from '../components/setup/DuplicateNameDot'
 import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 import { copyCampTimeBlocks } from './specialDay/copyCampTimeBlocks'
+import RecurringOfferLine from './specialDay/RecurringOfferLine'
 import { seedFailureMessage } from './specialDay/seedFailureMessage'
 
 const repository = createSetupCrudRepository({ localClient })
@@ -238,6 +239,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
   const duplicateEventSiblings = useMemo(() => duplicateSiblingsByIdFor(events), [events])
   const [seedPromptForId, setSeedPromptForId] = useState(null)
   const [toast, setToast] = useState(null)
+  const [offer, setOffer] = useState(null)
 
   const [selected, setSelected] = useState(initialFocus)
   const [supportData, setSupportData] = useState({ locations: [] })
@@ -331,7 +333,9 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
 
   async function seedFromCampTimeBlocks(specialDayId) {
     try {
-      await copyCampTimeBlocks({ campId, specialDayId })
+      const { offer: found, cellFailure } = await copyCampTimeBlocks({ campId, specialDayId })
+      setOffer(found)
+      if (cellFailure) setError(cellFailure)
       setToast(LABELS.createdHint(days.find((d) => d.id === specialDayId)?.name ?? 'Special Day'))
     } catch (err) {
       setError(describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)))
@@ -496,6 +500,18 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
             </tbody>
           </table>
         </div>
+      )}
+
+      {offer && (
+        <RecurringOfferLine
+          offer={offer}
+          onBring={async () => {
+            const current = offer
+            setOffer(null)
+            try { await current.apply() } catch (err) { setError(describeWriteFailure(err, 'Could not bring the recurring events.')) }
+          }}
+          onSkip={() => setOffer(null)}
+        />
       )}
 
       {seedPromptForId && days.some((d) => d.id === seedPromptForId) && (

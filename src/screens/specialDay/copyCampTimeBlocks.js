@@ -1,6 +1,7 @@
 import { localClient } from '../../localClient'
 import { resolveFixedEventGroupIds } from '../../engine/fixedEventScope'
 import { parseIdList } from '../../utils/normalizeActivityEligibility'
+import { cellFailureMessage } from './seedFailureMessage'
 
 async function writeField(entity, id, field, value) {
   const token = localStorage.getItem('shoresh-token')
@@ -65,7 +66,9 @@ async function writeCells(specialDayId, cells, taken) {
 // schedule. Sequential writes, not a transaction: on a failure the thrown error
 // carries how many blocks landed so the caller can say so (seedFailureMessage).
 //
-// Returns { carriedCount, placed, offer }: `offer` is null or
+// Returns { carriedCount, placed, offer, cellFailure }: cellFailure is a message when the
+// blocks copied but the fixed-event cells did not (it does not throw: the blocks are in).
+// `offer`: `offer` is null or
 // { count, dayLabel, apply } where apply() places the offered recurring events.
 export async function copyCampTimeBlocks({ campId, specialDayId, withFixedEvents = true }) {
   let seededCount = 0
@@ -104,7 +107,14 @@ export async function copyCampTimeBlocks({ campId, specialDayId, withFixedEvents
     const { carry, offered } = splitFixedEvents(fixedEvents, placedDayId)
 
     const taken = new Set()
-    const carriedCount = await writeCells(specialDayId, cellsFor(carry, groups, scoped, blockIdMap), taken)
+    let carriedCount = 0
+    let cellFailure = null
+    try {
+      carriedCount = await writeCells(specialDayId, cellsFor(carry, groups, scoped, blockIdMap), taken)
+    } catch (cellErr) {
+      console.error('special day copy: fixed-event cells failed', cellErr)
+      cellFailure = cellFailureMessage(carry.map((ev) => ev.name))
+    }
 
     let offer = null
     if (offered.length) {
@@ -115,7 +125,7 @@ export async function copyCampTimeBlocks({ campId, specialDayId, withFixedEvents
         apply: () => writeCells(specialDayId, cellsFor(offered, groups, scoped, blockIdMap), taken),
       }
     }
-    return { carriedCount, placed: placedDayId != null, offer }
+    return { carriedCount, placed: placedDayId != null, offer, cellFailure }
   } catch (err) {
     err.seededCount = seededCount
     err.totalCount = totalCount

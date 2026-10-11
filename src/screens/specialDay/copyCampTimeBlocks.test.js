@@ -74,4 +74,14 @@ describe('copyCampTimeBlocks fixed events', () => {
     const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
     expect(r.offer).toBeNull()
   })
+
+  it('reports a cell write failure specifically and logs it; the blocks stay copied', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    rows.fixed_events.push({ id: 'f9', camp_id: CAMP, kind: 'fixed', name: 'Lunch', day_id: null, time_block_id: 'b2', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a-l', span_blocks: 1 })
+    localClient.write.mockImplementation(async (_t, entity) => (entity === 'special_day_slots' ? { status: 'rejected' } : { status: 'applied' }))
+    const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+    expect(r.cellFailure).toBe("Blocks copied; couldn't add Carpool and Lunch — add them by hand or try again")
+    expect(log).toHaveBeenCalled()
+    log.mockRestore()
+  })
 })

@@ -21,6 +21,7 @@ import { blockNamesForSpan } from '../../components/schedule/cellLabel'
 import SpecialDayCell from './SpecialDayCell'
 import SpecialDayPlacements from './SpecialDayPlacements'
 import FailureLine from './FailureLine'
+import RecurringOfferLine from './RecurringOfferLine'
 import { copyCampTimeBlocks } from './copyCampTimeBlocks'
 import { seedFailureMessage } from './seedFailureMessage'
 import GridEditorFrame from '../../components/schedule/GridEditorFrame'
@@ -34,8 +35,6 @@ const LABELS = {
   locationPlaceholder: '— No location —',
   locationAddHint: '+ location',
   notPlacedNote: 'Brought your every-day events. Put this special day on a weekday to bring that day\u2019s other events.',
-  bring: 'Bring',
-  skip: 'Skip',
   deletedElsewhere: 'This special day was deleted.',
 }
 
@@ -199,8 +198,9 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
 
   async function copyBlocks() {
     try {
-      const { carriedCount, placed, offer: found } = await copyCampTimeBlocks({ campId, specialDayId })
+      const { carriedCount, placed, offer: found, cellFailure } = await copyCampTimeBlocks({ campId, specialDayId })
       setOffer(found)
+      if (cellFailure) setError(cellFailure)
       setCopyNote(carriedCount > 0 && !placed ? LABELS.notPlacedNote : null)
     } catch (err) {
       setError(describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)))
@@ -359,14 +359,8 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
       banners={(
         <>
           {error && <FailureLine message={error} />}
-          {offer && (
-            <div style={styles.offer}>
-              <span>{`Also bring ${offer.count} recurring event${offer.count === 1 ? '' : 's'} from ${offer.dayLabel}?`}</span>
-              <button type="button" className="press-97" onClick={bringOffered} style={styles.offerBtn}>{LABELS.bring}</button>
-              <button type="button" className="press-97" onClick={() => setOffer(null)} style={styles.offerBtn}>{LABELS.skip}</button>
-            </div>
-          )}
-          {copyNote && <div style={styles.offer}>{copyNote}</div>}
+          {offer && <RecurringOfferLine offer={offer} onBring={bringOffered} onSkip={() => setOffer(null)} />}
+          {copyNote && <div style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px' }}>{copyNote}</div>}
         </>
       )}
       toolbarActions={<button className="press-97" onClick={addBlock} style={S.btnSecondary}>{LABELS.addBlock}</button>}
@@ -438,12 +432,4 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
       <div ref={notesPrintRef} className="notes-print-view" style={{ display: 'none' }} />
     </GridEditorFrame>
   )
-}
-
-const styles = {
-  offer: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px' },
-  offerBtn: {
-    background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-    color: 'var(--primary)', fontSize: 13, fontFamily: 'inherit', textDecoration: 'underline',
-  },
 }
