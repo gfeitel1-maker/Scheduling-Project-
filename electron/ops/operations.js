@@ -752,6 +752,13 @@ export function detectUniqueFieldCollision(db, op) {
 // chosen, the resolution write's parent_op_id is always set to the losing
 // existingOp's id — see main.js's resolveConflict). Lazily marks matching
 // rows resolved_at as it goes, so repeated calls are cheap.
+// A document-derived row (conflictStore.recordConflicts) stores only
+// { value, op_id, source? } per side; the renderer keys and labels a card by
+// the op's entity/field/id, which the whole-op rows of the old op log carried.
+function withRowIdentity(row, side) {
+  return { entity: row.entity, entity_id: row.entity_id, field: row.field, id: side.op_id, ...side }
+}
+
 export function listPendingConflicts(db) {
   const rows = db.prepare('SELECT * FROM conflicts WHERE resolved_at IS NULL ORDER BY created_at ASC').all()
   const pending = []
@@ -786,8 +793,8 @@ export function listPendingConflicts(db) {
     }
     pending.push({
       type: 'op_conflict',
-      incomingOp: JSON.parse(row.incoming_op),
-      existingOp: JSON.parse(row.existing_op),
+      incomingOp: withRowIdentity(row, JSON.parse(row.incoming_op)),
+      existingOp: withRowIdentity(row, JSON.parse(row.existing_op)),
     })
   }
   return pending

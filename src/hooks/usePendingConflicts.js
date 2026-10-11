@@ -21,7 +21,9 @@ function sanitizeSide(op) {
     timestamp: op.timestamp ?? null,
   }
   if (isPinField(op.entity, op.field)) return base
-  return { ...base, value: op.value }
+  const side = { ...base, value: op.value }
+  if (op.source !== undefined) side.source = op.source
+  return side
 }
 
 function conflictKey(entity, entity_id, field, existingOpId) {
@@ -98,6 +100,7 @@ export function usePendingConflicts() {
   const [conflicts, setConflicts] = useState([])
   const [users, setUsers] = useState([])
   const [deviceId, setDeviceId] = useState(null)
+  const [activities, setActivities] = useState([])
   const [loading, setLoading] = useState(true)
   // Task 10 round-4 Fix 1: conflictId -> { side, queued } for a
   // resolved-but-not-yet-dismissed conflict. This state — and the dismiss
@@ -126,6 +129,13 @@ export function usePendingConflicts() {
       .finally(() => {
         if (mountedRef.current) setLoading(false)
       })
+
+    localClient
+      .list('activities')
+      .then((list) => {
+        if (mountedRef.current) setActivities(list || [])
+      })
+      .catch(() => {})
 
     // Rehydration (Fix 3): the live onOpConflict broadcast below only ever
     // fires for conflicts that occur WHILE this hook is mounted. Without
@@ -274,11 +284,16 @@ export function usePendingConflicts() {
     return 'Unknown'
   }
 
+  function resolveActivityName(id) {
+    return activities.find((a) => a.id === id)?.name ?? 'An activity no longer in the camp'
+  }
+
   return {
     conflicts,
     loading,
     resolveConflict,
     resolveAuthorLabel,
+    resolveActivityName,
     // conflictId -> { side, queued } for a resolved-but-not-yet-dismissed
     // conflict — see the Fix 1 comment above resolveConflict.
     resolvedMeta,

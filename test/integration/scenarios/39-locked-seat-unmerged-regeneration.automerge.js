@@ -31,6 +31,8 @@ import { commitElectiveRun } from '../../../electron/ops/commitElectiveRun.js'
 import { setElectiveAssignment } from '../../../electron/ops/setElectiveAssignment.js'
 import { getElectiveRun } from '../../../electron/ops/getElectiveRun.js'
 import { deriveElectiveAssignmentId } from '../../../electron/ops/electiveDerivedIds.js'
+import { listPendingConflicts } from '../../../electron/ops/operations.js'
+import { activitySideText } from '../../../src/screens/conflictSideCopy.js'
 import { electiveGenerationVisibleFragment } from '../../../electron/ops/electiveGenerationPredicate.js'
 
 const RUN = 'run-1'
@@ -184,6 +186,18 @@ async function pass({ lockWins }) {
 
     if (merged.source !== 'solver' || merged.activity_id !== Q || merged.is_locked !== 1) {
       throw new Error(`${tag} could not force the solver to win every key: ${JSON.stringify(merged)}`)
+    }
+
+    // (b2) the activity card reads names with the lock and the solver marked,
+    // never a raw id.
+    for (const [label, d] of devices) {
+      const card = listPendingConflicts(d.db).find((m) => m.existingOp?.entity === 'elective_assignments'
+        && m.existingOp.entity_id === SEAT && m.existingOp.field === 'activity_id')
+      const nameOf = (id) => d.db.prepare('SELECT name FROM activities WHERE id = ?').get(id)?.name
+      const texts = card ? [card.incomingOp, card.existingOp].map((side) => activitySideText(side, nameOf)).sort() : []
+      if (texts.join('|') !== 'Archery (the lock)|Gaga (the solver)' || texts.some((t) => t.includes('act-'))) {
+        throw new Error(`${tag} ${label}: the activity card does not read as names: ${JSON.stringify(texts)}`)
+      }
     }
 
     // (a) exactly one item, naming the camper, the locked activity and the solver's.

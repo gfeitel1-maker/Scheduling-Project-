@@ -8,6 +8,7 @@ vi.mock('../localClient', () => {
   return {
     localClient: {
       listUsers: vi.fn().mockResolvedValue([]),
+      list: vi.fn().mockResolvedValue([]),
       getDeviceId: vi.fn().mockResolvedValue('device-self'),
       listPendingConflicts: vi.fn().mockResolvedValue([]),
       onOpApplied: vi.fn((cb) => { listeners.opApplied.push(cb); return () => {} }),

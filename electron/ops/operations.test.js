@@ -775,6 +775,20 @@ function insertOpConflictRow(db, { incomingOp, existingOp }) {
 }
 
 describe('listPendingConflicts (Task 10 round 3, Fix 3: conflict rehydration)', () => {
+  it('(T264) a document-derived row carries entity, field and op id on both sides, plus the side mark', () => {
+    db.prepare(
+      `INSERT INTO conflicts (id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at)
+       VALUES ('crdt:elective_assignments:seat-1:activity_id', 'elective_assignments', 'seat-1', 'activity_id', ?, ?, 'op-b', ?)`
+    ).run(
+      JSON.stringify({ value: 'act-gaga', op_id: 'op-a', source: 'solver' }),
+      JSON.stringify({ value: 'act-archery', op_id: 'op-b', source: 'manual' }),
+      new Date().toISOString()
+    )
+    const [msg] = listPendingConflicts(db)
+    expect(msg.existingOp).toMatchObject({ entity: 'elective_assignments', entity_id: 'seat-1', field: 'activity_id', id: 'op-b', source: 'manual' })
+    expect(msg.incomingOp).toMatchObject({ entity: 'elective_assignments', entity_id: 'seat-1', field: 'activity_id', id: 'op-a', source: 'solver' })
+  })
+
   it('(a) a conflict that arose before "restart" and was never resolved IS present in the rehydrated list', () => {
     const parentOp = appendOp(db, {
       entity: 'template_slots',

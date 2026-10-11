@@ -54,6 +54,7 @@ function TestHarness({ resolveConflict, conflict }) {
     resolveConflict: wrappedResolve,
     dismissResolvedConflict,
     resolveAuthorLabel: () => 'Someone',
+    resolveActivityName: (id) => ({ 'act-archery': 'Archery', 'act-gaga': 'Gaga' })[id],
     resolvedMeta,
   }
   return <ConflictsScreen pendingConflicts={pendingConflicts} />
@@ -75,6 +76,22 @@ describe('elective_assignments.activity_id card (T264)', () => {
     })
     expect(screen.getByText('Which elective a camper is placed in')).toBeTruthy()
     expect(screen.queryByText('A change to this record')).toBeNull()
+  })
+
+  it('reads activity names with the lock and the solver marked, never raw ids', () => {
+    renderScreen({
+      conflict: makeConflict({
+        id: 'elective_assignments:easgn1:5.r.c.o:activity_id:op2',
+        entity: 'elective_assignments',
+        entity_id: 'easgn1:5.r.c.o',
+        field: 'activity_id',
+        sideA: { op_id: 'op1', value: 'act-archery', source: 'manual', timestamp: '2026-07-20T00:00:00.000Z' },
+        sideB: { op_id: 'op2', value: 'act-gaga', source: 'solver', timestamp: '2026-07-20T00:01:00.000Z' },
+      }),
+    })
+    expect(screen.getByText('Archery (the lock)')).toBeTruthy()
+    expect(screen.getByText('Gaga (the solver)')).toBeTruthy()
+    expect(screen.queryByText(/act-/)).toBeNull()
   })
 })
 
