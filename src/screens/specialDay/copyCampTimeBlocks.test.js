@@ -171,6 +171,15 @@ describe('copyCampTimeBlocks write safety', () => {
     log.mockRestore()
   })
 
+  it('logs a cleanup-delete failure with context', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    failWhen = (entity, _id, field) => entity === 'special_day_slots' && field === 'activity_id'
+    localClient.deleteEntity.mockRejectedValue(new Error('boom'))
+    await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+    expect(log.mock.calls.some((c) => String(c[0]).includes('cleanup'))).toBe(true)
+    log.mockRestore()
+  })
+
   it('apply() refuses when the special day was deleted meanwhile', async () => {
     place()
     const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })

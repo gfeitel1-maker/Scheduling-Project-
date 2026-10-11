@@ -71,6 +71,8 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
   const [offer, setOffer] = useState(null)
   const [copyNote, setCopyNote] = useState(null)
   const [notPlaced, setNotPlaced] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const [notesDraft, setNotesDraft] = useState('')
@@ -198,7 +200,18 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
     }
   }
 
-  async function copyBlocks() {
+  // A double-click would start a second copy/Bring that reads the same still-empty cells
+  // and writes them again; the ref blocks it synchronously, `busy` disables the buttons.
+  async function exclusive(fn) {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    try { await fn() } finally { busyRef.current = false; setBusy(false) }
+  }
+
+  const copyBlocks = () => exclusive(copyBlocksOnce)
+
+  async function copyBlocksOnce() {
     try {
       const { carriedCount, placed, offer: found, cellFailure, notice } = await copyCampTimeBlocks({ campId, specialDayId })
       setOffer(found)
@@ -211,7 +224,9 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
     await load()
   }
 
-  async function bringOffered() {
+  const bringOffered = () => exclusive(bringOfferedOnce)
+
+  async function bringOfferedOnce() {
     try {
       const result = await offer.apply()
       if (result.failure) setError(result.failure)
@@ -363,7 +378,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
       banners={(
         <>
           {error && <FailureLine message={error} />}
-          {offer?.specialDayId === specialDayId && <RecurringOfferLine offer={offer} onBring={bringOffered} onSkip={() => setOffer(null)} />}
+          {offer?.specialDayId === specialDayId && <RecurringOfferLine offer={offer} busy={busy} onBring={bringOffered} onSkip={() => setOffer(null)} />}
           {notPlaced && <div style={noteStyle}>{LABELS.notPlacedNote}</div>}
           {copyNote && <div style={noteStyle}>{copyNote}</div>}
         </>
@@ -376,7 +391,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
       empty={timeBlocks.length === 0 ? (
         <div style={S.emptyState}>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-            <button className="press-97" onClick={copyBlocks} style={S.btnPrimary}>{LABELS.copyBlocks}</button>
+            <button className="press-97" onClick={copyBlocks} disabled={busy} style={S.btnPrimary}>{LABELS.copyBlocks}</button>
             <button className="press-97" onClick={addBlock} style={S.btnSecondary}>{LABELS.addBlock}</button>
           </div>
         </div>

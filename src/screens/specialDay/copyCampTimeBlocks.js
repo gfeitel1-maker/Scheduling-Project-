@@ -64,7 +64,11 @@ async function writeCell(specialDayId, cell, existing) {
     if (cell.locationId) await writeField('special_day_slots', id, 'location_id', cell.locationId)
   } catch (err) {
     if (!existing) {
-      try { await localClient.deleteEntity?.(localStorage.getItem('shoresh-token'), 'special_day_slots', id) } catch { /* best effort */ }
+      try {
+        await localClient.deleteEntity(localStorage.getItem('shoresh-token'), 'special_day_slots', id)
+      } catch (cleanupErr) {
+        console.error('special day copy: cleanup of a half-written slot failed', id, cleanupErr)
+      }
     }
     throw err
   }
@@ -77,6 +81,8 @@ async function writeCell(specialDayId, cell, existing) {
 async function placeCells(specialDayId, cells) {
   const [slotRows, activityRows] = await Promise.all([localClient.list('special_day_slots'), localClient.list('activities')])
   const activityName = new Map((activityRows || []).map((a) => [a.id, a.name]))
+  // Filling an existing empty row in place below assumes there is no director "empty this cell"
+  // action that leaves a row with a null activity on purpose.
   const slots = new Map(
     (slotRows || []).filter((s) => s.special_day_id === specialDayId).map((s) => [`${s.group_id}|${s.time_block_id}`, s])
   )
