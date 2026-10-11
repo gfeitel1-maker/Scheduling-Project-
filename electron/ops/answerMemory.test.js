@@ -171,6 +171,20 @@ describe('Tier 0: exact and near recall', () => {
   })
 })
 
+describe('name_kind (#889): fixed time or schedulable activity', () => {
+  const nameKind = (name) => ({ id: `name_kind:${name}`, kind: 'name_kind', entity: 'activities', entityName: name, candidateEvents: [{ time_block: '02:25-03:15', days: ['Tuesday', 'Thursday'] }] })
+  it('is remembered and recalled exactly, in the card\'s own answer vocabulary', () => {
+    remember([one(nameKind('Swim'), { choice: 'activity' })])
+    expect(matchOne(nameKind('Swim'))).toMatchObject({ match: 'exact', answer: { choice: 'activity' } })
+  })
+  it('a strong pattern pre-selects but never auto-applies (not on the allow-list)', () => {
+    remember([one(nameKind('Block 1'), { choice: 'fixed' }, { tap: true })], { importId: 'a' })
+    remember([one(nameKind('Block 2'), { choice: 'fixed' })], { importId: 'a' })
+    remember([one(nameKind('Block 3'), { choice: 'fixed' })], { importId: 'b' })
+    expect(matchOne(nameKind('Block 4'))).toMatchObject({ source: 'pattern', band: 'established', autoApply: false, answer: { choice: 'fixed' } })
+  })
+})
+
 describe('Change, Forget, Remember this', () => {
   it('A -> B -> A: distinct ids, no self reference, one live head, recall is A', () => {
     const d = fixed('Lunch 1')

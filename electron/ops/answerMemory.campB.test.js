@@ -21,18 +21,34 @@ afterAll(() => cleanupTemplatedDbs())
 const CAMP = 'camp-1'
 const campB = fs.readFileSync(path.join(process.cwd(), 'docs/work/specs/samples/campB-by-day.txt'), 'utf8')
 
-// What a director is asked about campB, built the way the review screen builds it.
-function campBDecisions() {
+// What a director is asked about campB, built the way the review screen builds it. Since main's
+// #889/#903 the questions are few: a meal is kept whether answered or not, and a probable all-camp
+// override of a name that is itself a pinned event is folded into that event's one question. So
+// campB now asks about three events (All Camp Activity, Ruach, Shabbat) and nothing else.
+function campBParts() {
   const parsed = parseTextGrid(campB)
   const proposal = extractEntities(parsed)
   const { placements } = capturePlacements(parsed, proposal)
   const findings = detectAllCampOverrides(placements, proposal.entities.groups)
-  const { fixedEvents } = inferFixedEvents(parsed, proposal, {})
+  const { fixedEvents, ambiguousEvents } = inferFixedEvents(parsed, proposal, {})
+  return { findings, fixedEvents, ambiguousEvents }
+}
+
+function campBDecisions() {
+  const { findings, fixedEvents, ambiguousEvents } = campBParts()
   const report = buildReconciliationReport({
-    planItems: [], readiness: [], allCampOverrides: findings,
+    planItems: [], readiness: [], allCampOverrides: findings, ambiguousEvents,
     fixedEventsReport: { created: fixedEvents.map((f) => ({ name: f.name, confidence: f.confidence, time_block: f.time_block, days: f.days })) },
   })
   return report.decisions
+}
+
+// campB's own all-camp findings as questions, for the exclusion variants. The review no longer asks
+// them for campB (their names are pinned events), but the same findings are what a camp that does not
+// pin the name is asked, so they are the honest source of an exclusion decision here.
+function campBExclusionDecisions() {
+  const { findings } = campBParts()
+  return buildReconciliationReport({ planItems: [], readiness: [], allCampOverrides: findings }).decisions.filter((d) => d.kind === 'all_camp_override')
 }
 
 // Answers a thoughtful director might give: a mix of accepting and rejecting.
@@ -65,7 +81,8 @@ const recall = (decisions) => matchImportAnswers(db, { campId: CAMP, decisions }
 describe('predicate 1: answer campB, re-import it, zero repeat questions', () => {
   it('asks N questions on the first import, and remembers every one', () => {
     const decisions = campBDecisions()
-    expect(decisions.length).toBeGreaterThanOrEqual(20)
+    expect(decisions.length).toBeGreaterThanOrEqual(3)
+    expect(decisions.every((d) => d.entity === 'fixed_events')).toBe(true)
     const first = recall(decisions)
     expect(Object.values(first).filter((r) => r?.autoApply)).toHaveLength(0)
     const w = answerAll(decisions)
@@ -120,7 +137,9 @@ describe('predicate 2: a variant file asks only what is genuinely new', () => {
     const variant = { ...fixed, days: fixed.days.map((x) => (x === 'Thursday' ? 'Thurs' : x)), timeBlock: fixed.timeBlock.replace(/^0/, '') }
     expect(recall([variant])[fixed.id]).toMatchObject({ match: 'exact', autoApply: true })
 
-    const ex = decisions.find((d) => d.kind === 'all_camp_override')
+    const [ex] = campBExclusionDecisions()
+    expect(ex.kind).toBe('all_camp_override')
+    answerAll([ex])
     const moreAttending = { ...ex, evidence: { ...ex.evidence, attendingCount: ex.evidence.attendingCount + 1 } }
     expect(recall([moreAttending])[ex.id]).toMatchObject({ match: 'near', autoApply: false })
     const newGroup = { ...ex, evidence: { ...ex.evidence, missingGroups: [...ex.evidence.missingGroups, 'Brand New Group'] } }

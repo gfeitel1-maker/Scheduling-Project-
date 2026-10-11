@@ -108,6 +108,7 @@ const fmtDate = (iso) => {
 export function answerLabel(features, verdict) {
   const cls = features?.proposedClass
   if (features?.dk === 'all_camp_override') return verdict === 'all_camp' ? 'All camp' : 'Leave as written'
+  if (cls === 'name_kind') return verdict === 'accept' ? 'A fixed time' : 'An activity Generate can schedule'
   if (cls === 'fixed_event') return verdict === 'accept' ? 'Fixed event' : 'Not a fixed event'
   if (cls === 'elective_set') return verdict === 'accept' ? 'Elective set' : 'Not electives'
   return verdict

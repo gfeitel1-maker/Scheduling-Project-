@@ -103,12 +103,18 @@ export function classifyDecision(d) {
     case 'confirm_value': return d.entity === 'fixed_events' ? 'classify' : 'value'
     case 'confirm_change': return isBackedConfirmChange(d) ? 'value' : 'drift_ack'
     case 'elective_candidate': return 'classify'
+    case 'name_kind': return 'classify'
     case 'all_camp_override': return 'exclusion'
     case 'resolve_unknown_label':
     case 'resolve_packed_cell': return 'residue'
     default: return null
   }
 }
+
+// name_kind (#889) asks "fixed time, or an activity Generate can schedule?" about a name that
+// recurs; the days and times live on its candidate events rather than on the decision.
+const candidateDays = (d) => [...new Set((d.candidateEvents ?? []).flatMap((e) => e.days ?? []))]
+const candidateBlock = (d) => d.candidateEvents?.[0]?.time_block
 
 function dayShapeOf(d) {
   const basis = d.evidence?.basis
@@ -121,20 +127,21 @@ function dayShapeOf(d) {
 function proposedClassOf(d, qkind) {
   if (qkind === 'exclusion') return 'all_camp'
   if (d.kind === 'elective_candidate') return 'elective_set'
+  if (d.kind === 'name_kind') return 'name_kind'
   return d.entity === 'fixed_events' ? 'fixed_event' : String(d.entity ?? '')
 }
 
 export function featuresOf(d, qkind = classifyDecision(d)) {
   const name = d.entityName ?? ''
   const isEx = qkind === 'exclusion'
-  const block = isEx ? d.evidence?.block : d.timeBlock
+  const block = isEx ? d.evidence?.block : d.kind === 'name_kind' ? candidateBlock(d) : d.timeBlock
   return {
     dk: d.kind,
     entity: d.entity ?? null,
     proposedClass: proposedClassOf(d, qkind),
     stem: stemOf(name),
     isMeal: isMealName(name),
-    dayShape: isEx ? 'single' : dayShapeOf(d),
+    dayShape: isEx ? 'single' : dayShapeOf(d.kind === 'name_kind' ? { ...d, days: candidateDays(d) } : d),
     scopeShape: d.evidence?.scope === 'subset' ? 'subset' : 'all',
     blockLenClass: blockLenClass(block),
     excludedSet: isEx ? nameSet(d.evidence?.missingGroups) : null,
@@ -150,7 +157,9 @@ export function signatureOf(d) {
   if (qkind === 'classify') {
     parts = d.kind === 'elective_candidate'
       ? [name, 'elective_set']
-      : [name, 'fixed_event', daySet(d.days), blockKey(d.timeBlock), nameSet(d.groupScope)]
+      : d.kind === 'name_kind'
+        ? [name, 'name_kind', daySet(candidateDays(d)), nameSet((d.candidateEvents ?? []).map((e) => blockKey(e.time_block))), nameSet(d.excludedGroups)]
+        : [name, 'fixed_event', daySet(d.days), blockKey(d.timeBlock), nameSet(d.groupScope)]
     baseline = { loc: d.locationId ?? null, groups: d.groupCount ?? null }
   } else if (qkind === 'exclusion') {
     const ev = d.evidence ?? {}
@@ -198,6 +207,11 @@ export function toRecordAnswer(d, ui) {
         return null
       }
       return ui.ack === true ? { verdict: 'ack' } : null
+    case 'name_kind':
+      // "It is a fixed time" accepts the proposal that it is an event; "an activity" rejects it.
+      if (ui.choice === 'fixed') return { verdict: 'accept' }
+      if (ui.choice === 'activity') return { verdict: 'reject' }
+      return null
     case 'elective_candidate':
       if (ui.choice === 'confirm') return { verdict: 'accept' }
       if (ui.choice === 'decline') return { verdict: 'reject' }
@@ -224,6 +238,8 @@ export function toUiAnswer(d, rec) {
     case 'confirm_change':
       if (isBackedConfirmChange(d)) return v === 'accept' ? { choice: 'accept' } : v === 'keep' ? { choice: 'keep' } : null
       return v === 'ack' ? { ack: true } : null
+    case 'name_kind':
+      return v === 'accept' ? { choice: 'fixed' } : v === 'reject' ? { choice: 'activity' } : null
     case 'elective_candidate':
       return v === 'accept' ? { choice: 'confirm' } : v === 'reject' ? { choice: 'decline' } : null
     case 'all_camp_override':

@@ -140,3 +140,31 @@ describe('baseline per qkind (a mismatch downgrades exact to near)', () => {
     expect(sig(fixed())).not.toBe(sig(fixed({ days: ['Monday'] })))
   })
 })
+
+describe('name_kind: is a recurring name a fixed time or a schedulable activity (#889)', () => {
+  const nameKind = (over = {}) => ({
+    id: 'name_kind:swim', kind: 'name_kind', entity: 'activities', entityId: null, entityName: 'Swim',
+    candidateEvents: [{ time_block: '02:25-03:15', days: ['Tuesday', 'Thursday'] }], ...over,
+  })
+  it('is a classification answer: remembered as classify, never on NOT_REMEMBERED', () => {
+    expect(NOT_REMEMBERED.has('name_kind')).toBe(false)
+    expect(classifyDecision(nameKind())).toBe('classify')
+    const s = signatureOf(nameKind())
+    expect(s.qkind).toBe('classify')
+    expect(s.features).toMatchObject({ dk: 'name_kind', proposedClass: 'name_kind', dayShape: 'weekly', blockLenClass: 'standard' })
+  })
+  it('keys on the name, days and times, and on who is excluded', () => {
+    const key = (d) => JSON.stringify(signatureOf(d).parts)
+    expect(key(nameKind())).toBe(key(nameKind({ candidateEvents: [{ time_block: '2:25-3:15 PM', days: ['Thurs', 'Tuesday'] }] })))
+    expect(key(nameKind())).not.toBe(key(nameKind({ candidateEvents: [{ time_block: '02:25-03:15', days: ['Tuesday'] }] })))
+    expect(key(nameKind())).not.toBe(key(nameKind({ excludedGroups: ['CIT'] })))
+  })
+  it('maps fixed/activity answers both ways, and never auto-applies (not on the allow-list)', () => {
+    const d = nameKind()
+    expect(toRecordAnswer(d, { choice: 'fixed' })).toEqual({ verdict: 'accept' })
+    expect(toRecordAnswer(d, { choice: 'activity' })).toEqual({ verdict: 'reject' })
+    expect(toUiAnswer(d, { verdict: 'accept' })).toEqual({ choice: 'fixed' })
+    expect(toUiAnswer(d, { verdict: 'reject' })).toEqual({ choice: 'activity' })
+    expect(isAutoApplyEligible(d, { verdict: 'accept' })).toBe(false)
+  })
+})
