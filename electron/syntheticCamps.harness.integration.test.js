@@ -744,6 +744,8 @@ async function runCamp(m) {
     // for an activity the first import kept (one it held back is created, unconfirmed, by the re-import).
     const keptByFirst = new Set(all.d.prepare('SELECT name FROM activities WHERE camp_id = ?').all(all.id).map((r) => normalizeName(r.name)))
     const again = safe(() => importFile(all.d, all.id, text, { mode: 'add' }))
+    // Positive control: the first import did flag something, so an empty list after Keep is earned.
+    rec.confirmAllFlaggedFirst = (a.value.report.unknownFields?.priority?.length ?? 0) + (a.value.report.unknownFields?.min_per_week?.length ?? 0)
     rec.confirmAllUnknownAfterKeep = again.ok
       ? Object.fromEntries(Object.entries(again.value.report.unknownFields).map(([f, names]) => [f, names.filter((n) => keptByFirst.has(normalizeName(n)))]))
       : { error: again.error }
@@ -941,6 +943,7 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
     })
     hard('accepting the unknown-field flags leaves nothing flagged on a Keep re-import', (r) => {
       expect(r.confirmAllUnknownAfterKeep).toEqual({ priority: [], min_per_week: [] })
+      expect(r.confirmAllFlaggedFirst).toBeGreaterThan(0)
     })
     hard(KEEP_ASKS_NOTHING, (r) => {
       expect(r.keepAfterReplace).toEqual({ ok: true, questionsAsked: [], createQuestionsForExisting: [], newRecords: {} })

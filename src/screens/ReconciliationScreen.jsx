@@ -212,6 +212,8 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
           decisions: [...heldDecisions, ...carryOver],
           buckets: prior?.buckets ?? { understood: 0, needsAttention: heldDecisions.length, notInSource: 0, changed: 0 },
           readiness: prior?.readiness ?? [],
+          // The flags (and any accept on them) still apply to a held run; keep them on screen.
+          unknownFields: prior?.unknownFields,
         }
         if (requestGenRef.current !== myGen) return
         setReport(merged)
@@ -318,6 +320,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
           decisions: [...heldDecisions, ...(prev?.decisions ?? []).filter((d) => d.kind !== 'resolve_conflict')],
           buckets: prev?.buckets ?? { understood: 0, needsAttention: heldDecisions.length, notInSource: 0, changed: 0 },
           readiness: prev?.readiness ?? [],
+          unknownFields: prev?.unknownFields,
         }))
         setApplying(false)
         return
@@ -728,7 +731,11 @@ function UnknownFieldFlags({ unknownFields, answers, onAnswer, onNavigate }) {
     <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
       {rows.map((row) => {
         const key = `unknown_fields:${row.field}`
-        const accepted = answers?.[key]?.choice === 'accept'
+        // Accepted only while it covers every activity flagged NOW: a re-run that adds one shows the
+        // flag again rather than claiming "kept" for an activity the click never confirmed.
+        const answer = answers?.[key]
+        const acceptedNames = new Set(answer?.choice === 'accept' ? answer.names ?? [] : [])
+        const accepted = row.names.every((n) => acceptedNames.has(n))
         return (
           <div key={row.field}>
             <Flag tone="caution">{accepted ? row.done : row.text}</Flag>

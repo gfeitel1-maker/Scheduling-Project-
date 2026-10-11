@@ -158,6 +158,24 @@ describe('unknown field dismissal', () => {
   })
 })
 
+describe('an accepted flag never claims more than was accepted', () => {
+  it('a new unknown activity after the re-run shows the flag again, not "kept for 3"', async () => {
+    const withUnknowns = (ids) => ({
+      planItems: ids.map(([id, name]) => ({ op: 'unchanged', entity: 'activities', entity_id: id, _name: name, fields: {}, evidence: { tier: 'exact_name' } })),
+      fixedEventsReport: {}, legacyPriorityActivities: [], fieldProvenance: {}, evidenceSupport: {},
+      unknownFieldEvidence: Object.fromEntries(ids.map(([id]) => [`${id}:priority`, true])),
+    })
+    localClient.ingestReconcile
+      .mockResolvedValueOnce(withUnknowns([['a1', 'Swim'], ['a2', 'Art']]))
+      .mockResolvedValue(withUnknowns([['a1', 'Swim'], ['a2', 'Art'], ['a3', 'Drama']]))
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/doesn.t say how important 2 activities are/)
+    await userEvent.click(screen.getByRole('button', { name: 'Low is fine' }))
+    await screen.findByText(/doesn.t say how important 3 activities are/)
+    expect(screen.queryByText(/Low priority kept for 3/)).toBeNull()
+  })
+})
+
 describe('an accepted flag is committed through the normal exit', () => {
   it('"Low is fine" then the main button, with a question still open, sends one confirm resolution per activity', async () => {
     localClient.ingestReconcile.mockResolvedValue({
