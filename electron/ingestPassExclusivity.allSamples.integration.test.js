@@ -26,7 +26,8 @@ import { foldTriageInputs } from '../src/screens/reconciliationTriage.js'
 
 const DIR = path.join(process.cwd(), 'docs/work/specs/samples')
 // Only the text grids are schedule files; the .csv samples are preference sheets.
-const SAMPLES = fs.readdirSync(DIR).filter((f) => f.endsWith('.txt'))
+// r8: a weekly all-camp name that one group also runs at that block on another day (F9, strict OQ3).
+const SAMPLES = [...fs.readdirSync(DIR).filter((f) => f.endsWith('.txt')), 'synthetic/repro/r8-weekly-event-shares-name-with-activity.txt']
 
 let db, tmpFile, campId, cohortId
 const deviceId = 'device-1'

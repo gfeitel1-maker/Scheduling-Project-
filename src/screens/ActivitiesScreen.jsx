@@ -50,7 +50,7 @@ function normalizeActivity(row) {
     same_tier_only: row.same_tier_only === 1 || row.same_tier_only === true,
     max_groups_per_slot: row.max_groups_per_slot ?? 1,
     min_per_week: row.min_per_week ?? 0,
-    max_per_week: row.max_per_week ?? 5,
+    max_per_week: row.max_per_week ?? null,
     span_blocks: row.span_blocks ?? 1,
     priority: row.priority || 'low',
     eligible_tier_ids: parseIdList(row.eligible_tier_ids),
@@ -270,7 +270,7 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
   const [isOutdoor, setIsOutdoor] = useState(activity?.is_outdoor || false)
   const [maxGroups, setMaxGroups] = useState(activity?.max_groups_per_slot ?? 1)
   const [minWeek, setMinWeek] = useState(activity?.min_per_week ?? 0)
-  const [maxWeek, setMaxWeek] = useState(activity?.max_per_week ?? 5)
+  const [maxWeek, setMaxWeek] = useState(activity ? (activity.max_per_week ?? '') : 5)
   const [sameTier, setSameTier] = useState(activity?.same_tier_only || false)
   const [priority, setPriority] = useState(activity?.priority || 'low')
   const [eligTiers, setEligTiers] = useState(activity?.eligible_tier_ids || [])
@@ -303,7 +303,7 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
     const resolvedLocationId = locationId && locations.some(l => l.id === locationId) ? locationId : null
     const record = {
       name: name.trim(), location_id: resolvedLocationId, is_outdoor: isOutdoor,
-      max_groups_per_slot: Number(maxGroups), min_per_week: Number(minWeek), max_per_week: Number(maxWeek), span_blocks: Number(spanBlocks),
+      max_groups_per_slot: Number(maxGroups), min_per_week: Number(minWeek), max_per_week: maxWeek === '' ? null : Number(maxWeek), span_blocks: Number(spanBlocks),
       same_tier_only: sameTier, priority,
       eligible_tier_ids: eligTiers, eligible_group_ids: groupOverride ? eligGroups : [],
       prefer_before_day: preferDay ? Number(preferDayVal) : null,
@@ -376,7 +376,12 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
             <CapacityStepper value={minWeek} onChange={setMinWeek} min={0} ariaLabel="Minimum per week" />
           </Field>
           <Field label="Max per week">
-            <CapacityStepper value={maxWeek} onChange={setMaxWeek} min={0} ariaLabel="Maximum per week" />
+            <input
+              type="text" inputMode="numeric" placeholder="No cap" aria-label="Maximum per week"
+              value={maxWeek}
+              onChange={e => { if (/^\d*$/.test(e.target.value)) setMaxWeek(e.target.value) }}
+              style={{ ...S.input, width: 90 }}
+            />
           </Field>
           <Field label="Blocks per session">
             <CapacityStepper value={spanBlocks} onChange={setSpanBlocks} min={1} ariaLabel="Blocks per session" />
@@ -1314,7 +1319,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                         <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
                           {a.max_groups_per_slot > 1 ? `Up to ${a.max_groups_per_slot}${a.same_tier_only ? ' (same age division)' : ''}` : '—'}
                         </td>
-                        <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{a.min_per_week}–{a.max_per_week}</td>
+                        <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{a.min_per_week}–{a.max_per_week ?? 'no cap'}</td>
                         <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{a.weather_alternative_id ? actMap[a.weather_alternative_id] || '—' : '—'}</td>
                         {weekId && (
                           <td style={{ ...S.td, textAlign: 'center' }}>
