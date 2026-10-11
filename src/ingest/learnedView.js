@@ -19,7 +19,7 @@ const OTHER_GROUP = { key: 'other', label: 'Other' }
 export const GROUP_LABELS = [...GROUPS, OTHER_GROUP].map((g) => ({ key: g.key, label: g.label }))
 
 const VERDICT_TEXT = {
-  value: { accept: 'Used the file’s value', keep: 'Kept the current value', edited: 'Edited by hand' },
+  value: { accept: 'Used the file’s value', keep: 'Kept the current value', edited: 'Kept yours, or didn’t add it' },
   drift_ack: { ack: 'Acknowledged the change' },
   split: { accept: 'Split into two', decline: 'Kept as one' },
   merge: { accept: 'Merged', decline: 'Kept separate' },
@@ -31,7 +31,7 @@ const VERDICT_TEXT = {
 export const CHANGE_CHOICES = {
   classify: [['accept', 'Fixed event'], ['reject', 'Not a fixed event']],
   exclusion: [['all_camp', 'All camp'], ['as_written', 'Leave as written']],
-  value: [['accept', 'Used the file’s value'], ['keep', 'Kept the current value'], ['edited', 'Edited by hand']],
+  value: [['accept', 'Used the file’s value'], ['keep', 'Kept the current value'], ['edited', 'Kept yours, or didn’t add it']],
   drift_ack: [['ack', 'Acknowledged the change']],
   split: [['accept', 'Split into two'], ['decline', 'Kept as one']],
   merge: [['accept', 'Merged'], ['decline', 'Kept separate']],

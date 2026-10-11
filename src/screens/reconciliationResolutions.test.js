@@ -82,17 +82,6 @@ describe('applyResolutions — (b) resolved decisions apply through the commit p
     expect(resolutions).toEqual([])
   })
 
-  it('an edited confirm_value keeps its name in approved (the edited value ships via the side-channel edit, not a resolution)', () => {
-    const decision = confirmValueDecision()
-    const { approved, resolutions } = applyResolutions({
-      approved: { activities: ['Archery'] },
-      decisions: [decision],
-      answers: { [decision.id]: { action: 'edited', value: 6 } },
-    })
-    expect(approved.activities).toContain('Archery')
-    expect(resolutions).toEqual([])
-  })
-
   it('an "Overwrite" confirm_change emits {reason:"stale", field, choice:"accept"} for every field', () => {
     const decision = confirmChangeDecision({ field: ['max_per_week', 'min_per_week'] })
     const { resolutions } = applyResolutions({
@@ -451,9 +440,38 @@ describe('a declined confirm_value ("Don’t add" / "Keep mine") is absent from 
     expect(out.approved.activities).toEqual(['Swim'])
   })
 
-  it('"Keep mine" on a changed-value card holds the row back instead of writing the file’s value', () => {
-    const d = confirmValueDecision()
+  it('"Keep mine" on a changed-value card blocks only that card\u2019s fields: the row stays approved and each kept field is kept', () => {
+    const d = confirmValueDecision({ field: ['max_per_week', 'priority'] })
     const out = applyResolutions({ approved: { activities: ['Archery'] }, decisions: [d], answers: { [d.id]: { action: 'edited' } } })
-    expect(out.approved.activities).toEqual([])
+    expect(out.approved.activities).toEqual(['Archery'])
+    expect(out.resolutions).toEqual([
+      { entity: 'activities', name: 'Archery', field: 'max_per_week', reason: 'stale', choice: 'keep' },
+      { entity: 'activities', name: 'Archery', field: 'priority', reason: 'stale', choice: 'keep' },
+    ])
+  })
+
+  it('a kept card does not touch another row\u2019s accepted change', () => {
+    const kept = confirmValueDecision({ field: ['max_per_week'] })
+    const taken = confirmValueDecision({ id: 'activities:act-9', entityId: 'act-9', entityName: 'Swim', field: ['min_per_week'] })
+    const out = applyResolutions({
+      approved: { activities: ['Archery', 'Swim'] }, decisions: [kept, taken],
+      answers: { [kept.id]: { action: 'edited' }, [taken.id]: { action: 'looks_right' } },
+    })
+    expect(out.approved.activities).toEqual(['Archery', 'Swim'])
+    expect(out.resolutions.map((r) => r.name)).toEqual(['Archery'])
+  })
+
+  it('Keep mine on a fixed-event card drops that event too', () => {
+    const d = { ...feDecision(), field: ['time_block'] }
+    const out = applyResolutions({ approved: {}, decisions: [d], answers: { [d.id]: { action: 'edited' } }, fixedEvents: [fe], pinOnlyActivityNames: [] })
+    expect(out.fixedEvents).toEqual([])
+    expect(out.resolutions).toEqual([])
+  })
+
+  it('an unknown-field card is exempt: "edited" changes nothing, and the card offers no decline button', () => {
+    const d = confirmValueDecision({ field: 'max_per_week', unknownField: true, unknowns: ['max_per_week'] })
+    const out = applyResolutions({ approved: { activities: ['Archery'] }, decisions: [d], answers: { [d.id]: { action: 'edited' } } })
+    expect(out.approved.activities).toEqual(['Archery'])
+    expect(out.resolutions).toEqual([])
   })
 })

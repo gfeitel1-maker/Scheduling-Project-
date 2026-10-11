@@ -322,4 +322,31 @@ describe('ImportScreen — two-rows split suggestion (Slice 2b)', () => {
     await waitFor(() => expect(localClient.recordDeclinedSplit).toHaveBeenCalledWith('Ceramics'))
     expect(screen.queryByText('Also a flexible activity — split into two?')).toBeNull()
   })
+
+  it('a declined split is not split at commit', async () => {
+    await uploadFile()
+    await userEvent.click(screen.getByText('Also a flexible activity \u2014 split into two?'))
+    await userEvent.click(await screen.findByText('Not now'))
+    await waitFor(() => expect(localClient.recordDeclinedSplit).toHaveBeenCalledWith('Ceramics'))
+    await goToCommit()
+    await new Promise((r) => setTimeout(r, 50))
+    expect(emitTwoRowSplitMock).not.toHaveBeenCalled()
+    expect(localClient.write).not.toHaveBeenCalled()
+  })
+
+  it('cancelling the collision three-way declines the split: recorded, and nothing applied at commit', async () => {
+    const collidingRow = { id: 'act-existing-rec', name: 'Ceramics (rec)', camp_id: 'camp-1', recurrence_truth_status: null }
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'activities') return Promise.resolve([EXISTING_CERAMICS, collidingRow])
+      return Promise.resolve(READY_ENTITIES.has(entity) ? [{ id: `${entity}-1` }] : [])
+    })
+    await uploadFile()
+    await userEvent.click(screen.getByText('Also a flexible activity \u2014 split into two?'))
+    await userEvent.click(await screen.findByText('Leave "Ceramics" as one activity.'))
+    await waitFor(() => expect(localClient.recordDeclinedSplit).toHaveBeenCalledWith('Ceramics'))
+    await goToCommit()
+    await new Promise((r) => setTimeout(r, 50))
+    expect(emitTwoRowSplitMock).not.toHaveBeenCalled()
+    expect(localClient.write).not.toHaveBeenCalled()
+  })
 })

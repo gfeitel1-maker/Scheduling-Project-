@@ -1983,6 +1983,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // out of this import, the same "chosen, not silent" posture as
         // location's choice 3, without a remembered-decision write.
         if (['validation', 'eligibility_unresolved', 'unit_unresolved'].includes(res?.reason) && res.choice === 'skip') continue
+        // "Keep mine": the same field-level stale/keep a confirm_change emits drops this field's delta even when
+        // the field is not protected, so the row's other accepted changes still land.
+        if (res?.reason === 'stale' && res.choice === 'keep') continue
         // S4b §4 (RISK C): the ACTIVE base_generation staleness gate. For a
         // workbook (base_generation > 0), a field written AFTER the workbook was
         // exported (its op seq > base_generation) is stale — held — EVEN when the

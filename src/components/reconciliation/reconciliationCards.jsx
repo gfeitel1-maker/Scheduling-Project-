@@ -311,7 +311,7 @@ function ResolutionControls({ decision, onAnswer, locations, suggested = null })
       <div style={{ marginTop: 10 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="press-97" onClick={() => onAnswer({ action: 'looks_right' })} style={{ ...cardStyles.btnCompactPrimary, ...dash({ action: 'looks_right' }) }}>{isChange ? 'Use the file’s' : 'Add it'}</button>
-          <button className="press-97" onClick={() => onAnswer({ action: 'edited' })} style={{ ...cardStyles.btnCompactSecondary, ...dash({ action: 'edited' }) }}>{isChange ? 'Keep mine' : 'Don’t add'}</button>
+          {!decision.unknownField && <button className="press-97" onClick={() => onAnswer({ action: 'edited' })} style={{ ...cardStyles.btnCompactSecondary, ...dash({ action: 'edited' }) }}>{isChange ? 'Keep mine' : 'Don’t add'}</button>}
           {classifies && (
             <button className="press-97" onClick={() => onAnswer({ action: 'edited', notAnEvent: true })} style={cardStyles.linkButton}>Not an event, treat as an activity</button>
           )}
