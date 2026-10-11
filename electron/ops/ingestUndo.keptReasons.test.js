@@ -43,7 +43,7 @@ const day = () => ({
   blockedBy: [],
 })
 const commitDay = () => commitIngest(d, { camp_id: campId, approved: {}, links: {}, specialDay: day(), author_user_id: userId, device_id: deviceId, mode: 'add', captureInverse: true })
-const undo = (out) => ingestUndo(d, { invertibleOps: out.invertibleOps, createdEntityIds: out.createdEntityIds, importRunId: out.importRunId, author_user_id: userId, device_id: deviceId, client_write_id: randomUUID() })
+const undo = (out, extraCreated = []) => ingestUndo(d, { invertibleOps: out.invertibleOps, createdEntityIds: [...out.createdEntityIds, ...extraCreated], importRunId: out.importRunId, author_user_id: userId, device_id: deviceId, client_write_id: randomUUID() })
 const count = (t) => d.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c
 
 describe('undo and saved schedule versions', () => {
@@ -71,5 +71,61 @@ describe('undo of a special day the director edited', () => {
     expect(count('special_days')).toBe(1)
     expect(count('special_day_time_blocks')).toBe(1)
     expect(count('special_day_slots')).toBe(1)
+  })
+})
+
+describe('undo of a special day kept for a reason other than an edit', () => {
+  const place = () => {
+    const dayId = d.prepare('SELECT id FROM special_days').get().id
+    const weekId = randomUUID()
+    d.prepare('INSERT INTO schedule_weeks (id, camp_id, name) VALUES (?, ?, ?)')
+      .run(weekId, campId, 'W1')
+    const pid = randomUUID()
+    d.prepare('INSERT INTO special_day_placements (id, week_id, day_id, special_day_id) VALUES (?, ?, ?, ?)').run(pid, weekId, randomUUID(), dayId)
+    return { dayId, created: [{ entity: 'special_day_placements', entity_id: pid, fieldSnapshot: {} }] }
+  }
+  const snapshot = (slots) => {
+    const templateId = randomUUID()
+    d.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(templateId, campId, 'T')
+    d.prepare('INSERT INTO schedule_snapshots (id, template_id, name, created_at, slots) VALUES (?, ?, ?, ?, ?)')
+      .run(randomUUID(), templateId, 'v1', new Date().toISOString(), slots)
+  }
+
+  it('keeps the day, its periods, cells and placement when a saved version names the day', () => {
+    const out = commitDay()
+    const { dayId, created } = place()
+    snapshot(JSON.stringify([{ special_day_id: dayId }]))
+    const res = undo(out, created)
+    expect(res.kept).toContainEqual(expect.objectContaining({ entity: 'special_days', entity_id: dayId, reason: 'used_in_saved_version' }))
+    expect(count('special_days')).toBe(1)
+    expect(count('special_day_time_blocks')).toBe(1)
+    expect(count('special_day_slots')).toBe(1)
+    expect(count('special_day_placements')).toBe(1)
+    expect(res.kept.filter((k) => k.reason === 'parent_kept').every((k) => k.name === 'Maccabiah' && k.parent_id === dayId)).toBe(true)
+  })
+
+  it('deletes an unedited, unreferenced day with everything under it', () => {
+    const out = commitDay()
+    const { created } = place()
+    const res = undo(out, created)
+    expect(res.kept).toEqual([])
+    expect(count('special_days')).toBe(0)
+    expect(count('special_day_time_blocks')).toBe(0)
+    expect(count('special_day_slots')).toBe(0)
+    expect(count('special_day_placements')).toBe(0)
+  })
+})
+
+describe('undo with an unreadable saved version', () => {
+  it('does not throw and protects nothing from it', () => {
+    const out = commitDay()
+    const templateId = randomUUID()
+    d.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(templateId, campId, 'T')
+    d.prepare('INSERT INTO schedule_snapshots (id, template_id, name, created_at, slots) VALUES (?, ?, ?, ?, ?)')
+      .run(randomUUID(), templateId, 'v1', new Date().toISOString(), '{not json')
+    const res = undo(out)
+    expect(res.kept.filter((k) => k.reason === 'used_in_saved_version')).toEqual([])
+    expect(count('special_days')).toBe(0)
+    expect(count('activities')).toBe(0)
   })
 })

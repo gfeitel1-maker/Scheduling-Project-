@@ -234,11 +234,31 @@ describe('commitTrayState', () => {
         skipped: [],
         kept: [
           { name: 'Tug', reason: 'used_in_saved_version' },
-          { name: '9:15', reason: 'parent_kept' },
         ],
       },
     })
-    expect(tray.receipt.detail).toEqual(['Kept — still in use: Tug (in a saved schedule version); 9:15 (part of a day that was kept)'])
+    expect(tray.receipt.detail).toEqual(['Kept — still in use: Tug (in a saved schedule version)'])
+  })
+
+  it('collapses the periods and cells kept with a day into one plain line, with no raw ids', () => {
+    const cell = (i) => ({ entity: 'special_day_slots', entity_id: `uuid-${i}`, name: 'Among Us', parent_id: 'd1', reason: 'parent_kept' })
+    const period = (i) => ({ entity: 'special_day_time_blocks', entity_id: `tb-${i}`, name: 'Among Us', parent_id: 'd1', reason: 'parent_kept' })
+    const tray = commitTrayState({
+      notices: [],
+      undoCapable: true,
+      undoState: {
+        status: 'used', isLive: false, isPending: false, total: 40, deleted: [], skipped: [],
+        kept: [
+          { entity: 'special_days', entity_id: 'd1', name: 'Among Us', reason: 'used_in_saved_version' },
+          period(1), period(2), cell(1), cell(2), cell(3),
+        ],
+      },
+    })
+    expect(tray.receipt.detail).toEqual([
+      'Kept — still in use: Among Us (in a saved schedule version); Among Us: its 2 periods and 3 cells were kept with it',
+    ])
+    expect(tray.receipt.summary).toBe('Nothing removed — kept 1 still in use.')
+    expect(JSON.stringify(tray.receipt)).not.toMatch(/uuid-|tb-/)
   })
 
   it('says there was nothing to undo when deleted, skipped, and kept are all empty', () => {

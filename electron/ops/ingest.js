@@ -3200,18 +3200,6 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRun
       candidateSet.set(`${entity}:${entity_id}`, { entity, entity_id })
     }
 
-    // A kept special day keeps its periods and cells too, or the day survives hollow.
-    const keptDayIds = new Set(kept.filter((k) => k.entity === 'special_days').map((k) => k.entity_id))
-    if (keptDayIds.size > 0) {
-      for (const [key, { entity, entity_id }] of [...candidateSet]) {
-        if (entity !== 'special_day_time_blocks' && entity !== 'special_day_slots') continue
-        const parent = db.prepare(`SELECT special_day_id FROM ${entity} WHERE id = ?`).get(entity_id)?.special_day_id
-        if (!keptDayIds.has(parent)) continue
-        candidateSet.delete(key)
-        kept.push({ entity, entity_id, name: nameOf(entity, entity_id), reason: 'parent_kept' })
-      }
-    }
-
     // A saved schedule version that names a row would restore with a blank cell; keep the row and say so.
     const namedInSavedVersions = new Set()
     for (const { slots } of db.prepare('SELECT slots FROM schedule_snapshots WHERE slots IS NOT NULL').all()) {
@@ -3219,6 +3207,34 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRun
       try { parsed = JSON.parse(slots) } catch { continue }
       for (const slot of Array.isArray(parsed) ? parsed : []) {
         for (const v of Object.values(slot ?? {})) if (typeof v === 'string') namedInSavedVersions.add(v)
+      }
+    }
+
+    // A kept special day keeps its periods, cells and placements too, or the day survives hollow. The day's
+    // fate is decided here, before its children are processed, so it holds for every reason a day is kept.
+    const DAY_CHILDREN = ['special_day_time_blocks', 'special_day_slots', 'special_day_placements']
+    const dayChildKeys = new Set([...candidateSet.keys()].filter((k) => DAY_CHILDREN.includes(k.split(':')[0])))
+    for (const [key, { entity, entity_id }] of [...candidateSet]) {
+      if (entity !== 'special_days') continue
+      let reason = null
+      let blockerCount
+      if (namedInSavedVersions.has(entity_id)) reason = 'used_in_saved_version'
+      else {
+        const blockers = referencesInto(db, entity, entity_id, dayChildKeys)
+        if (blockers.length > 0) { reason = 'still_referenced'; blockerCount = blockers.length }
+      }
+      if (!reason) continue
+      candidateSet.delete(key)
+      kept.push({ entity, entity_id, name: nameOf(entity, entity_id), reason, ...(blockerCount ? { referencedByCount: blockerCount } : {}) })
+    }
+    const keptDayIds = new Set(kept.filter((k) => k.entity === 'special_days').map((k) => k.entity_id))
+    if (keptDayIds.size > 0) {
+      for (const [key, { entity, entity_id }] of [...candidateSet]) {
+        if (!DAY_CHILDREN.includes(entity)) continue
+        const parent = db.prepare(`SELECT special_day_id FROM ${entity} WHERE id = ?`).get(entity_id)?.special_day_id
+        if (!keptDayIds.has(parent)) continue
+        candidateSet.delete(key)
+        kept.push({ entity, entity_id, name: nameOf('special_days', parent), parent_id: parent, reason: 'parent_kept' })
       }
     }
 
