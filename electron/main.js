@@ -76,7 +76,7 @@ import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/authorityLog.js'
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
-import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc } from './sync/automerge/liveDoc.js'
+import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc, suspendDocSaves as suspendAutomergeDocSaves } from './sync/automerge/liveDoc.js'
 import { runRendezvousRotation } from './sync/automerge/rendezvousRotation.js'
 import { createPeerReachabilityTracker } from './sync/automerge/peerReachability.js'
 import { projectEntity } from './automerge/projector.js'
@@ -161,6 +161,7 @@ let currentMainWindowGetter = () => null
 // and schedules the restart. A module-level seam (like currentMainWindowGetter) so the handler stays
 // testable without Electron. Null means nothing is wired, which the handler reports, never hides.
 let atRestDisableRunner = null
+let atRestDisableInFlight = false
 export function setAtRestDisableRunner(fn) { atRestDisableRunner = fn }
 
 // The exact authorize() denial reasons that mean this session/device can no
@@ -2345,7 +2346,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     requireAuthorized(db, { token, action: 'security.disable_at_rest_encryption' })
     if (phrase !== DISABLE_PHRASE) return { ok: false, error: 'confirmation_mismatch' }
     if (!atRestDisableRunner) return { ok: false, error: 'unavailable' }
-    return atRestDisableRunner()
+    if (atRestDisableInFlight) return { ok: false, error: 'in_progress' }
+    atRestDisableInFlight = true
+    try { return await atRestDisableRunner() } finally { atRestDisableInFlight = false }
   }
 
   function deleteWeekHandler({ token, weekId } = {}) {
@@ -4094,18 +4097,23 @@ if (isElectronEntryPoint()) {
   }))
   const startAutomergeSyncNodeIfEnabled = () => syncStarterHolder.start()
   setAtRestDisableRunner(async () => {
-    const restart = () => setTimeout(() => { app.relaunch(); app.exit(0) }, 1500)
+    const restart = (ms) => setTimeout(() => { app.relaunch(); app.exit(0) }, ms)
     try {
       try { flushAutomergeDoc() } catch (err) { console.error('disable encryption: automerge flush failed:', err?.message ?? err) }
       await syncStarterHolder.shutdown()
+      // A peer merge can land while the node stops; flush it, then block every later save so none can
+      // re-encrypt the decrypted document with the key being shredded.
+      try { flushAutomergeDoc() } catch (err) { console.error('disable encryption: automerge flush failed:', err?.message ?? err) }
+      suspendAutomergeDocSaves(true)
       db.close()
       const dbPaths = dataPathsForKey().filter((p) => fs.existsSync(p))
       const res = disableAtRestEncryption({ userDataDir: userDataPath, dbPaths, safeStorage, Database: encryptingDatabaseCtor() })
-      restart()
+      restart(1500)
       return { ok: true, restarting: true, warnings: res.warnings }
     } catch (err) {
       console.error('disable encryption failed; encryption stays on:', err?.message ?? err)
-      restart()
+      suspendAutomergeDocSaves(false)
+      restart(5000)
       return { ok: false, error: err?.code ?? 'disable_failed', message: err?.message ?? String(err), restarting: true }
     }
   })

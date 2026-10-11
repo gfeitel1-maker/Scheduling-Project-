@@ -58,6 +58,16 @@ describe('DisableEncryptionPanel', () => {
     expect(screen.getByText(/disk I\/O error/)).toBeTruthy()
   })
 
+  it('says refusals in plain words, never as a raw code', async () => {
+    localClient.disableAtRestEncryption.mockResolvedValue({ ok: false, error: 'unknown_state' })
+    const user = await openConfirm()
+    await user.type(screen.getByLabelText(/type DISABLE ENCRYPTION/i), 'DISABLE ENCRYPTION')
+    await user.click(screen.getByRole('button', { name: /^turn off encryption$/i }))
+    expect(await screen.findByText(/encryption is still on/i)).toBeTruthy()
+    expect(screen.queryByText(/unknown_state/)).toBeNull()
+    expect(screen.getByText(/shoresh will restart/i)).toBeTruthy()
+  })
+
   it('surfaces a thrown error (refused session) and says encryption is still on', async () => {
     localClient.disableAtRestEncryption.mockRejectedValue(new Error('admin role required'))
     const user = await openConfirm()
