@@ -107,3 +107,14 @@ function rowCarriesContent(cells) {
   }
   return Math.max(0, ...tally.values()) >= cells.length * AGREEMENT
 }
+
+/** The text most cells of a row print, or null for a blank or passing-time row. */
+export function dominantRowText(cells) {
+  const tally = new Map()
+  for (const c of cells) {
+    const text = String(c ?? '').trim()
+    if (isBlankOrPassing(text)) continue
+    tally.set(text, (tally.get(text) ?? 0) + 1)
+  }
+  return [...tally].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+}

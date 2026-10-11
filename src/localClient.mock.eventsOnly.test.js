@@ -14,9 +14,9 @@ const localStorageMock = {
 // event block's flag on a re-import, clears an import-set one, and leaves a director's alone.
 describe('mock ingestCommit events_only', () => {
   let mock
-  const APPROVED = { groups: ['Otters 1'], days_of_operation: ['Monday'], time_blocks: ['08:50-09:00', '09:05-09:50'] }
+  const APPROVED = { groups: ['Otters 1'], days_of_operation: ['Monday'], time_blocks: ['08:50-09:00', '09:05-09:50'], activities: ['Swim'] }
   const FLAG = { name: 'Flag Raising', time_block: '08:50-09:00', days: ['Monday'], scope: { is_all_groups: true, groups: [] } }
-  const commit = (fixedEvents) => mock.ingestCommit({ approved: APPROVED, fixedEvents, mode: 'add' })
+  const commit = (fixedEvents, shortBlockPrints) => mock.ingestCommit({ approved: APPROVED, fixedEvents, shortBlockPrints, mode: 'add' })
   const block = () => JSON.parse(localStorageMock.getItem(STORE_KEY)).time_blocks.find((b) => b.name === '08:50-09:00')
 
   beforeEach(async () => {
@@ -30,7 +30,9 @@ describe('mock ingestCommit events_only', () => {
   it('sets on a fresh import, clears when the event goes', async () => {
     await commit([FLAG])
     expect(block().events_only).toBe(1)
-    await commit([])
+    await commit([], { '08:50-09:00': 'Trip Departure' })
+    expect(block().events_only).toBe(1)
+    await commit([], { '08:50-09:00': 'Swim' })
     expect(block().events_only).toBe(0)
   })
 

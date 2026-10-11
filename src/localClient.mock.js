@@ -996,7 +996,7 @@ export const mockShoresh = {
   // off localStorage on every call (never a live reference), so skipping the
   // final saveState() is sufficient to discard every mutation this run made —
   // CLONE-RUN-DISCARD without a second copy step.
-  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, specialDay, placements, sourceFileName, compoundCellDecisions, openDecisions } = {}) {
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, shortBlockPrints, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, specialDay, placements, sourceFileName, compoundCellDecisions, openDecisions } = {}) {
     const state = loadState()
     if (!state.camp) throw new Error('ingest: no camp')
     // U1 Invariant 3 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) —
@@ -1092,7 +1092,7 @@ export const mockShoresh = {
     // buildPlan consumes the ambiguous_identity resolutions itself (pin identity /
     // force create); the stale resolutions are honored below in the Policy-A gate.
     const plan = buildPlan(
-      { approved: recordApproved, links, activityRules, fixedEvents, camp_id: campId, cohort_id: cohortId, mode, base_generation: base_generation ?? 0, seenCounts: seenCounts ?? null, pinOnlyActivityNames: pinOnlyActivityNames ?? [], electiveHeaderFindings: electiveHeaderFindings ?? [], activityPeriods: activityPeriods ?? {} },
+      { approved: recordApproved, links, activityRules, fixedEvents, shortBlockPrints, camp_id: campId, cohort_id: cohortId, mode, base_generation: base_generation ?? 0, seenCounts: seenCounts ?? null, pinOnlyActivityNames: pinOnlyActivityNames ?? [], electiveHeaderFindings: electiveHeaderFindings ?? [], activityPeriods: activityPeriods ?? {} },
       existing,
       Array.isArray(resolutions) ? resolutions : [],
     )
@@ -1835,8 +1835,8 @@ export const mockShoresh = {
   // ADR), not an unqualified assertion made here.
   // clears/humanEditedFields are accepted by the real IPC surface but, like
   // ingestCommit above, the mock's decide layer doesn't consume them.
-  async ingestReconcile({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents } = {}) {
-    const outcome = await this.ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, dryRun: true })
+  async ingestReconcile({ approved, links, cohort_id, fixedEvents, shortBlockPrints, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents } = {}) {
+    const outcome = await this.ingestCommit({ approved, links, cohort_id, fixedEvents, shortBlockPrints, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, dryRun: true })
     return {
       dryRun: true,
       held: outcome.held,

@@ -21,7 +21,12 @@ Source: Red Hat review of PR #906 (F2: short event rows and events-only time blo
 Who set the flag comes from data that already exists: the op-log `source` of the flag's last write, read in
 `buildExistingSnapshot` (`electron/ops/ingest.js`) as `events_only_source` and consumed by the recognized-block
 arm of `src/ingest/buildPlan.js`. A re-import clears an import-set flag on a short block that no longer holds
-a fixed event; a flag the director wrote (any non-import source) is never touched and raises no conflict. No
+a fixed event AND that the file prints as a plain schedulable block (`shortBlockPrints`, the text the block
+prints, from `extractEntities`; it must be an approved activity and not a fixed event of the import, so a
+one-off, a trip or an unticked event never clears it); a flag the director wrote (any non-import source) is
+never touched and raises no conflict. A null source (a block created by hand, never toggled) may be SET by
+import but is never CLEARED. Whether a live block is short is read from its stored start/end times, not its
+name. No
 schema change, no new column. `electron/main.js` no longer defaults an absent `fixedEvents` to `[]` for
 `ingestCommit`/`ingestReconcile`, so a caller that carries no event information (not a schedule import) cannot
 clear flags. Mirrored in `src/localClient.mock.js`. Tests: `electron/ops/ingest.eventsOnly.test.js`,

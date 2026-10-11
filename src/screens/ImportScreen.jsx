@@ -1523,6 +1523,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
       // through unchanged to buildPlan's buildElectiveCandidates.
       electiveHeaderFindings: effectiveProposal?.electiveHeaderFindings ?? [],
       activityPeriods: effectiveProposal?.activityPeriods ?? {},
+      shortBlockPrints: effectiveProposal?.shortBlockPrints,
       // T117 slice 2 — the imported grid's actual placements, so a raw
       // schedule import also materializes as a saved version (ADR
       // 2026-09-02-imported-schedule-materializes-as-a-version.md).

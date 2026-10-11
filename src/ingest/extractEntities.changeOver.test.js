@@ -95,6 +95,18 @@ describe('T366 - a sparse short row is kept or reported, never dropped silently'
   })
 })
 
+describe('T364 - what a kept short block prints', () => {
+  it('records the text most cells print, per kept short block', () => {
+    const text = sparseFile(Array(5).fill('Swim'), Array(5).fill('Flag raising!'))
+    expect(extractEntities(parseTextGrid(text)).shortBlockPrints).toEqual({ '08:50-09:00': 'Swim', '15:00-15:10': 'Flag raising!' })
+  })
+
+  it('records nothing for a long block or a dropped change-over', () => {
+    const text = sparseFile(['-', '-', '-', '-', '-'], Array(5).fill('Closing Circle'))
+    expect(Object.keys(extractEntities(parseTextGrid(text)).shortBlockPrints)).toEqual(['15:00-15:10'])
+  })
+})
+
 describe('T132 golden - real-sample time-block counts', () => {
   it('campA stays at 11 blocks (main before F2; T132 recorded 13 before later merging): overflow slivers stay dropped', () => {
     const blocks = blocksOf(fs.readFileSync(path.join(SAMPLES, 'campA-bunk-schedules.txt'), 'utf8'))

@@ -65,10 +65,32 @@ describe('T365 - events_only is set through the normal import path (no backfill)
   })
 })
 
+const PLAIN = { '08:50-09:00': 'Swim' }
+
 describe('T364 - a stale import-set flag is cleared; a director-set flag never is', () => {
-  it('clears the flag on a block that no longer holds any fixed event', () => {
+  it('clears the flag on a block the file now prints as a plain schedulable block', () => {
+    commit({ approved: APPROVED, fixedEvents: [FLAG_RAISING] })
+    commit({ approved: APPROVED, fixedEvents: [], shortBlockPrints: PLAIN })
+    expect(flag('08:50-09:00').events_only).toBe(0)
+  })
+
+  it('keeps the flag when the block is absent from the recurring list but is not a plain block (one-off, trip, unticked event)', () => {
+    commit({ approved: APPROVED, fixedEvents: [FLAG_RAISING] })
+    commit({ approved: APPROVED, fixedEvents: [], shortBlockPrints: [] })
+    expect(flag('08:50-09:00').events_only).toBe(1)
+  })
+
+  it('keeps the flag when the caller carries no schedulable-block information', () => {
     commit({ approved: APPROVED, fixedEvents: [FLAG_RAISING] })
     commit({ approved: APPROVED, fixedEvents: [] })
+    expect(flag('08:50-09:00').events_only).toBe(1)
+  })
+
+  it('sets the flag from the live row\'s stored times, not its name', () => {
+    commit({ approved: APPROVED, fixedEvents: [] })
+    const id = flag('08:50-09:00').id
+    appendOp(db, { entity: 'time_blocks', entity_id: id, field: 'end_time', value: '09:30', source: 'human', author_user_id: 'u1', device_id: deviceId })
+    commit({ approved: APPROVED, fixedEvents: [FLAG_RAISING] })
     expect(flag('08:50-09:00').events_only).toBe(0)
   })
 
@@ -81,7 +103,14 @@ describe('T364 - a stale import-set flag is cleared; a director-set flag never i
   it('keeps a flag the director turned on when the event is gone', () => {
     commit({ approved: APPROVED, fixedEvents: [] })
     directorWrites(flag('08:50-09:00').id, 1)
+    commit({ approved: APPROVED, fixedEvents: [], shortBlockPrints: PLAIN })
+    expect(flag('08:50-09:00').events_only).toBe(1)
+  })
+
+  it('a block created by hand and never toggled has no source: import may set it, never clear it', () => {
     commit({ approved: APPROVED, fixedEvents: [] })
+    db.prepare('UPDATE time_blocks SET events_only = 1 WHERE camp_id = ? AND name = ?').run(campId, '08:50-09:00')
+    commit({ approved: APPROVED, fixedEvents: [], shortBlockPrints: PLAIN })
     expect(flag('08:50-09:00').events_only).toBe(1)
   })
 
@@ -91,12 +120,5 @@ describe('T364 - a stale import-set flag is cleared; a director-set flag never i
     const second = commit({ approved: APPROVED, fixedEvents: [FLAG_RAISING] })
     expect(flag('08:50-09:00').events_only).toBe(0)
     expect(second.conflicts).toEqual([])
-  })
-
-  it('keeps a director-set flag when an import-set one was overwritten by the director then the event goes', () => {
-    commit({ approved: APPROVED, fixedEvents: [FLAG_RAISING] })
-    directorWrites(flag('08:50-09:00').id, 1)
-    commit({ approved: APPROVED, fixedEvents: [] })
-    expect(flag('08:50-09:00').events_only).toBe(1)
   })
 })

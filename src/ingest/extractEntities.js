@@ -28,7 +28,7 @@ import { whitespaceInsensitiveName as whitespaceInsensitiveKey } from './preview
 // commitPlan's create loop follows, so a location this same import proposes is
 import { orderTimeBlocks } from './orderTimeBlocks.js'
 import { dropRedundantEndpoints } from './dropRedundantEndpoints.js'
-import { isChangeOverSpan, isShortLabel, agreedEventTexts, sparseRowTexts } from './periodSpan.js'
+import { isChangeOverSpan, isShortLabel, agreedEventTexts, sparseRowTexts, dominantRowText } from './periodSpan.js'
 // already a live row (and in locationIdByName) by the time any activity's
 // location field resolves. Order is normative here, not just set membership —
 // ingest.test.js's set-equality check pairs with this array's own order.
@@ -479,6 +479,8 @@ export function extractEntities(parsed, compoundCellDecisions, confirmedNameMerg
   // T366: short rows dropped as change-overs that still printed text. Keyed by
   // label + text so a row repeated on every day page is reported once.
   const skippedShortRowMap = new Map()
+  // T364: what each kept short block prints, so a re-import can tell a plain activity block from an event.
+  const shortBlockPrints = {}
   // Only events other SHORT rows agree on: a long period's event ("Lunch") bleeding into
   // an overflow sliver must not turn the sliver into a block.
   const knownEventTexts = new Set(
@@ -583,6 +585,8 @@ export function extractEntities(parsed, compoundCellDecisions, confirmedNameMerg
         const stripped = row.cells.map(stripTimes)
         if (!isChangeOverSpan(row.label, stripped, knownEventTexts)) {
           timeBlocks.push(row.label.trim())
+          const prints = isShortLabel(row.label) ? dominantRowText(stripped) : null
+          if (prints) shortBlockPrints[row.label.trim()] = prints
         } else {
           for (const { index, text } of sparseRowTexts(stripped)) {
             const key = JSON.stringify([row.label.trim(), text])
@@ -824,6 +828,7 @@ export function extractEntities(parsed, compoundCellDecisions, confirmedNameMerg
     // repeated artifact ("Block 2" on every page) reads as one line with a
     // count rather than a wall of duplicates.
     skippedShortRows: [...skippedShortRowMap.values()],
+    shortBlockPrints,
     residual: { cells: tally(residualCellValues).map((v) => ({ value: v.name, count: v.count })) },
   }
 }

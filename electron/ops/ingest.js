@@ -769,7 +769,7 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
  * that DOES hold returns the normal `{ held: true, conflicts, ... }` shape,
  * with none of these three fields present — same as a real held commit.
  */
-export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents, activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], specialDay = null, wholeCampDays = [], divisionSupport = {}, openDecisions = [] }) {
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents, shortBlockPrints, activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], specialDay = null, wholeCampDays = [], divisionSupport = {}, openDecisions = [] }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -806,7 +806,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
     // create confidence) and pinOnlyActivityNames (the A3 guard) flow straight
     // through the same way — additive, absent for any caller/fixture that
     // predates this change (S4b workbook re-import included — Risk 2/A4).
-    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation, humanEditedFields, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, specialDay, wholeCampDays, divisionSupport },
+    { approved: recordApproved, links, activityRules, fixedEvents, shortBlockPrints, camp_id, cohort_id, mode, base_generation, humanEditedFields, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, specialDay, wholeCampDays, divisionSupport },
     existing,
     // T73: a director's per-conflict decisions from a prior held commit. buildPlan
     // consumes only the ambiguous_identity picks; stale picks flow to commitPlan.
