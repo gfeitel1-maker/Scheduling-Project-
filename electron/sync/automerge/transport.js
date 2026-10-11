@@ -775,6 +775,18 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     revokePeer: (peerId) => {
       authenticatedPeers.delete(String(peerId))
       setAdmittedTag(String(peerId), false)
+      // Also hang up. Dropping admission alone left the revoked device's connection open, and a
+      // device that already authenticated never authenticates again over a live connection — so
+      // it was never refused, never learned it was removed, and kept writing into closed streams
+      // (packaged E2E on 42275c9f). Closing it sends that device back through authenticate, where
+      // the refusal says why. Best-effort: admission above is the enforcement point.
+      try {
+        Promise.resolve(node.hangUp(peerIdFromString(String(peerId)))).catch((err) => {
+          console.error(`transport: hanging up revoked peer ${peerId} failed (non-fatal — admission is already gone): ${err?.message ?? err}`)
+        })
+      } catch (err) {
+        console.error(`transport: hanging up revoked peer ${peerId} failed (non-fatal — admission is already gone): ${err?.message ?? err}`)
+      }
       // Gate-fix round 2 (Red Hat HIGH, FIX 1c): denyOutboundRelayedConnection already blocks a
       // NEW CONNECT for a revoked peer, but a RESERVATION this peer made while still admitted
       // sits in R's ReservationStore occupying one of MAX_SIMULTANEOUS_RESERVATIONS slots until

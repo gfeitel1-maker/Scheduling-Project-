@@ -9,6 +9,7 @@
 // heads advanced, projectAll into SQLite and re-broadcast to every OTHER
 // connected peer (mirrors test-cr4-live.mjs's except-self broadcast, which is
 // what lets a 3+ peer LAN mesh converge without a full connection graph).
+import { isRemovalRefusal, isRemovedFromCamp, markRemovedFromCamp } from './selfRemoval.js'
 import * as A from '@automerge/automerge'
 import { createJoinTagAdvertiser } from './joinTagDiscovery.js'
 import { startTransport } from './transport.js'
@@ -868,9 +869,20 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   }).catch((err) => {
     console.error(`syncNode: redialTrustedPeers failed (non-fatal, discovery still proceeds): ${err?.message ?? err}`)
   })
+  // A refusal that says THIS device was removed is recorded durably (selfRemoval.js) before the
+  // caller hears about it, so it holds even when the caller's own handling fails. Any other refusal
+  // reason, and every transport error (those never reach onRejected), leaves the state alone.
+  function handleAuthRejected(peerId, reply) {
+    if (isRemovalRefusal(reply)) {
+      if (!markRemovedFromCamp(db, { peerId, reason: reply.reason })) {
+        console.error(`syncNode: peer ${peerId} says this device was removed from the camp, but recording that failed`)
+      }
+    }
+    onAuthRejected?.(peerId, reply)
+  }
   mutualAuth = wireMutualAuth(
     { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },
-    { deviceId, getToken: () => authToken, onRejected: onAuthRejected, isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion, getAppliedTombstones }
+    { deviceId, getToken: () => authToken, onRejected: handleAuthRejected, isSelfRemoved: () => isRemovedFromCamp(db), isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion, getAppliedTombstones }
   )
 
   return {

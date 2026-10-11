@@ -297,12 +297,22 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
           // `reason` string on the frame, then hard-closes — libp2p streams
           // don't have numeric close codes, so the reason travels in-band
           // before the abort.
+          // Close GRACEFULLY after the frame, aborting only if that fails. An immediate abort can
+          // discard the frame still in flight, and the refused peer then reads a bare EOF — an
+          // AUTH_ERROR it cannot tell from a network blip — so a removed device never learns it
+          // was removed (packaged E2E on 42275c9f).
+          let sent = false
           try {
             await sendFramed(stream, encodeMessage({ type: 'auth_failed', reason: result.reason }))
+            sent = true
           } catch {
             // ignore — aborting regardless
           }
-          stream.abort(new Error(result.reason || 'auth_failed'))
+          if (sent) {
+            await stream.close().catch(() => stream.abort(new Error(result.reason || 'auth_failed')))
+          } else {
+            stream.abort(new Error(result.reason || 'auth_failed'))
+          }
         }
         return
       }

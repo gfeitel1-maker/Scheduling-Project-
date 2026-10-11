@@ -52,6 +52,9 @@ export const DEVICE_HEALTH = Object.freeze({
   // changed (electron/sync/automerge/rendezvousRotation.js). The revoked device may still be able
   // to read rendezvous records until a later check succeeds.
   RENDEZVOUS_ROTATION_FAILED: 'rendezvous_rotation_failed',
+  // A camp peer authoritatively refused THIS device as removed from the camp
+  // (electron/sync/automerge/selfRemoval.js). One keyed row; cleared by Pair again.
+  REMOVED_FROM_CAMP: 'removed_from_camp',
 })
 
 /**

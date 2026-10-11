@@ -84,6 +84,7 @@ import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled, latchEncryptionIfKeyPresent } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
+import { isRemovedFromCamp, clearRemovedFromCamp } from './sync/automerge/selfRemoval.js'
 import { codeForAuthRejectedReason } from './authRejectedSender.js'
 import { mintJoinSecret, formatJoinCode } from './sync/joinCode.js'
 import { startJoinSession } from './sync/automerge/joinSession.js'
@@ -870,7 +871,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   }
 
   function getSyncStatus() {
-    const status = computeSyncStatus()
+    const status = { ...computeSyncStatus(), removedFromCamp: isRemovedFromCamp(db) }
     // During Pair again the persistent node is stopped on purpose: the footer must not offer a retry.
     return activeJoin && activeJoinIsRejoin ? { ...status, pairingAgain: true } : status
   }
@@ -1341,8 +1342,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       }
     }
 
-    return rows.map((row) => {
-      const isSelf = row.id === deviceId
+    // A camp peer told THIS device it was removed (selfRemoval.js). Its own row in its own db still
+    // says what it said before the camp cut it off; show what the camp says instead.
+    const selfRemoved = isRemovedFromCamp(db)
+    return rows.map((rawRow) => {
+      const isSelf = rawRow.id === deviceId
+      const row = isSelf && selfRemoved ? { ...rawRow, pairing_status: 'revoked' } : rawRow
       if (!authorityState) return { ...row, isSelf }
 
       const isCurrentAdmin = authorityState.admins.has(row.id)
@@ -3096,6 +3101,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // on its own failure path, already covering this composition.
     if (!camp) return { status: 'timeout' }
 
+    // The camp let this device back in (Pair again, or a fresh join): any recorded removal is over.
+    if (isRemovedFromCamp(db) && !clearRemovedFromCamp(db)) {
+      console.error('join: the camp let this device back in, but clearing its removed-from-camp state failed')
+    }
     activeJoin = null
     activeJoinIsRejoin = false
     // T274 round 2 (Red Hat, HIGH): onCampJoined must fire ONLY when the
