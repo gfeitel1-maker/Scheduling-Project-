@@ -2,8 +2,8 @@
 title: "Shoresh remembers every import answer in the camp document and learns patterns from them"
 document_type: adr
 authority: normative
-status: proposed
-implementation_state: not-started
+status: accepted
+implementation_state: in-progress
 date: 2026-10-11
 decided:
 deciders: [product-owner]
@@ -193,6 +193,8 @@ An extra attending group is NEAR (one confirming tap): it is in the exclusion ba
 - **Tombstones today** name only campers, and our records hold no camper ids, so tombstone exclusion in `liveRecords()` (3.2) is defense in depth for any future structural purge. A record arriving after its tombstone stays excluded because the check runs at read. No display names are stored, so an erased user shows as "a former user".
 
 ### 3.7 Settings-adjacent view: "What Shoresh has learned"
+
+**Progress toward auto-apply (keeper, on GO).** Every pattern row shows how close it is to applying on its own, in the director's terms: "2 of 3 answers" (agreeing instances), plus the other conditions still missing ("needs one more import", "needs one answer you edited or declined"). For a kind that can never auto-apply (all-camp-except, electives, any rejection), the row says so plainly, e.g. "Always asks you: this kind only pre-selects", so the owner sees the learning grow and why those answers stop at a suggestion. Computed by the same recall code as the tiers, never a separate count.
 
 **Where (corrected by the keeper).** The device-storage block is the sidebar footer in `src/components/layout/Sidebar.jsx`: "Backup now" (admin-only button, label at `:460`), "Show in Finder", `<RestoreControl />` (admin-only, `:477`; its text includes "Restore from backup…"), then the ungated "About & Legal · v0.1.0" button (`:480-492`). **"What Shoresh has learned" is a new, ungated, own-labelled footer entry placed directly under `<RestoreControl />` at `:477`**, so staff and directors both see it, and it opens the view. It follows the footer-only pattern of `about` and `pairAgain` (`src/App.jsx` SCREENS comments), not a nav stage and not the Settings gear menu.
 
