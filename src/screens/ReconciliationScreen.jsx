@@ -662,7 +662,7 @@ function CommittedTray({ notices, leftOut, outcome, graceWindow, onNavigate }) {
     notices,
     leftOut,
     undoCapable,
-    undoState: { ...graceWindow, total: outcome?.total ?? 0 },
+    undoState: { ...graceWindow, total: Array.isArray(outcome?.createdEntityIds) ? outcome.createdEntityIds.length : (outcome?.total ?? 0) },
   })
 
   // The secondary action and the receipt each animate in/out via a

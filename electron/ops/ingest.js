@@ -32,7 +32,7 @@ import { writeRouteSnapshot, campCatalog } from './deleteRecord.js'
 import { attachNames } from '../../src/utils/snapshotRemap.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
-import { replaceOpenDecisionsForCommit } from './openReconciliationDecisions.js'
+import { replaceOpenDecisionsForCommit, removeOpenDecisionsForImport } from './openReconciliationDecisions.js'
 import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.js'
 
 // U2 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md, "Finding 4 fix").
@@ -2721,7 +2721,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // A Replace deletes these records, so a question about one of them has
       // nothing left to be about.
       const replacedTypes = mode === 'replace' ? [...REPLACEABLE_ENTITIES, 'fixed_events'] : []
-      const touchedEntityTypes = [...new Set([...plan.items.map((item) => item.entity), ...keptForLater.map((d) => d.entity), ...replacedTypes])]
+      // Fixed events are not plan items: a commit that writes them has looked at
+      // every fixed-event question, so an answered one (not held back) must not
+      // linger on Roots.
+      const eventTypes = (plan.fixedEvents ?? []).length > 0 ? ['fixed_events'] : []
+      const touchedEntityTypes = [...new Set([...plan.items.map((item) => item.entity), ...keptForLater.map((d) => d.entity), ...replacedTypes, ...eventTypes])]
       replaceOpenDecisionsForCommit(db, {
         campId: camp_id,
         decisions: openDecisions,
@@ -2799,6 +2803,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
 
   const outcome = {
     held: false,
+    importRunId: evidenceRunId,
     conflicts: [],
     created,
     total,
@@ -2906,7 +2911,7 @@ function deriveUndoDeleteClientWriteId(outerClientWriteId, entity, entity_id) {
  * edited a field the import left blank (or any field) since commit, or a live
  * row outside this undo's own deletion set still references it.
  */
-export function ingestUndo(db, { invertibleOps, createdEntityIds = [], author_user_id, device_id, client_write_id }) {
+export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRunId = null, author_user_id, device_id, client_write_id }) {
   if (!Array.isArray(invertibleOps)) throw new Error('ingestUndo: invertibleOps must be an array')
   if (!Array.isArray(createdEntityIds)) throw new Error('ingestUndo: createdEntityIds must be an array')
   if (typeof client_write_id !== 'string' || client_write_id.length === 0) {
@@ -3067,6 +3072,9 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], author_us
         deleted.push({ entity, entity_id })
       }
     }
+
+    // The questions this import left on Roots are about records it just removed.
+    if (typeof importRunId === 'string' && importRunId.length > 0) removeOpenDecisionsForImport(db, importRunId)
   })
   run()
 

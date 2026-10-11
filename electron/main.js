@@ -696,13 +696,14 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // field-update half of an import the director just committed. Same
   // authority as ingestCommit (an undo is itself a set of writes to the camp's
   // setup), on any trusted device (T351).
-  function ingestUndoHandler({ token, invertibleOps, createdEntityIds, client_write_id } = {}) {
+  function ingestUndoHandler({ token, invertibleOps, createdEntityIds, importRunId, client_write_id } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
     if (!isNonEmptyString(client_write_id)) throw new Error('client_write_id is required')
     return ingestUndo(db, {
       invertibleOps: Array.isArray(invertibleOps) ? invertibleOps : [],
       createdEntityIds: Array.isArray(createdEntityIds) ? createdEntityIds : [],
+      importRunId: isNonEmptyString(importRunId) ? importRunId : null,
       author_user_id: session.userId,
       device_id: deviceId,
       client_write_id,

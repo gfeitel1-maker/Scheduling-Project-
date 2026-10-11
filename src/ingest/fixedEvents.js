@@ -491,6 +491,17 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
 
   for (const fe of fixedEvents) delete fe._footprintGroups
 
+  // A dual-use name is a catalogue activity that also sits at periods no pin
+  // covers (docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md,
+  // "A name used both ways"). Its low-confidence "events" are single-group
+  // coincidences of a rotating activity (Music at one period three days of
+  // five), not pins: minting them asks the director "Make Music a fixed event?"
+  // about an activity they already have. Only a pin held every day survives as
+  // the reviewable dual-use exception.
+  for (let i = fixedEvents.length - 1; i >= 0; i--) {
+    if (fixedEvents[i].confidence === 'low' && dualUseNorms.has(normalizeName(fixedEvents[i].name))) fixedEvents.splice(i, 1)
+  }
+
   // Deterministic order so the same fixture in either orientation yields
   // identical output (the transpose invariant).
   fixedEvents.sort((a, b) =>

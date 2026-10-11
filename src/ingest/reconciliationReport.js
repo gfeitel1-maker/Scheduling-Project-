@@ -18,6 +18,7 @@ import { unitDisplayName } from './fieldUpdate.js'
 import { formatBlockTime12h } from './blockTimeText.js'
 import { describeAppearance } from './appearsAt.js'
 import { decisionTitle } from './decisionTitle.js'
+import { isMealName } from './eventKeptWhenUnanswered.js'
 
 // T257 — a group's `unit` delta may carry a discriminated token
 // ({kind, id?, name}) rather than a bare string. Director-facing copy
@@ -578,7 +579,9 @@ export function buildReconciliationReport(input) {
   // confidence entry (or one with no confidence info at all — pre-existing
   // fixtures/callers) ships unconditionally, unchanged from before.
   for (const entry of asArray(created)) {
-    if (entry?.confidence === 'low') {
+    // A meal is kept whether or not it is answered (eventKeptWhenUnanswered), so
+    // asking about Lunch 2 but not Lunch 1 is a question with no effect.
+    if (entry?.confidence === 'low' && !isMealName(entry.name)) {
       buckets.needsAttention += 1
       addFixedEventDecision(decisionsByKey, {
         kind: 'confirm_value',
@@ -642,7 +645,13 @@ export function buildReconciliationReport(input) {
   // plan row, needsAttention, and it lands in hold via reportToLanes — the
   // director answers it in the ordinary reconciliation flow they already use
   // for everything else this import is unsure about.
+  // A name the file pins as an event is asked about once, as that event; the
+  // pulled-out-of-an-all-camp-activity reading is the same subject.
+  const eventNames = new Set(
+    [...asArray(created), ...asArray(unchanged), ...asArray(partial)].map((e) => normalizeName(e?.name ?? '')),
+  )
   for (const finding of asArray(input?.allCampOverrides)) {
+    if (eventNames.has(normalizeName(finding.activityName))) continue
     const id = `all_camp_override:${finding.activityName}:${finding.day}:${finding.block}`
     if (decisionsByKey.has(id)) continue
     buckets.needsAttention += 1

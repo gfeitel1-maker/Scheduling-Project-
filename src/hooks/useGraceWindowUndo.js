@@ -29,6 +29,7 @@ export function useGraceWindowUndo() {
   const [status, setStatus] = useState(IDLE)
   const [invertibleOps, setInvertibleOps] = useState([])
   const [createdEntityIds, setCreatedEntityIds] = useState([])
+  const [importRunId, setImportRunId] = useState(null)
   const [skipped, setSkipped] = useState([])
   const [deleted, setDeleted] = useState([])
   const [kept, setKept] = useState([])
@@ -132,6 +133,7 @@ export function useGraceWindowUndo() {
     setStatus(LIVE)
     setInvertibleOps(Array.isArray(outcome?.invertibleOps) ? outcome.invertibleOps : [])
     setCreatedEntityIds(Array.isArray(outcome?.createdEntityIds) ? outcome.createdEntityIds : [])
+    setImportRunId(typeof outcome?.importRunId === 'string' ? outcome.importRunId : null)
     setSkipped([])
     setDeleted([])
     setKept([])
@@ -171,6 +173,7 @@ export function useGraceWindowUndo() {
       const result = await localClient.ingestUndo({
         invertibleOps,
         createdEntityIds,
+        importRunId,
         client_write_id: crypto.randomUUID(),
       })
       // Component gone (director navigated away mid-undo): the revert still
@@ -210,7 +213,7 @@ export function useGraceWindowUndo() {
         setIsPending(false)
       }
     }
-  }, [status, invertibleOps, createdEntityIds])
+  }, [status, invertibleOps, createdEntityIds, importRunId])
 
   return {
     status,
