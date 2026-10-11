@@ -274,7 +274,6 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
       return
     }
     setOffer(outcome.offer)
-    if (outcome.cellFailure) setError(outcome.cellFailure)
     setCopyNote(outcome.notice)
     setNotPlaced(Boolean(outcome.varies) && !outcome.placed)
   }

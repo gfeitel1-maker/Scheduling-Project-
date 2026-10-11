@@ -6,7 +6,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
 vi.mock('../../localClient', () => ({
   localClient: {
-    list: vi.fn(), write: vi.fn(), deleteEntity: vi.fn(), listPendingConflicts: vi.fn(),
+    list: vi.fn(), write: vi.fn(), deleteEntity: vi.fn(), copySpecialDayBlocks: vi.fn(), listPendingConflicts: vi.fn(),
     bindSpecialDay: vi.fn(), unbindSpecialDay: vi.fn(), onOpApplied: vi.fn(() => () => {}),
   },
 }))
@@ -51,13 +51,12 @@ beforeEach(() => {
   vi.stubGlobal('crypto', { randomUUID: () => `new-${n++}` })
   localClient.list.mockReset().mockImplementation((e) => Promise.resolve(db[e] ? [...db[e]] : []))
   localClient.listPendingConflicts.mockReset().mockResolvedValue([])
-  localClient.write.mockReset().mockImplementation(async (_t, entity, id, field, value) => {
-    if (entity === 'special_day_slots') {
-      let row = db.special_day_slots.find((s) => s.id === id)
-      if (!row) { row = { id }; db.special_day_slots.push(row) }
-      row[field] = value
+  localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
+  localClient.copySpecialDayBlocks.mockReset().mockImplementation(async ({ specialDayId, cells }) => {
+    for (const c of cells) {
+      db.special_day_slots.push({ id: `s${db.special_day_slots.length}`, special_day_id: specialDayId, group_id: c.groupId, time_block_id: c.blockId, activity_id: c.activityId })
     }
-    return { status: 'applied' }
+    return { ok: true, blocksWritten: 0, cellsWritten: cells.length, skipped: [] }
   })
   localClient.bindSpecialDay.mockReset().mockImplementation(async ({ weekId, dayId, specialDayId }) => {
     db.special_day_placements = [{ id: 'p1', week_id: weekId, day_id: dayId, special_day_id: specialDayId }]

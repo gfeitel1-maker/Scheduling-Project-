@@ -39,9 +39,7 @@ const LABELS = {
   seedPrompt: 'Start from your time blocks?',
   varyNote: 'Lunch waves differ by weekday \u2014 place this day to bring them',
   seedFromBlocks: 'Copy time blocks',
-  copying: ({ phase, done, total }) => phase === 'cells'
-    ? `Copying time blocks\u2026 adding fixed events ${done} of ${total}`
-    : `Copying time blocks\u2026 ${done} of ${total}`,
+  copying: 'Copying time blocks\u2026',
   startEmpty: 'Empty',
   createdHint: (name) => `"${name}" created — build it from Special Schedules under Schedule.`,
 }
@@ -242,7 +240,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
   const duplicateDaySiblings = useMemo(() => duplicateSiblingsByIdFor(days), [days])
   const duplicateEventSiblings = useMemo(() => duplicateSiblingsByIdFor(events), [events])
   const [seedPromptForId, setSeedPromptForId] = useState(null)
-  const [copyProgress, setCopyProgress] = useState(null)
+  const [copying, setCopying] = useState(false)
   const [toast, setToast] = useState(null)
   const [offer, setOffer] = useState(null)
   const [note, setNote] = useState(null)
@@ -373,12 +371,12 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
     setSeedPromptForId(null)
     let outcome
     try {
-      setCopyProgress({ phase: 'blocks', done: 0, total: 0 })
-      outcome = await copyCampTimeBlocks({ campId, specialDayId, onProgress: setCopyProgress })
+      setCopying(true)
+      outcome = await copyCampTimeBlocks({ campId, specialDayId })
     } catch (err) {
       outcome = { failure: describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)) }
     } finally {
-      setCopyProgress(null)
+      setCopying(false)
     }
     await loadDays()
     if (outcome.failure) {
@@ -387,7 +385,6 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
     }
     setOffer(outcome.offer)
     setNote(outcome.notice ?? (outcome.varies && !outcome.placed ? LABELS.varyNote : null))
-    if (outcome.cellFailure) setError(outcome.cellFailure)
     setToast(LABELS.createdHint(days.find((d) => d.id === specialDayId)?.name ?? 'Special Day'))
   }
 
@@ -558,8 +555,8 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
         />
       )}
 
-      {copyProgress && (
-        <div role="status" style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '4px 0' }}>{LABELS.copying(copyProgress)}</div>
+      {copying && (
+        <div role="status" style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '4px 0' }}>{LABELS.copying}</div>
       )}
 
       {seedPromptForId && days.some((d) => d.id === seedPromptForId) && (

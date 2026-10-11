@@ -53,6 +53,7 @@ import { purgeElectiveSeason } from './ops/purgeElectiveSeason.js'
 import { attributeElectiveSubject } from './ops/attributeElectiveSubject.js'
 import { deleteSpecialDay } from './ops/deleteSpecialDay.js'
 import { bindSpecialDay, unbindSpecialDay } from './ops/specialDayPlacements.js'
+import { copySpecialDayBlocks } from './ops/copySpecialDayBlocks.js'
 import { deleteEvent } from './ops/deleteEvent.js'
 import { listDurableElectiveSets } from './ops/durableElectiveSets.js'
 import { commitElectiveRun } from './ops/commitElectiveRun.js'
@@ -2469,6 +2470,24 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ok: true, ops_written: result.ops.length }
   }
 
+  // The special-day copy as one write: all blocks and cells in a single transaction and a single
+  // deferred document flush (electron/ops/copySpecialDayBlocks.js). Same role floor as an ordinary
+  // special_day_time_blocks / special_day_slots field write. A failure rolls everything back and is
+  // RETURNED as { ok:false, reason:'failed' }, so the renderer can say nothing was copied.
+  function copySpecialDayBlocksHandler({ token, specialDayId, blocks, cells } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'special_day_time_blocks.write' })
+    requireAuthorized(db, { token, action: 'special_day_slots.write' })
+    if (!isNonEmptyString(specialDayId)) throw new Error('specialDayId is required')
+    if (!Array.isArray(blocks) || !Array.isArray(cells)) throw new Error('blocks and cells must be arrays')
+    try {
+      return copySpecialDayBlocks(db, { specialDayId, blocks, cells }, { author_user_id: userId, device_id: deviceId })
+    } catch (err) {
+      console.error('copySpecialDayBlocks failed and was rolled back:', err?.message ?? err)
+      return { ok: false, reason: 'failed' }
+    }
+  }
+
   // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-internal-
   // subschedule.md §3): wires the deleteEvent cascade primitive
   // (electron/ops/deleteEvent.js, shipped inert in this slice) to a caller.
@@ -3211,6 +3230,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     deleteSpecialDay: deleteSpecialDayHandler,
     bindSpecialDay: bindSpecialDayHandler,
     unbindSpecialDay: unbindSpecialDayHandler,
+    copySpecialDayBlocks: copySpecialDayBlocksHandler,
     deleteEvent: deleteEventHandler,
     listDurableElectiveSets: listDurableElectiveSetsHandler,
     commitElectiveRun: commitElectiveRunHandler,
@@ -3653,6 +3673,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:delete-special-day', (_event, args) => handlers.deleteSpecialDay(args))
     ipcMain.handle('shoresh:bind-special-day', (_event, args) => handlers.bindSpecialDay(args))
     ipcMain.handle('shoresh:unbind-special-day', (_event, args) => handlers.unbindSpecialDay(args))
+    ipcMain.handle('shoresh:copy-special-day-blocks', (_event, args) => handlers.copySpecialDayBlocks(args))
     ipcMain.handle('shoresh:delete-event', (_event, args) => handlers.deleteEvent(args))
     ipcMain.handle('shoresh:list-durable-elective-sets', (_event, args) => handlers.listDurableElectiveSets(args && args.token))
     ipcMain.handle('shoresh:commit-elective-run', (_event, args) => handlers.commitElectiveRun(args))

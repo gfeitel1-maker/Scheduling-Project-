@@ -17,6 +17,7 @@ vi.mock('../localClient', () => ({
     deleteEntity: vi.fn(),
     deleteEvent: vi.fn(),
     deleteSpecialDay: vi.fn(),
+    copySpecialDayBlocks: vi.fn(),
     onOpApplied: vi.fn(() => () => {}),
   },
 }))
@@ -78,6 +79,7 @@ beforeEach(() => {
   localClient.deleteEvent.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteSpecialDay.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.onOpApplied.mockReset().mockReturnValue(() => {})
+  localClient.copySpecialDayBlocks.mockReset().mockImplementation(async ({ blocks, cells }) => ({ ok: true, blocksWritten: blocks.length, cellsWritten: cells.length, skipped: [] }))
 })
 
 describe('SpecialEventsScreen — empty state', () => {
@@ -276,14 +278,11 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
 
     fireEvent.click(screen.getByText(/Copy time blocks/))
 
-    await waitFor(() => {
-      const calls = localClient.write.mock.calls
-      expect(calls.some(([, entity, id, field, value]) =>
-        entity === 'special_day_time_blocks' && field === 'special_day_id' && id === 'new-id-1' && value === 'new-id-0'
-      )).toBe(true)
-      expect(calls.some(([, entity, , field, value]) =>
-        entity === 'special_day_time_blocks' && field === 'name' && value === 'Morning'
-      )).toBe(true)
+    await waitFor(() => expect(localClient.copySpecialDayBlocks).toHaveBeenCalledTimes(1))
+    expect(localClient.copySpecialDayBlocks).toHaveBeenCalledWith({
+      specialDayId: 'new-id-0',
+      blocks: [{ id: 'new-id-1', name: 'Morning', sort_order: 0, start_time: '09:00:00', end_time: '10:00:00' }],
+      cells: [],
     })
 
     // The seed never writes to the camp's own `time_blocks` table — a
@@ -310,8 +309,10 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
 
     expect(await screen.findByText('Also bring 1 recurring event from Monday?')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Bring' }))
-    await waitFor(() => expect(localClient.write.mock.calls.some(([, e, , f, v]) => e === 'special_day_slots' && f === 'activity_id' && v === 'a1')).toBe(true))
-    expect(screen.queryByText(/Also bring/)).toBeNull()
+    await waitFor(() => expect(localClient.copySpecialDayBlocks).toHaveBeenCalledTimes(2))
+    expect(localClient.copySpecialDayBlocks.mock.calls[1][0].blocks).toEqual([])
+    expect(localClient.copySpecialDayBlocks.mock.calls[1][0].cells.map((c) => c.activityId)).toEqual(['a1'])
+    await waitFor(() => expect(screen.queryByText(/Also bring/)).toBeNull())
   })
 
   it('Empty writes no blocks and no cells', async () => {
@@ -345,17 +346,15 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     addViaInlineRow({ name: 'Color War', type: 'day' })
     fireEvent.click(await screen.findByText(/Copy time blocks/))
     await screen.findByText('Also bring 1 recurring event from Monday?')
-    localClient.write.mockImplementation(async (_t, entity) => (entity === 'special_day_slots' ? { status: 'rejected' } : { status: 'applied' }))
+    localClient.copySpecialDayBlocks.mockResolvedValue({ ok: false, reason: 'failed' })
     fireEvent.click(screen.getByRole('button', { name: 'Bring' }))
-    expect(await screen.findByText("Couldn't add Group Time — try again")).toBeTruthy()
+    expect(await screen.findByText("Couldn't add those events \u2014 nothing was added, try again")).toBeTruthy()
     expect(screen.getByText('Also bring 1 recurring event from Monday?')).toBeTruthy()
     log.mockRestore()
   })
 
   it('two rapid Bring clicks write one set of cells', async () => {
-    const slots = []
     localClient.list.mockImplementation((entity) => {
-      if (entity === 'special_day_slots') return Promise.resolve(slots)
       return byEntityLive({
         ...emptyEntries,
         time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
@@ -365,14 +364,9 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
         fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
       })(entity)
     })
-    localClient.write.mockImplementation(async (_t, entity, id, field, value) => {
+    localClient.copySpecialDayBlocks.mockImplementation(async ({ blocks, cells }) => {
       await new Promise((r) => setTimeout(r, 5))
-      if (entity === 'special_day_slots') {
-        let row = slots.find((x) => x.id === id)
-        if (!row) { row = { id }; slots.push(row) }
-        row[field] = value
-      }
-      return { status: 'applied' }
+      return { ok: true, blocksWritten: blocks.length, cellsWritten: cells.length, skipped: [] }
     })
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
     await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
@@ -385,8 +379,10 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     fireEvent.click(bring)
     fireEvent.click(bring)
     await waitFor(() => expect(screen.queryByText(/Also bring/)).toBeNull())
-    expect(slots.filter((x) => x.activity_id === 'a1')).toHaveLength(1)
-    expect(localClient.write.mock.calls.filter(([, e, , f]) => e === 'special_day_time_blocks' && f === 'name')).toHaveLength(1)
+    const calls = localClient.copySpecialDayBlocks.mock.calls.map(([a]) => a)
+    expect(calls).toHaveLength(2)
+    expect(calls.filter((a) => a.blocks.length > 0)).toHaveLength(1)
+    expect(calls.flatMap((a) => a.cells).filter((c) => c.activityId === 'a1')).toHaveLength(1)
   })
 
   it('shows a kept-cell notice as a neutral note, not an error', async () => {
@@ -402,6 +398,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     }))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
     await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    localClient.copySpecialDayBlocks.mockResolvedValue({ ok: true, blocksWritten: 1, cellsWritten: 1, skipped: ['Carpool kept in Bunk A Morning — Drop-off not added there'] })
     addViaInlineRow({ name: 'Color War', type: 'day' })
     fireEvent.click(await screen.findByText(/Copy time blocks/))
     const note = await screen.findByText(/kept in Bunk A/)
@@ -417,16 +414,15 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     }))
     let release
     const gate = new Promise((r) => { release = r })
-    const ok = localClient.write.getMockImplementation()
-    localClient.write.mockImplementation(async (t, entity, ...rest) => {
-      if (entity === 'special_day_time_blocks') await gate
-      return ok(t, entity, ...rest)
+    localClient.copySpecialDayBlocks.mockImplementation(async ({ blocks, cells }) => {
+      await gate
+      return { ok: true, blocksWritten: blocks.length, cellsWritten: cells.length, skipped: [] }
     })
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
     await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
     addViaInlineRow({ name: 'Color War', type: 'day' })
     fireEvent.click(await screen.findByText(/Copy time blocks/))
-    expect(await screen.findByText(/Copying time blocks/)).toBeTruthy()
+    expect((await screen.findByText(/Copying time blocks/)).textContent).toBe('Copying time blocks\u2026')
     release()
     await waitFor(() => expect(screen.queryByText(/Copying time blocks/)).toBeNull())
   })
@@ -436,9 +432,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
       ...emptyEntries,
       time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
     }))
-    const ok = localClient.write.getMockImplementation()
-    localClient.write.mockImplementation(async (t, entity, ...rest) =>
-      entity === 'special_day_time_blocks' ? { status: 'rejected' } : ok(t, entity, ...rest))
+    localClient.copySpecialDayBlocks.mockResolvedValue({ ok: false, reason: 'failed' })
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
     await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
     addViaInlineRow({ name: 'Color War', type: 'day' })

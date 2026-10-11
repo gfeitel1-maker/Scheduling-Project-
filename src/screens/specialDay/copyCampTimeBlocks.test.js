@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../localClient', () => ({
-  localClient: { list: vi.fn(), write: vi.fn(), deleteEntity: vi.fn() },
+  localClient: { list: vi.fn(), write: vi.fn(), deleteEntity: vi.fn(), copySpecialDayBlocks: vi.fn() },
 }))
 
 import { localClient } from '../../localClient'
@@ -42,18 +42,26 @@ beforeEach(() => {
     special_day_slots: [],
   }
   localClient.list.mockReset().mockImplementation(async (e) => rows[e] ?? [])
-  localClient.write.mockReset().mockImplementation(async (_t, entity, id, field, value) => {
-    if (failWhen(entity, id, field, value)) return { status: 'rejected' }
-    if (entity === 'special_day_slots') {
-      let row = rows.special_day_slots.find((s) => s.id === id)
-      if (!row) { row = { id }; rows.special_day_slots.push(row) }
-      row[field] = value
+  localClient.write.mockReset()
+  localClient.deleteEntity.mockReset()
+  // Mirrors electron/ops/copySpecialDayBlocks.js (tested for real there): all or nothing, an
+  // occupied cell is kept and reported, an existing empty row is filled in place.
+  localClient.copySpecialDayBlocks.mockReset().mockImplementation(async ({ specialDayId, blocks, cells }) => {
+    if (failWhen(blocks, cells)) return { ok: false, reason: 'failed' }
+    const actName = new Map(rows.activities.map((a) => [a.id, a.name]))
+    let cellsWritten = 0
+    const skipped = []
+    for (const c of cells) {
+      const row = rows.special_day_slots.find((x) => x.special_day_id === specialDayId && x.group_id === c.groupId && x.time_block_id === c.blockId)
+      if (row?.activity_id) {
+        if (row.activity_id !== c.activityId) skipped.push(`${actName.get(row.activity_id)} kept in ${c.groupName} ${c.blockLabel} — ${c.eventName} not added there`)
+        continue
+      }
+      if (row) row.activity_id = c.activityId
+      else rows.special_day_slots.push({ id: `slot-${rows.special_day_slots.length}`, special_day_id: specialDayId, group_id: c.groupId, time_block_id: c.blockId, activity_id: c.activityId })
+      cellsWritten += 1
     }
-    return { status: 'applied' }
-  })
-  localClient.deleteEntity.mockReset().mockImplementation(async (_t, entity, id) => {
-    if (entity === 'special_day_slots') rows.special_day_slots = rows.special_day_slots.filter((s) => s.id !== id)
-    return { status: 'applied' }
+    return { ok: true, blocksWritten: blocks.length, cellsWritten, skipped }
   })
 })
 
@@ -170,41 +178,53 @@ describe('copyCampTimeBlocks write safety', () => {
     expect(done.notice).toContain('kept in B Swim')
   })
 
-  it('a partial failure names only the event that failed and keeps the one that landed', async () => {
-    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
-    rows.fixed_events.push({ id: 'f9', camp_id: CAMP, kind: 'fixed', name: 'Lunch', day_id: null, time_block_id: 'b2', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a-lunch', span_blocks: 1 })
-    failWhen = (entity, _id, field, value) => entity === 'special_day_slots' && field === 'activity_id' && value === 'a-lunch'
-    const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
-    expect(r.cellFailure).toBe("Blocks copied; couldn't add Lunch — add them by hand or try again")
-    expect(r.carriedCount).toBe(2)
-    expect(log).toHaveBeenCalled()
-    expect(rows.special_day_slots.filter((s) => !s.activity_id)).toHaveLength(0)
-    log.mockRestore()
+  it('a copy is ONE IPC call carrying every block and cell, and no per-field writes', async () => {
+    await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+    expect(localClient.copySpecialDayBlocks).toHaveBeenCalledTimes(1)
+    const [{ specialDayId, blocks, cells }] = localClient.copySpecialDayBlocks.mock.calls[0]
+    expect(specialDayId).toBe(SD)
+    expect(blocks).toEqual([
+      { id: 'new-0', name: 'Carpool', sort_order: 0, start_time: '08:00', end_time: '08:40' },
+      { id: 'new-1', name: 'Lunch', sort_order: 1, start_time: '12:00', end_time: '12:40' },
+      { id: 'new-2', name: 'Swim', sort_order: 2, start_time: '13:00', end_time: '13:40' },
+    ])
+    expect(cells.map((c) => [c.groupId, c.blockId, c.activityId])).toEqual([['g1', 'new-0', 'a-carpool'], ['g2', 'new-0', 'a-carpool']])
+    expect(localClient.write).not.toHaveBeenCalled()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 
-  it('apply() reports a failure with the partial count and can be retried without duplicates', async () => {
+  it('Bring is also ONE call, with the cells and no blocks', async () => {
+    place()
+    const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+    await r.offer.apply()
+    expect(localClient.copySpecialDayBlocks).toHaveBeenCalledTimes(2)
+    const [{ blocks, cells }] = localClient.copySpecialDayBlocks.mock.calls[1]
+    expect(blocks).toEqual([])
+    expect(cells.map((c) => [c.groupId, c.blockId, c.activityId])).toEqual([['g2', 'new-2', 'a-gt']])
+    expect(localClient.write).not.toHaveBeenCalled()
+  })
+
+  it('a refused copy throws with nothing copied, so the caller can say so', async () => {
+    failWhen = () => true
+    const err = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD }).catch((e) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.seededCount).toBe(0)
+    expect(err.totalCount).toBe(3)
+    expect(rows.special_day_slots).toEqual([])
+  })
+
+  it('apply() reports a failure, writes nothing, and can be retried without duplicates', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {})
     place()
-    rows.fixed_events[1] = { ...rows.fixed_events[1], is_all_groups: 1, group_ids: '[]' }
     const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
-    let calls = 0
-    failWhen = (entity, _id, field) => entity === 'special_day_slots' && field === 'activity_id' && ++calls === 2
+    failWhen = () => true
     const first = await r.offer.apply()
-    expect(first.written).toBe(1)
-    expect(first.failure).toBe("Added 1 cell; couldn't add Group Time — try again")
+    expect(first).toEqual({ written: 0, failure: "Couldn't add those events \u2014 nothing was added, try again", notice: null })
+    expect(log).toHaveBeenCalled()
     failWhen = () => false
     const second = await r.offer.apply()
     expect(second).toEqual({ written: 1, failure: null, notice: null })
-    expect(rows.special_day_slots.filter((s) => s.time_block_id === 'new-2')).toHaveLength(2)
-    log.mockRestore()
-  })
-
-  it('logs a cleanup-delete failure with context', async () => {
-    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
-    failWhen = (entity, _id, field) => entity === 'special_day_slots' && field === 'activity_id'
-    localClient.deleteEntity.mockRejectedValue(new Error('boom'))
-    await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
-    expect(log.mock.calls.some((c) => String(c[0]).includes('cleanup'))).toBe(true)
+    expect(rows.special_day_slots.filter((s) => s.time_block_id === 'new-2')).toHaveLength(1)
     log.mockRestore()
   })
 
