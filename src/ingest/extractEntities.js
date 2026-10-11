@@ -114,8 +114,13 @@ export function canonicalDay(text) {
 // one-page-per-day layout. Returns null when the title names no day. Exported
 // so fixed-event detection spells day names identically to the entity proposal
 // by sharing this code rather than re-deriving it (the name-identity invariant).
+export function titleNamesDay(title, day) {
+  const t = day[0].toUpperCase() + day.slice(1)
+  return new RegExp(`(?<![A-Za-z])(?:${t}|${day.toUpperCase()}|${day})s?(?![a-z])`).test(String(title ?? ''))
+}
+
 export function dayNameFromTitle(title) {
-  const day = DAY_ORDER.find((d) => new RegExp(`\\b${d}\\b`).test(String(title ?? '').toLowerCase()))
+  const day = DAY_ORDER.find((d) => titleNamesDay(title, d))
   return day ? day[0].toUpperCase() + day.slice(1) : null
 }
 

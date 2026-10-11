@@ -258,6 +258,11 @@ describe('F3/F4 slice 4: resolveSpecialDayPlacement', () => {
     }
     expect(resolveSpecialDayPlacement({ texts: ['Tuesday-games.xlsx'], days, weeks: [{ id: 'w1' }], weekId: 'w1' }).placement).toEqual({ weekId: 'w1', dayId: 'dT' })
   })
+  it('underscore, digit and plural joined weekday names are still weekdays', () => {
+    for (const t of ['Tuesday_Games.xlsx', 'Tuesdays.xlsx', 'Day1_Tuesday', 'Tuesday2.xlsx']) {
+      expect(resolveSpecialDayPlacement({ texts: [t], days, weeks: [{ id: 'w1' }], weekId: 'w1' }).placement, t).toEqual({ weekId: 'w1', dayId: 'dT' })
+    }
+  })
   it('one week and none open -> that week', () => {
     expect(resolveSpecialDayPlacement({ texts: ['Tuesday games'], days, weeks: [{ id: 'w1' }], weekId: null }).placement).toEqual({ weekId: 'w1', dayId: 'dT' })
   })

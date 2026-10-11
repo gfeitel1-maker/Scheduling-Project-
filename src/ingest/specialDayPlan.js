@@ -17,7 +17,7 @@
 
 import { whitespaceInsensitiveName, normalizeName, activityNameKey } from './preview.js'
 import { mapWithCollisions } from './mapWithCollisions.js'
-import { dayNameFromTitle } from './extractEntities.js'
+import { dayNameFromTitle, titleNamesDay } from './extractEntities.js'
 
 const key = (s) => whitespaceInsensitiveName(String(s ?? ''))
 
@@ -173,7 +173,7 @@ export function resolveSpecialDayPlacement({ texts, days, weeks, weekId }) {
   const week = weeks.find((w) => w.id === weekId) ?? (weeks.length === 1 ? weeks[0] : null)
   const named = new Set()
   for (const t of texts ?? []) {
-    for (const d of WEEKDAYS) if (new RegExp(`\\b${d}\\b`, 'i').test(String(t ?? ''))) named.add(d)
+    for (const d of WEEKDAYS) if (titleNamesDay(t, d)) named.add(d)
   }
   if (named.size > 1) return { placement: null, flag: 'The file names more than one weekday, so the day was not placed.', dayId: '' }
   const printed = named.size ? dayNameFromTitle([...named][0]) : null
