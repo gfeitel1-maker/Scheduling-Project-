@@ -65,14 +65,22 @@ function feasibleWeek(seed) {
     const cap = Math.max(...[...share].filter(([k]) => k.startsWith(`${n}|`)).map(([, v]) => v))
     return act(n, { min_per_week: Math.min(...per), max_per_week: Math.max(...per), max_groups_per_slot: cap, eligible_group_ids: [...seen.get(n)] })
   })
-  return { groups, tiers: [{ id: 't1', name: 'Junior' }], days, timeBlocks, activities, fixedEvents: [], campId: `feasible-${seed}`, replacedDayIds: [] }
+  return { groups, tiers: [{ id: 't1', name: 'Junior' }], days, timeBlocks, activities, fixedEvents: [], campId: `feasible-${seed}`, replacedDayIds: [], _week: week }
 }
 
 describe('buildSchedule — a week built from a feasible schedule is filled again', () => {
   it('places every minimum on 1000 seeded weeks known to be feasible', () => {
     const misses = []
     for (let seed = 1; seed <= 1000; seed++) {
-      const { slots, findings } = buildSchedule(feasibleWeek(seed))
+      // Every fifth week locks each group's first cell to what the known schedule holds there: the
+      // repairs must never move a locked (preplaced) slot.
+      const input = feasibleWeek(seed)
+      const locks = seed % 5 === 0 ? input.groups.map((g) => ({ groupId: g.id, dayId: 'd0', blockId: 'b1', activityId: input._week.find((c) => c.g === g.id && c.d === 'd0' && c.b === 'b1').a })) : []
+      const { slots, findings } = buildSchedule({ ...input, preplacedSlots: locks })
+      for (const l of locks) {
+        const got = slots.find((x) => x.groupId === l.groupId && x.dayId === l.dayId && x.blockId === l.blockId)
+        if (got?.activityId !== l.activityId) misses.push(`${seed}: lock ${l.groupId} moved`)
+      }
       const short = findings.filter((f) => f.kind === 'UNDERSERVED')
       if (short.length) misses.push(`${seed}: ${short.map((f) => `${f.activityId}/${f.groupId} ${f.got}<${f.needed}`).join(', ')}`)
       const empty = slots.filter((x) => x.type === 'activity' && !x.activityId)

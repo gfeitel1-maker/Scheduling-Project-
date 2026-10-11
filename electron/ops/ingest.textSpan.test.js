@@ -59,3 +59,10 @@ describe('a weekly minimum of 0 the file itself shows is kept', () => {
     expect(activity('Kayak').min_per_week).toBe(1)
   })
 })
+
+describe('a file-shown 0 is not an obligation', () => {
+  it('gives a min-0 activity no obligation truth status', () => {
+    commit({ Volleyball: { eligible_group_names: ['Group 1'], min_per_week: 0, max_per_week: 3, min_from_file: true } })
+    expect(activity('Volleyball').recurrence_truth_status).not.toBe('obligation')
+  })
+})

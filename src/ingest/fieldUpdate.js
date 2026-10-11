@@ -69,8 +69,9 @@ export function foldApprovedToRecords(approved, activityRules, links, clears) {
       if (entity === 'activities') {
         const rule = activityRules?.[name]
         if (rule) {
-          // 0 passes through: the commit keeps it only when the file itself showed it (ingest.js).
-          if (Number.isInteger(rule.min_per_week) && rule.min_per_week >= 0 && !('min_per_week' in fields)) {
+          // A 0 passes through only when the file itself showed it (activityRules.js min_from_file).
+          const minOk = rule.min_per_week >= 1 || (rule.min_per_week === 0 && rule.min_from_file === true)
+          if (Number.isInteger(rule.min_per_week) && minOk && !('min_per_week' in fields)) {
             fields.min_per_week = rule.min_per_week
           }
           if (Number.isInteger(rule.max_per_week) && rule.max_per_week >= 1 && !('max_per_week' in fields)) {

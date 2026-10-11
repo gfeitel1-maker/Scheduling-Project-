@@ -7,7 +7,7 @@
 //   buildReconciliationReport -> foldTriageInputs -> commitIngest -> real SQLite ->
 //   buildSchedule (Generate) + capturePlacements/materializeImportedVersion (Manual from import)
 //
-// FINDINGS ONLY. This file asserts hard invariants (a crash, the T266 exclusivity invariant, a Keep
+// This file asserts hard invariants (a crash, the fill-again invariants below, the T266 exclusivity invariant, a Keep
 // re-import that writes, a Generate error finding) and RECORDS every quality metric without asserting it.
 // A hard invariant that fails today is listed in KNOWN_FAILING and runs under it.fails, so CI stays green
 // while the finding stays visible; the entry must be deleted the day the product is fixed (it.fails then
@@ -16,6 +16,11 @@
 // Glue (importUnanswered) mirrors electron/importDirectorPath.integration.test.js plus the division and
 // co-schedule inference ImportScreen runs before commit. Nothing here reimplements product logic: scope
 // resolution, overlap and span behaviour are read from the product modules.
+//
+// Scope limit: the glue is a hand-written copy of ImportScreen's plan assembly, so a green run says nothing
+// about ImportScreen branches it does not copy: an accepted trip's rule recompute (partlyClaimed), the
+// director's hand edits in the rule editor, and the trip review itself (a fresh camp has no week, so
+// planTripEvents offers nothing; see WHOLE_DAY_FOR_SOME).
 //
 // SYNTHETIC_ONLY=s05 runs one camp (debugging aid; the scorecard then holds only that camp).
 // Scorecard: written ONLY when asked. SHORESH_WRITE_SCORECARD=1 writes the tracked
@@ -435,13 +440,14 @@ function evaluateFaithful(m, d, id, imp) {
   let checked = 0
   let fileSessions = 0
   for (const act of input.activities) {
-    if (act.catalog_role === 'pinned_event' || !act.min_per_week) continue
+    // Every catalogue activity, a min-0 one included: eligibility and max still have to admit the file.
+    if (act.catalog_role === 'pinned_event') continue
     for (const g of input.groups) {
       const n = sessions(`${normalizeName(act.name)}|${normalizeName(g.name)}`, act.span_blocks ?? 1)
       const eligible = isActivityEligibleForGroup(act, g)
       checked++
       fileSessions += n
-      const why = n > 0 && !eligible ? 'ineligible' : eligible && n < act.min_per_week ? 'belowMin' : act.max_per_week != null && n > act.max_per_week ? 'aboveMax' : null
+      const why = n > 0 && !eligible ? 'ineligible' : eligible && n < (act.min_per_week ?? 0) ? 'belowMin' : act.max_per_week != null && n > act.max_per_week ? 'aboveMax' : null
       if (why) violations.push({ why, activity: act.name, group: g.name, file: n, min: act.min_per_week, max: act.max_per_week ?? null, eventKind: kind.get(normalizeName(act.name)) ?? null })
     }
   }
@@ -784,6 +790,12 @@ describe('the owner\'s camp and its variants fill again', () => {
     expect(evaluateFaithful(m, d, id, imp).first).toEqual([])
     d.prepare("UPDATE activities SET min_per_week = 9, max_per_week = 9 WHERE camp_id = ? AND name = 'Music'").run(id)
     expect(evaluateFaithful(m, d, id, imp).byWhy.belowMin).toBeGreaterThan(0)
+    // A max below what a group got, and an eligibility that leaves out a group the file shows.
+    d.prepare("UPDATE activities SET min_per_week = 1, max_per_week = 1 WHERE camp_id = ? AND name = 'Music'").run(id)
+    expect(evaluateFaithful(m, d, id, imp).byWhy.aboveMax).toBeGreaterThan(0)
+    const oneGroup = d.prepare('SELECT id FROM groups WHERE camp_id = ? LIMIT 1').get(id).id
+    d.prepare("UPDATE activities SET max_per_week = 9, eligible_group_ids = ? WHERE camp_id = ? AND name = 'Music'").run(JSON.stringify([oneGroup]), id)
+    expect(evaluateFaithful(m, d, id, imp).byWhy.ineligible).toBeGreaterThan(0)
     d.close()
   })
 })

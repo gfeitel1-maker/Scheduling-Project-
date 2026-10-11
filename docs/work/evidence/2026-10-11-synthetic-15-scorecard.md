@@ -279,7 +279,7 @@ Cause: `inferActivityRules` set `min_per_week` to the rounded average across gro
 
 Owner's acceptance criterion: "imagine that a camp imports a schedule - all things have been filled in. it would be reasonable to assume that when we generate it should be again". Last year's file is a feasible week, so two invariants are now hard, CI-failing assertions in the harness. Both run with zero answers and with every card confirmed.
 
-1. **Inference is faithful.** Every rule read from the file admits the file. For each group, the week's session count (a printed span counts once per run) lies within `[min_per_week, max_per_week]`. A group the file shows doing an activity is eligible for it, and each group's minimums fit in the cells the file gives it activities. A planted defect (Music raised to min 9) must be reported.
+1. **Inference is faithful.** Every rule read from the file admits the file. For each group, the week's session count (a printed span counts once per run) lies within `[min_per_week, max_per_week]`. A group the file shows doing an activity is eligible for it, and each group's minimums fit in the cells the file gives it activities. Planted defects must be reported: Music's min raised to 9 (belowMin), its max lowered to 1 (aboveMax), its eligibility narrowed to one group (ineligible). A min-0 activity is still checked for eligibility and max. The harness copies ImportScreen's plan assembly by hand, so it does not cover the accepted-trip rule recompute, the director's rule edits, or the trip review; its header says so.
 2. **Generate fills the week again.** Nothing is left short (`stillNeeded` 0) and no cell is left empty (`unfillable` 0).
 
 **The owner's camp (campB) and seven variants built from it** (`synthetic/campb-variants.mjs`: renamed groups, 8 and 24 groups, times +30 min, 4-day and 6-day weeks, an Aquarium Trip and a Games Day for some groups):
@@ -297,7 +297,7 @@ Owner's acceptance criterion: "imagine that a camp imports a schedule - all thin
 
 Each row has the same result with zero answers and with every card confirmed. Before this change, campB had 5 rule violations (Music and FBBG shown 4–5 times a week against an inferred max of 3).
 
-**Synthetic corpus:** still needed fell from 140 to 33 (the first fix above) and then to 8. The 8 are all s04's Games Day, which runs a whole day for 8 groups. A whole-day item for some groups is read as an event only when the camp has a schedule week to bind it to (`src/ingest/tripEvents.js`), and a camp's first import has none. So the name becomes a 9-block activity with no room around the inferred daily fixed events. That is a design question for the trips ADR, tracked as `KNOWN_FAILING` (it fails CI the day it is fixed).
+**Synthetic corpus:** still needed fell from 140 to 33 (the first fix above) and then to 8. The 8 are all s04's Games Day, which runs a whole day for 8 groups. A whole-day item for some groups is read as an event only when the camp has a schedule week to bind it to (`src/ingest/tripEvents.js`), and a camp's first import has none. So the name becomes a 9-block activity with no room around the inferred daily fixed events. **So the owner's goal is not yet met for a whole-day item for some groups on a camp's first import.** The fix (bind trips to the Week 1 the import creates, with the commit creating that week first, amending the trips ADR) is ruled and routed to the trips seam. It is tracked as `KNOWN_FAILING`, which fails CI the day it is fixed.
 
 What changed to get there:
 

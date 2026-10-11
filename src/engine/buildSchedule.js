@@ -853,7 +853,9 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   const MIN_REPAIR_BUDGET = 1500 // attempts per short (group, activity) or empty cell
   // Attempts across the whole week: an infeasible week (many cells nothing can fill) must
   // give up in bounded time rather than spend the per-item budget on every hopeless cell.
-  let repairWorkLeft = 20000 + 200 * openSlots.length
+  // Each pass gets its own share, so a week of hopeless minimums cannot starve the empty-cell pass.
+  const REPAIR_WORK_PER_PASS = 20000 + 200 * openSlots.length
+  let repairWorkLeft = REPAIR_WORK_PER_PASS
   const openSlotByKey = new Map(openSlots.map(s => [keyOf(s), s]))
   // Indexes so each search step reads one group's cells or one period's cells, not the week.
   const openSlotsByGroup = new Map()
@@ -997,6 +999,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   }
 
   function fillRepair() {
+    repairWorkLeft = REPAIR_WORK_PER_PASS
     for (const u of openSlots) {
       if (assigned.has(keyOf(u))) continue
       minRepairBudget = MIN_REPAIR_BUDGET
@@ -1008,6 +1011,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   function minRepair() {
     for (const act of activities) {
       for (const group of groups) {
+        if (!eligibility.get(act.id)?.has(group.id)) continue
         while (getCount(group.id, act.id) < getMin(act.id)) {
           minRepairBudget = MIN_REPAIR_BUDGET
           journal.length = 0
