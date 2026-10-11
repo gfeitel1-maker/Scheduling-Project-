@@ -1606,19 +1606,36 @@ export const mockShoresh = {
       }
     }
 
-    // Slice 3a — same authored-create shape every other mock entity uses
-    // (push a plain row), never elective_set_activities. Idempotent by
-    // verbatim name, same guard the real committer applies.
+    // Slice 3a / F6 — mirrors electron/ops/ingest.js commitElectiveCandidates:
+    // idempotent by NORMALIZED name, choices written as 'potential' join rows
+    // that reuse a matching activity (recognitionKey) or mint one.
     const electiveSetsCreated = []
     if (!dryRun) {
       if (!Array.isArray(state.elective_sets)) state.elective_sets = []
+      if (!Array.isArray(state.elective_set_activities)) state.elective_set_activities = []
+      if (!Array.isArray(state.activities)) state.activities = []
       for (const candidate of Array.isArray(confirmedElectiveSets) ? confirmedElectiveSets : []) {
         const name = String(candidate?.name ?? '').trim()
         if (!name) continue
-        if (state.elective_sets.some((r) => r.camp_id === campId && r.name === name)) continue
+        const key = normalizeName(name)
+        if (state.elective_sets.some((r) => r.camp_id === campId && normalizeName(r.name) === key)) continue
         const id = randomId()
         state.elective_sets.push({ id, camp_id: campId, name })
-        electiveSetsCreated.push({ id, name })
+        let choiceCount = 0
+        for (const raw of Array.isArray(candidate.choices) ? candidate.choices : []) {
+          const choiceName = String(raw ?? '').trim()
+          if (!choiceName) continue
+          const k = recognitionKey('activities', choiceName)
+          let activity = state.activities.find((a) => a.camp_id === campId && recognitionKey('activities', a.name) === k)
+          if (!activity) {
+            activity = { id: randomId(), camp_id: campId, name: choiceName }
+            state.activities.push(activity)
+          }
+          if (state.elective_set_activities.some((r) => r.elective_set_id === id && r.activity_id === activity.id)) continue
+          state.elective_set_activities.push({ id: randomId(), elective_set_id: id, activity_id: activity.id, status: 'potential', capacity_mode: 'unlimited', min_mode: 'none' })
+          choiceCount += 1
+        }
+        electiveSetsCreated.push({ id, name, choiceCount })
       }
     }
 
