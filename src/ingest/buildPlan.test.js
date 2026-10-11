@@ -465,3 +465,18 @@ describe('time block times from a 12-hour label with no AM/PM', () => {
     expect(fieldsFor('time_blocks', '07:00-07:45', 'c', 0, null)).toMatchObject({ start_time: '07:00', end_time: '07:45' })
   })
 })
+
+// Red Hat, PR #916 (gap C): "Not an event, treat as an activity" approves the name as a catalogue
+// activity. When the camp already has a live activity of that name, the plan recognizes it rather
+// than creating a second one.
+describe('"Not an event" for a name the camp already has as an activity', () => {
+  it('is recognized as unchanged, never a duplicate create', () => {
+    const plan = buildPlan(
+      { approved: { activities: ['Ruach'] }, camp_id: camp },
+      { activities: [{ id: 'a-ruach', name: 'ruach' }] },
+    )
+    expect(plan.items.filter((i) => i.entity === 'activities' || i.entity === undefined)).toHaveLength(1)
+    expect(plan.items[0].op).toBe('unchanged')
+    expect(plan.items[0].entity_id).toBe('a-ruach')
+  })
+})

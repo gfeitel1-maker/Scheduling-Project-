@@ -247,8 +247,9 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     eventsByAnswer.push(...(d.candidateEvents ?? []))
   }
   // A name the director called an activity is no longer claimed by an event.
-  const basePins = unpinnedNames.length
-    ? (baseInputs.pinOnlyActivityNames ?? []).filter((n) => !unpinnedNames.includes(normalizeName(n)))
+  const unpinned = unpinnedNames ?? []
+  const basePins = unpinned.length
+    ? (baseInputs.pinOnlyActivityNames ?? []).filter((n) => !unpinned.includes(normalizeName(n)))
     : baseInputs.pinOnlyActivityNames
   const pinOnlyActivityNames = pinnedByAnswer.length
     ? [...new Set([...(basePins ?? []), ...pinnedByAnswer])]
