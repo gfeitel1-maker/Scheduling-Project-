@@ -734,7 +734,7 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
         appendOp(db, { ...commonOp, field: 'camp_id', value: camp_id, client_write_id: randomUUID() })
         writeElectiveChoices(db, { setId: id, setName: name, choices: candidate.choices, camp_id, author_user_id, device_id, failed, createdEntities: mine })
       })
-      created.push({ id, name })
+      created.push({ id, name, choiceCount: mine.filter((e) => e.entity === 'elective_set_activities').length })
       createdEntities.push(...mine)
       liveNormalizedNames.add(key)
     } catch (err) {

@@ -1583,6 +1583,14 @@ describe('confirmedElectiveSets choices (F6 change 5)', () => {
     expect(db.prepare("SELECT activity_id FROM elective_set_activities LIMIT 100").all().map((r) => r.activity_id)).toContain(existing)
   })
 
+  it('reports how many choices each created set holds', () => {
+    const result = commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim', choices: ['Hiking', 'Fishing'] }, { name: 'Electives' }],
+    })
+    expect(result.electiveSetsCreated.map((c) => [c.name, c.choiceCount])).toEqual([['Chugim', 2], ['Electives', 0]])
+  })
+
   it('a bare word (no choices) is a set with zero choices', () => {
     commitIngest(db, { approved: {}, camp_id: campId, device_id: deviceId, confirmedElectiveSets: [{ name: 'Electives' }] })
     expect(count('elective_sets')).toBe(1)

@@ -233,7 +233,7 @@ function summaryOf(decision, answer) {
   if (decision.kind === 'name_kind' && answer.choice === 'fixed') return 'A fixed time'
   if (decision.kind === 'name_kind' && answer.choice === 'activity') return 'An activity Generate can schedule'
   if (answer.choice === 'skip') return 'Skipped — nothing written for this field'
-  if (decision.kind === 'elective_candidate' && answer.choice === 'confirm') return 'Empty elective set created'
+  if (decision.kind === 'elective_candidate' && answer.choice === 'confirm') return 'Kept as an elective — confirm or add its choices in Electives'
   if (decision.kind === 'elective_candidate' && answer.choice === 'decline') return 'Not an elective period — left as-is'
   if (answer.resolved) return 'Acknowledged'
   return 'Resolved'

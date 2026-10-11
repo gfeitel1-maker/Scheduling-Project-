@@ -821,7 +821,7 @@ function CommittedTray({ notices, leftOut, outcome, graceWindow, onNavigate, ans
   const reduced = prefersReducedMotion()
   const [showDetail, setShowDetail] = useState(false)
   const undoCapable = Array.isArray(outcome?.invertibleOps)
-  const versionLine = importedVersionLine(outcome?.version)
+  const versionLine = importedVersionLine(outcome?.version, (outcome?.electiveSetsCreated ?? []).reduce((n, c) => n + (c.choiceCount ?? 0), 0))
   const tray = commitTrayState({
     notices,
     leftOut,
