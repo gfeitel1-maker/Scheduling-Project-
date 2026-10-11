@@ -340,6 +340,12 @@ export function buildElectiveCandidates(source, existing) {
     (Array.isArray(source?.pinOnlyActivityNames) ? source.pinOnlyActivityNames : []).map((n) => normalizeName(n))
   )
 
+  const nameOf = (r) => String((r && typeof r === 'object' ? r.name : r) ?? '')
+  const groupOrTierKeys = new Set([
+    ...['groups', 'tiers'].flatMap((e) => Array.isArray(source?.approved?.[e]) ? source.approved[e] : []),
+    ...['groups', 'tiers'].flatMap((e) => Array.isArray(existing?.[e]) ? existing[e] : []),
+  ].map(nameOf).filter(Boolean).map((n) => normalizeName(n)))
+
   const shapeFindings = []
   for (const name of proposedActivityNames) {
     const key = normalizeName(name)
@@ -358,7 +364,9 @@ export function buildElectiveCandidates(source, existing) {
     // splittable cell is an elective period carrying its parts as choices; any
     // other list-like cell is one question whose unanswered default is one activity.
     const parts = strictSplit(name)
-    if (parts) {
+    // A list of this camp's own groups or divisions ("Cabin 1, Cabin 2,
+    // Cabin 3") is a who-list, not a choice of activities: ask, never split.
+    if (parts && !parts.some((p) => groupOrTierKeys.has(normalizeName(p)))) {
       shapeFindings.push({ detector: 'shape', band: 'inferred', sourceExcerpt: name, row: null, column: null, choices: parts })
     } else if (looksListLike(name)) {
       shapeFindings.push({ detector: 'list_question', band: 'inferred', sourceExcerpt: name, row: null, column: null, choices: looseSplit(name) })

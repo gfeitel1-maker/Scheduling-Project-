@@ -294,6 +294,10 @@ describe('buildElectiveCandidates (Slice 3a content-shape detector)', () => {
       const [c] = run('Hiking / Fishing / Kayaking / Orienteering / Bocce')
       expect(c).toMatchObject({ detector: 'shape', choices: ['Hiking', 'Fishing', 'Kayaking', 'Orienteering', 'Bocce'] })
     })
+    it('a list of the camp\'s own groups asks instead of splitting', () => {
+      const [c] = run('Cabin 1, Cabin 2, Cabin 3', { activities: [], groups: [{ name: 'Cabin 1' }, { name: 'Cabin 2' }] })
+      expect(c).toMatchObject({ detector: 'list_question' })
+    })
     it('an ambiguous list-like cell becomes one list_question candidate with loose choices', () => {
       const [c] = run('Arts/Crafts')
       expect(c).toMatchObject({ detector: 'list_question', sourceExcerpt: 'Arts/Crafts', choices: ['Arts', 'Crafts'] })
