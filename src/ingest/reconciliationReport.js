@@ -19,6 +19,7 @@ import { formatBlockTime12h } from './blockTimeText.js'
 import { describeAppearance } from './appearsAt.js'
 import { decisionTitle } from './decisionTitle.js'
 import { isMealName } from './eventKeptWhenUnanswered.js'
+import { unknownFieldsOnCreate } from './unknownOnCreate.js'
 
 // T257 — a group's `unit` delta may carry a discriminated token
 // ({kind, id?, name}) rather than a bare string. Director-facing copy
@@ -391,14 +392,8 @@ function unknownFieldsFor(entityId, unknownFieldEvidence) {
 // electron/ops/ingest.js commitCreate (priority: no 'high'/'low' in the rule; min_per_week:
 // floored, or inferred from zero appearances).
 function unknownFieldsForCreate(item) {
-  const rule = item._rule
-  if (!rule) return []
-  const out = []
-  if (rule.priority !== 'high' && rule.priority !== 'low') out.push('priority')
-  const fileShowsZero = rule.min_per_week === 0 && rule.min_from_file === true
-  const positive = Number.isInteger(rule.min_per_week) && rule.min_per_week >= 1
-  if (!fileShowsZero && (!positive || rule.support?.appearances === 0)) out.push('min_per_week')
-  return out
+  const names = Array.isArray(item._rule?.eligible_group_names) ? item._rule.eligible_group_names : []
+  return unknownFieldsOnCreate(item._rule, names.length)
 }
 
 export function buildReconciliationReport(input) {

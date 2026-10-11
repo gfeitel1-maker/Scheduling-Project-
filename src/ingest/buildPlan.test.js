@@ -290,6 +290,13 @@ describe('buildElectiveCandidates (Slice 3a content-shape detector)', () => {
     expect(plan.items.filter((i) => i.entity === 'activities').map((i) => i._name)).toEqual(['Archery'])
   })
 
+  it('an activity the director kept as ONE activity wins over a same-named held set (never silently dropped)', () => {
+    const plan = buildPlan({ approved: { activities: [{ name: 'Hiking / Fishing / Kayaking' }] }, camp_id: 'c1' }, {
+      activities: [{ id: 'a9', name: 'Hiking / Fishing / Kayaking', camp_id: 'c1' }], elective_sets: [{ name: 'Electives (Fishing, Hiking, Kayaking)' }],
+    })
+    expect(plan.items.filter((i) => i.entity === 'activities').map((i) => i._name)).toEqual(['Hiking / Fishing / Kayaking'])
+  })
+
   describe('D3 list cells', () => {
     const run = (name, existing = { activities: [] }) => buildElectiveCandidates({
       electiveHeaderFindings: [], activityPeriods: { [name.toLowerCase()]: [false] }, approved: { activities: [name] },

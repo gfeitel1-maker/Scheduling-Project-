@@ -120,7 +120,7 @@ describe('unknown fields', () => {
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={onNavigate} />)
 
     await screen.findByText(/0 of 0 question/)
-    expect(screen.getByText(/The file doesn.t say how important 2 activities are, so they count as low priority\./)).toBeTruthy()
+    expect(screen.getByText(/The file doesn.t say how important 2 activities are\. Any you keep count as low priority\./)).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: /Set them in Activities/ }))
     expect(onNavigate).toHaveBeenCalledWith('activities')
     expect(screen.queryByText(/Not enough information in the source/)).toBeNull()

@@ -1336,6 +1336,11 @@ describe('buildReconciliationReport — unknownFieldEvidence (per-field UNKNOWN 
     expect(report.unknownFields).toEqual({ priority: ['Art'], min_per_week: ['Drama'] })
   })
 
+  it('a create with no eligible group is not flagged for a weekly minimum (the commit floors only for some group)', () => {
+    const planItems = [{ op: 'create', entity: 'activities', entity_id: null, _name: 'Orphan', _rule: { priority: 'high', min_per_week: null, eligible_group_names: [] } }]
+    expect(buildReconciliationReport({ planItems, readiness: [] }).unknownFields).toEqual({ priority: [], min_per_week: [] })
+  })
+
   it('reports empty lists when nothing is unknown', () => {
     const report = buildReconciliationReport({ planItems: [], readiness: [] })
     expect(report.unknownFields).toEqual({ priority: [], min_per_week: [] })

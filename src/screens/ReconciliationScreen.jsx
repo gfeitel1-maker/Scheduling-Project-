@@ -709,15 +709,17 @@ function UnknownFieldFlags({ unknownFields, onNavigate }) {
   const lines = []
   const p = unknownFields?.priority?.length ?? 0
   const m = unknownFields?.min_per_week?.length ?? 0
-  if (p > 0) lines.push(`The file doesn’t say how important ${count(p)} ${p === 1 ? 'is' : 'are'}, so ${p === 1 ? 'it counts' : 'they count'} as low priority.`)
-  if (m > 0) lines.push(`The file doesn’t say how often ${count(m)} should run each week, so ${m === 1 ? 'it is' : 'they are'} scheduled once a week.`)
+  // Counts are what the FILE leaves out; an activity the director declines is never written, so the
+  // consequence is stated for the ones kept.
+  if (p > 0) lines.push(`The file doesn’t say how important ${count(p)} ${p === 1 ? 'is' : 'are'}. Any you keep count as low priority.`)
+  if (m > 0) lines.push(`The file doesn’t say how often ${count(m)} should run each week. Any you keep are scheduled once a week.`)
   if (lines.length === 0) return null
   return (
     <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
       {lines.map((text) => (
         <div key={text}>
-          <Flag tone="caution">{text}</Flag>{' '}
-          <button className="press-97" onClick={() => onNavigate?.('activities')} style={styles.linkButton}>Set them in Activities</button>
+          <Flag tone="caution">{text}</Flag>
+          {onNavigate && <>{' '}<button className="press-97" onClick={() => onNavigate('activities')} style={styles.linkButton}>Set them in Activities</button></>}
         </div>
       ))}
     </div>

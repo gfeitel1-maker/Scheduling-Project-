@@ -530,8 +530,12 @@ export function buildPlan(source, existing = null, resolutions = []) {
   // A list cell the camp already holds as an elective set (named after its choices, D3) is that set,
   // never an activity: an unchanged re-import must neither ask about it nor mint it.
   const heldSetKeys = new Set((Array.isArray(have?.elective_sets) ? have.elective_sets : []).map((r) => normalizeName(r?.name)).filter(Boolean))
+  // A live activity of that exact name (the director kept the cell as ONE activity) wins over the set.
+  const liveActivityNames = new Set((Array.isArray(have?.activities) ? have.activities : []).map((r) => normalizeName(r?.name)).filter(Boolean))
   const isHeldList = (rec) => {
-    const parts = strictSplit(String((rec && typeof rec === 'object' ? rec.name : rec) ?? ''))
+    const name = String((rec && typeof rec === 'object' ? rec.name : rec) ?? '')
+    if (liveActivityNames.has(normalizeName(name))) return false
+    const parts = strictSplit(name)
     return !!parts && heldSetKeys.has(normalizeName(listSetName(parts)))
   }
 
