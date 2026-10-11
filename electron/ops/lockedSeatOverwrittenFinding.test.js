@@ -159,13 +159,18 @@ describe('deriveLockedSeatOverwrittenFindings', () => {
     expect(row).toEqual({ source: 'manual', is_locked: 1, activity_id: 'act-archery' })
   })
 
-  it('Restore also closes the seat\'s own conflict cards on this device, which no projection would otherwise do', () => {
+  it('Restore closes the seat\'s conflict cards whose competing values it answered, on this device, and leaves the rest', () => {
     const db = committedRun()
     mergeLeft(db, { is_locked: 1, source: 'solver', activity_id: 'act-gaga', solver_generation: currentGen(db) })
     activityConflict(db)
+    const archeryChoice = db.prepare("SELECT id FROM elective_choices WHERE run_id = 'run-1' AND label = 'Archery'").get().id
     recordConflicts(db, [{
       entity: 'elective_assignments', entityId: SEAT, field: 'choice_id',
-      values: [{ opId: '8@lock', value: 'c-a' }, { opId: '8@solver', value: 'c-b' }],
+      values: [{ opId: '8@lock', value: archeryChoice }, { opId: '8@solver', value: 'c-b' }],
+    }])
+    recordConflicts(db, [{
+      entity: 'elective_assignments', entityId: SEAT, field: 'preference_rank',
+      values: [{ opId: '8@x', value: 7 }, { opId: '8@y', value: 8 }],
     }])
     recordConflicts(db, [{
       entity: 'elective_assignments', entityId: 'some-other-seat', field: 'activity_id',
@@ -174,11 +179,14 @@ describe('deriveLockedSeatOverwrittenFindings', () => {
     const pending = () => db.prepare(
       "SELECT entity_id, field FROM conflicts WHERE resolved_at IS NULL ORDER BY entity_id, field"
     ).all()
-    expect(pending()).toHaveLength(3)
+    expect(pending()).toHaveLength(4)
     expect(setElectiveAssignment(db, {
       runId: 'run-1', camperId: 'cam-1', occurrenceId: 'occ-1', activityId: 'act-archery', locked: true, deviceId: 'dev-1',
     }).ok).toBe(true)
-    expect(pending()).toEqual([{ entity_id: 'some-other-seat', field: 'activity_id' }])
+    expect(pending()).toEqual([
+      { entity_id: SEAT, field: 'preference_rank' },
+      { entity_id: 'some-other-seat', field: 'activity_id' },
+    ])
   })
 
   it('is exposed on getElectiveRun as lockedSeatFindings', () => {

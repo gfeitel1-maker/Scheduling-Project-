@@ -298,16 +298,24 @@ export function setElectiveAssignment(db, {
           author_user_id: authorUserId, device_id: deviceId, client_write_id: randomUUID(),
         })
       }
-      // T264 — this write sets every key above, and an Automerge put replaces
-      // every concurrent value of its key, so any pending merge conflict on
-      // this seat is answered by it. Nothing projects a local write, so without
-      // this the writer keeps showing cards for a disagreement it just ended
-      // (the other devices clear theirs when the write reaches them).
-      db.prepare(
-        `UPDATE conflicts SET resolved_at = ?
-          WHERE entity = 'elective_assignments' AND entity_id = ? AND resolved_at IS NULL
-            AND id LIKE 'crdt:%' AND field IN (${Object.keys(fields).map(() => '?').join(',')})`
-      ).run(new Date().toISOString(), assignmentId, ...Object.keys(fields))
+      // T264 — an Automerge put replaces every concurrent value of its key, and
+      // nothing projects a local write, so the writer would keep showing a card
+      // for a disagreement it just ended. Only a card this write answered is
+      // closed: the value written must be one of that card's competing values,
+      // otherwise the card is left for clearResolvedConflicts to judge.
+      const pending = db.prepare(
+        `SELECT id, field, incoming_op, existing_op FROM conflicts
+          WHERE entity = 'elective_assignments' AND entity_id = ? AND resolved_at IS NULL AND id LIKE 'crdt:%'`
+      ).all(assignmentId)
+      const closeCard = db.prepare('UPDATE conflicts SET resolved_at = ? WHERE id = ?')
+      const valueOf = (raw) => { try { return JSON.stringify(JSON.parse(raw)?.value ?? null) } catch { return undefined } }
+      for (const c of pending) {
+        if (!(c.field in fields)) continue
+        const written = JSON.stringify(fields[c.field] ?? null)
+        if ([c.incoming_op, c.existing_op].some((raw) => valueOf(raw) === written)) {
+          closeCard.run(new Date().toISOString(), c.id)
+        }
+      }
       // T320 item 3 — a genuine cross-occurrence MOVE (the destination id
       // differs from the source), inside the SAME transaction as the
       // destination write: either both land or neither does. Re-tombstoning
