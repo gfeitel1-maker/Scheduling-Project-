@@ -32,7 +32,7 @@ import { deriveElectiveImportId } from '../../src/ingest/electiveSetPopulate.js'
 import { writeRouteSnapshot, campCatalog } from './deleteRecord.js'
 import { attachNames } from '../../src/utils/snapshotRemap.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
-import { deriveElectiveSetId, deriveSpecialDayActivityId, deriveSpecialDayId, deriveSpecialDayTimeBlockId, deriveSpecialDaySlotId } from './electiveDerivedIds.js'
+import { deriveElectiveSetId, electiveChoiceLabelKey, deriveSpecialDayActivityId, deriveSpecialDayId, deriveSpecialDayTimeBlockId, deriveSpecialDaySlotId } from './electiveDerivedIds.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
 import { replaceOpenDecisionsForCommit, removeOpenDecisionsForImport } from './openReconciliationDecisions.js'
 import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.js'
@@ -685,14 +685,17 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
   // Loaded once and updated in-memory as this call creates rows, so two
   // same-period candidates (differing only by case) in the SAME
   // confirmedElectiveSets array are caught too, not just across calls.
+  // Keyed the way the derived set id is (T371): names that differ only in
+  // spacing share one id, so they must also count as one set here, or the
+  // second would overwrite the first's name.
   const liveNormalizedNames = new Set(
     db.prepare('SELECT name FROM elective_sets WHERE camp_id = ?').all(camp_id)
-      .map((r) => normalizeName(r.name))
+      .map((r) => electiveChoiceLabelKey(r.name))
   )
   for (const candidate of confirmedElectiveSets) {
     const name = String(candidate?.name ?? '').trim()
     if (!name) continue
-    const key = normalizeName(name)
+    const key = electiveChoiceLabelKey(name)
     if (liveNormalizedNames.has(key)) continue
     try {
       const id = deriveElectiveSetId(camp_id, name)

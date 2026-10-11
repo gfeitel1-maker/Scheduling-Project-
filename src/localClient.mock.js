@@ -1620,8 +1620,8 @@ export const mockShoresh = {
       for (const candidate of Array.isArray(confirmedElectiveSets) ? confirmedElectiveSets : []) {
         const name = String(candidate?.name ?? '').trim()
         if (!name) continue
-        const key = normalizeName(name)
-        if (state.elective_sets.some((r) => r.camp_id === campId && normalizeName(r.name) === key)) continue
+        const key = electiveChoiceLabelKey(name)
+        if (state.elective_sets.some((r) => r.camp_id === campId && electiveChoiceLabelKey(r.name) === key)) continue
         const id = deriveElectiveSetId(campId, name)
         state.elective_sets.push({ id, camp_id: campId, name })
         let choiceCount = 0

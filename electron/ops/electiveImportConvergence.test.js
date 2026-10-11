@@ -49,3 +49,17 @@ describe('T371 two devices import the same electives', () => {
     for (const t of [a, b]) { t.db.close(); if (fs.existsSync(t.file)) fs.unlinkSync(t.file) }
   })
 })
+
+describe('T371 names that share a derived id', () => {
+  it('two names differing only in spacing make one set, and the first name is not overwritten', () => {
+    const a = device('dev-a')
+    const out = commitIngest(a.db, {
+      approved: {}, camp_id: CAMP, device_id: 'dev-a',
+      confirmedElectiveSets: [{ name: 'Chug Im', choices: [] }, { name: 'ChugIm', choices: [] }],
+    })
+    expect(a.db.prepare('SELECT name FROM elective_sets').all().map((r) => r.name)).toEqual(['Chug Im'])
+    expect(a.db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'elective_sets' AND field = 'name'").get().c).toBe(1)
+    expect(out).toBeTruthy()
+    a.db.close(); if (fs.existsSync(a.file)) fs.unlinkSync(a.file)
+  })
+})
