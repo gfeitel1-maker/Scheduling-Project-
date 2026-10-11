@@ -298,7 +298,9 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
     try {
       const decisions = (report?.decisions ?? []).map((d) => (shownRef.current.has(d.id) ? { ...d, recallShown: true } : d))
       const answersForApply = mode === 'confirmedOnly'
-        ? Object.fromEntries(Object.entries(answers).filter(([id]) => decisions.some((d) => d.id === id && isDecisionResolvedFor(d, answers))))
+        // An accepted unknown-field flag ("Low is fine") is a confirmation the director made, not a
+        // decision, so it is always kept: the main exit is confirmedOnly whenever a question is open.
+        ? Object.fromEntries(Object.entries(answers).filter(([id]) => id.startsWith('unknown_fields:') || decisions.some((d) => d.id === id && isDecisionResolvedFor(d, answers))))
         : answers
       const inputs = foldTriageInputs(baseInputs, decisions, answersForApply)
       // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) — opt into

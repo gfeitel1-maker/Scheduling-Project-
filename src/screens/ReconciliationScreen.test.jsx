@@ -158,6 +158,29 @@ describe('unknown field dismissal', () => {
   })
 })
 
+describe('an accepted flag is committed through the normal exit', () => {
+  it('"Low is fine" then the main button, with a question still open, sends one confirm resolution per activity', async () => {
+    localClient.ingestReconcile.mockResolvedValue({
+      planItems: [
+        { op: 'unchanged', entity: 'activities', entity_id: 'a1', _name: 'Swim', fields: {}, evidence: { tier: 'exact_name' } },
+        { op: 'unchanged', entity: 'activities', entity_id: 'a2', _name: 'Art', fields: {}, evidence: { tier: 'exact_name' } },
+        { op: 'update', entity: 'activities', entity_id: 'a3', _name: 'Drama', fields: { min_per_week: { to: 2 } }, evidence: { tier: 'low' } },
+      ],
+      fixedEventsReport: {}, legacyPriorityActivities: [], fieldProvenance: {}, evidenceSupport: {},
+      unknownFieldEvidence: { 'a1:priority': true, 'a2:priority': true },
+    })
+    localClient.ingestCommit.mockResolvedValue({ created: {}, total: 0 })
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+    await userEvent.click(screen.getByRole('button', { name: 'Low is fine' }))
+    await userEvent.click(screen.getByRole('button', { name: /Use what Shoresh understood/ }))
+    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
+    const sent = localClient.ingestCommit.mock.calls.at(-1)[0].resolutions ?? []
+    expect(sent.filter((r) => r.reason === 'unknown_field').map((r) => [r.name, r.field, r.choice]).sort())
+      .toEqual([['Art', 'priority', 'confirm'], ['Swim', 'priority', 'confirm']])
+  })
+})
+
 describe('resolving a decision', () => {
   it('updates the done count and stages a confirmed decision, without writing anything (read-only reconciliation)', async () => {
     localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
