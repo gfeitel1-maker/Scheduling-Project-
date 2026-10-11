@@ -1384,8 +1384,8 @@ describe('per-field UNKNOWN evidence at import (2026-08-20 ADR)', () => {
     const minRow = evidenceRows('activities', activityId).find((r) => r.field === 'min_per_week')
     expect(minRow.tag).toBe('unknown')
 
-    // The activity would roll up to attention on the next reconciliation
-    // report build, not silently understood.
+    // The next reconciliation report names it in the unknown-field summary (one flag on the
+    // review screen), without asking a question.
     const unknownFieldEvidence = buildUnknownFieldEvidenceMap(db, campId, [
       { entity: 'activities', entity_id: activityId, op: 'unchanged', _name: 'Swim' },
     ])
@@ -1394,9 +1394,8 @@ describe('per-field UNKNOWN evidence at import (2026-08-20 ADR)', () => {
       readiness: [],
       unknownFieldEvidence,
     })
-    expect(report.buckets.needsAttention).toBe(1)
-    expect(report.decisions[0].unknownField).toBe(true)
-    expect(report.decisions[0].unknowns).toContain('min_per_week')
+    expect(report.decisions).toEqual([])
+    expect(report.unknownFields.min_per_week).toEqual(['Swim'])
   })
 
   it('negative case: an appearances>=1 activity that still rounds/floors to 1 stays "inferred" — a weak real inference, not noise', () => {

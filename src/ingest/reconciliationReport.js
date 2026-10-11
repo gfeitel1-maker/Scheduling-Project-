@@ -19,6 +19,7 @@ import { formatBlockTime12h } from './blockTimeText.js'
 import { describeAppearance } from './appearsAt.js'
 import { decisionTitle } from './decisionTitle.js'
 import { isMealName } from './eventKeptWhenUnanswered.js'
+import { unknownFieldsOnCreate } from './unknownOnCreate.js'
 
 // T257 — a group's `unit` delta may carry a discriminated token
 // ({kind, id?, name}) rather than a bare string. Director-facing copy
@@ -382,51 +383,17 @@ function unknownFieldsFor(entityId, unknownFieldEvidence) {
   return UNKNOWN_FIELD_CANDIDATES.filter((f) => unknownFieldEvidence.has(`${entityId}:${f}`))
 }
 
-// Applies the unknown-field pass over one activities planItem: augments an
-// existing decision on the row (any kind — a genuine create/change may
-// already have produced one) with `unknowns`/`unknownField`, or — if the row
-// was otherwise 'understood' (no decision, e.g. an 'unchanged' re-import) —
-// synthesizes a fresh confirm_value decision and moves the bucket count from
-// understood to needsAttention, since an unresolved unknown field is never
-// silently understood (ADR success predicate #2).
-function applyUnknownFields(item, unknownFields, decisionsByKey, buckets, activityEvidence) {
-  const id = decisionId(item.entity, item.entity_id, item.op, item._name)
-  const existing = decisionsByKey.get(id)
-  if (existing) {
-    decisionsByKey.set(id, {
-      ...existing,
-      unknownField: true,
-      unknowns: [...new Set([...(existing.unknowns ?? []), ...unknownFields])],
-    })
-    return
-  }
-  buckets.understood -= 1
-  buckets.needsAttention += 1
-  // The ADR wants the CURRENTLY COMMITTED value, not the plan's proposed
-  // delta. An update/clear item's `.to` is exactly that (the value this
-  // commit is about to write). An 'unchanged' item carries no `fields` at
-  // all (buildPlan's zero-op arm) — its own `_rule` (the same rule
-  // recomputed against the current source) is this pure function's only
-  // available stand-in for "what's live", since nothing differs from it by
-  // definition of 'unchanged'.
-  const committedValueFor = (field) => item.fields?.[field]?.to ?? item._rule?.[field] ?? null
-  const proposedValue = unknownFields.length === 1
-    ? committedValueFor(unknownFields[0])
-    : Object.fromEntries(unknownFields.map((f) => [f, committedValueFor(f)]))
-  decisionsByKey.set(id, {
-    id,
-    kind: 'confirm_value',
-    entity: item.entity,
-    entityId: item.entity_id,
-    entityName: item._name ?? null,
-    field: unknownFields[0], // primary field named, for the existing single-field UI
-    unknownField: true,
-    confidence: 'low',
-    proposedValue,
-    unknowns: unknownFields,
-    evidence: activitySupportFor(item, activityEvidence),
-    reason: 'Not enough information in the source to judge this field.',
-  })
+// No decision is ever synthesized or tagged for an unknown field: grids never state priority, so a
+// question per activity on every unchanged re-import was noise, and tagging a real create/change
+// with unknownField hid its decline button and turned its "Looks right" into a no-op. The review
+// shows one flag per field instead (ADR 2026-08-20, amendment 2026-10-11).
+
+// The fields a CREATE will commit as unknown — mirrors the tag:'unknown' evidence writes in
+// electron/ops/ingest.js commitCreate (priority: no 'high'/'low' in the rule; min_per_week:
+// floored, or inferred from zero appearances).
+function unknownFieldsForCreate(item) {
+  const names = Array.isArray(item._rule?.eligible_group_names) ? item._rule.eligible_group_names : []
+  return unknownFieldsOnCreate(item._rule, names.length)
 }
 
 export function buildReconciliationReport(input) {
@@ -473,11 +440,12 @@ export function buildReconciliationReport(input) {
   // planItems, independent of classifyItem's outcome — an activity's
   // min_per_week/priority can be "still unknown" regardless of whether this
   // row also has an ordinary create/update decision this run.
+  const unknownFieldNames = { priority: [], min_per_week: [] }
   for (const item of planItems) {
     if (item.entity !== 'activities') continue
-    const unknownFields = unknownFieldsFor(item.entity_id, unknownFieldEvidence)
+    const unknownFields = item.op === 'create' ? unknownFieldsForCreate(item) : unknownFieldsFor(item.entity_id, unknownFieldEvidence)
     if (unknownFields.length === 0) continue
-    applyUnknownFields(item, unknownFields, decisionsByKey, buckets, activityEvidence)
+    for (const f of unknownFields) unknownFieldNames[f].push(item._name)
   }
 
   // Rule 6: readiness rows with state 'optional' contribute to notInSource
@@ -823,6 +791,7 @@ export function buildReconciliationReport(input) {
     // fieldProvenance/evidenceSupport/blastRadiusIndex already use; existing
     // callers that ignore this field see byte-identical buckets/decisions.
     readiness,
+    unknownFields: unknownFieldNames,
     meta: { generatedAt: now, planItemCount: planItems.length },
   }
 }

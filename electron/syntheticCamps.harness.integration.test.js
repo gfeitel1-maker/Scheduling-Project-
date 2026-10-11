@@ -54,6 +54,7 @@ import { inferCoScheduleRules } from '../src/ingest/coScheduleRules.js'
 import { proposeSpecialDay } from '../src/ingest/specialDayFile.js'
 import { buildSpecialDayPlan } from '../src/ingest/specialDayPlan.js'
 import { foldTriageInputs, heldBackDecisions } from '../src/screens/reconciliationTriage.js'
+import { decisionTitle } from '../src/ingest/decisionTitle.js'
 import { resolvePriorityForGeneration } from '../src/ingest/resolvePriorityForGeneration.js'
 import { resolveFixedEventGroupIds, resolveFixedEventDayIds } from '../src/engine/fixedEventScope.js'
 import { computeOverlaps } from '../src/utils/computeOverlaps.js'
@@ -87,7 +88,8 @@ const FILLS_ALL = 'confirm all: Generate fills the week again (nothing short, no
 // schedule week to bind it to (src/ingest/tripEvents.js planTripEvents), and a camp's first import has
 // none: the name becomes a day-long span activity that the inferred daily fixed events leave no room for.
 const WHOLE_DAY_FOR_SOME = [`s04-by-day-6day-large:${FILLS_ZERO}`, `s04-by-day-6day-large:${FILLS_ALL}`]
-const KNOWN_FAILING = new Set(WHOLE_DAY_FOR_SOME)
+const KEEP_ASKS_NOTHING = 'Keep re-import after Replace asks no question at all, none to add an existing activity, and writes nothing'
+const KNOWN_FAILING = new Set([...WHOLE_DAY_FOR_SOME])
 
 const results = {}
 const startedAt = Date.now()
@@ -705,6 +707,22 @@ async function runCamp(m) {
     const repl = safe(() => importFile(zero.d, zero.id, text, { mode: 'replace' }))
     const cpu = process.cpuUsage(c0)
     rec.reimportReplace = { ok: repl.ok, cpuMs: Math.round((cpu.user + cpu.system) / 1000), ...(repl.ok ? { held: repl.value.committed.held, counts: tableCounts(zero.d) } : { error: repl.error }) }
+    // Final audit (campB): Keep after Replace of the same file asked to "Add Sports as an activity"
+    // for names the camp already had.
+    const liveActivityKeys = new Set(zero.d.prepare('SELECT name FROM activities WHERE camp_id = ?').all(zero.id).map((r) => normalizeName(r.name)))
+    const keep2Before = tableCounts(zero.d)
+    const keep2 = safe(() => importFile(zero.d, zero.id, text, { mode: 'add' }))
+    const keep2After = tableCounts(zero.d)
+    rec.keepAfterReplace = keep2.ok
+      ? {
+          ok: true,
+          questionsAsked: keep2.value.report.decisions.map((dec) => `${dec.kind}: ${dec.entityName ?? dec.entity}`),
+          createQuestionsForExisting: keep2.value.report.decisions
+            .filter((dec) => /^Add /.test(decisionTitle(dec, { placements: keep2.value.placements, allGroupNames: keep2.value.proposal.entities.groups ?? [] }) ?? '') && liveActivityKeys.has(normalizeName(dec.entityName)))
+            .map((dec) => dec.entityName),
+          newRecords: Object.fromEntries(Object.keys(keep2Before).map((k) => [k, keep2After[k] - keep2Before[k]]).filter(([, n]) => n !== 0)),
+        }
+      : { ok: false, error: keep2.error }
   }
   zero.d.close()
 
@@ -907,6 +925,9 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
     })
     hard('re-import with Keep writes zero new records', (r) => {
       expect(r.reimportKeep).toEqual({ ok: true, newRecords: {} })
+    })
+    hard(KEEP_ASKS_NOTHING, (r) => {
+      expect(r.keepAfterReplace).toEqual({ ok: true, questionsAsked: [], createQuestionsForExisting: [], newRecords: {} })
     })
     hard('re-import with Replace completes', (r) => {
       expect(r.reimportReplace?.ok).toBe(true)

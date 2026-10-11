@@ -366,3 +366,26 @@ Cross-checked against what this design touches:
 3. **UI copy for `unknownField: true`** ("we couldn't tell" vs. a generic proposed-value card) is
    a Designer call, not architecture — flagging so it isn't dropped between this ADR and a Maker
    brief.
+
+## Amendment 2026-10-11: one flag, not a question per activity
+
+**Why.** Grids never state priority, so every Keep re-import of an unchanged file synthesized one `confirm_value`
+question per activity ("Not enough information in the source to judge this field."). On the synthetic corpus a
+single unchanged re-import asked 14 such questions. The keeper ruled (delegated owner authority), quote: "A. One
+flag, not N questions, with a link into Activities. Amend the ADR. Fix (1) in the same PR. Red-first; the harness
+stage asserts a Keep re-import of an unchanged file asks 0 questions."
+
+**What changed (the review surface only).**
+- `buildReconciliationReport` no longer synthesizes a decision for an unknown field, and no longer moves a row from
+  understood to needs-attention for one. An existing decision on the row may still carry `unknowns` (augment only).
+- The report returns `unknownFields: { priority: [names], min_per_week: [names] }`. It covers existing activities
+  (from `unknownFieldEvidence`) and activities this import creates (mirroring the `tag: 'unknown'` writes in
+  `commitCreate`: no `high`/`low` priority in the rule; `min_per_week` floored or inferred from zero appearances), so
+  the first import flags too.
+- `ReconciliationScreen` shows one flag per field ("The file doesn't say how important N activities are, so they
+  count as low priority.") with a "Set them in Activities" link to the `activities` screen. Nothing to answer,
+  nothing blocks commit.
+
+**What did not change.** `import_evidence` writes, `buildUnknownFieldEvidenceMap`, the self-healing rule (a human
+edit clears the unknown), and the Roots state are exactly as before. Decisions 1-2 and 5 stand; decisions 3-4 now
+describe the summary rather than a synthesized decision.

@@ -1083,6 +1083,8 @@ export const mockShoresh = {
       return existing
     }
     const existing = buildSnapshot()
+    // Same as the real buildExistingSnapshot: the camp's elective sets, every mode.
+    existing.elective_sets = (state.elective_sets || []).filter((r) => r.camp_id === campId).map((r) => ({ name: r.name }))
 
     // S2c §1: fold the rule/unit side-channels into per-row records at this
     // boundary (shared with electron), so buildPlan sees only records. `links`/

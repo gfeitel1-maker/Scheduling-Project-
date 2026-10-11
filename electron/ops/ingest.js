@@ -28,6 +28,7 @@ import { activityTruthStatus } from '../../src/ingest/truthStatus.js'
 import { resolveLocationCreateId } from './locationCreate.js'
 import { deriveDayId } from './dayId.js'
 import { PROJECTIONS } from './projections.js'
+import { unknownFieldsOnCreate } from '../../src/ingest/unknownOnCreate.js'
 import { resolveSpecialDayName } from '../../src/ingest/specialDayPlan.js'
 import { defaultWeekId, defaultWeekFields } from '../../src/ingest/defaultWeek.js'
 import { deriveElectiveImportId } from '../../src/ingest/electiveSetPopulate.js'
@@ -599,6 +600,9 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
   // it too (mirrors the pre-M4 `mode === 'replace' ? null : ...` behavior for
   // the six schedule-content entities — aliases target those, not locations).
   existing.aliases = mode === 'replace' ? {} : listAliasMap(db, camp_id, cohort_id)
+  // Elective sets survive every mode (Replace never deletes them), so the plan can see a list the camp
+  // already holds and not propose it again (ADR 2026-10-11 electives, re-import).
+  existing.elective_sets = db.prepare('SELECT name FROM elective_sets WHERE camp_id = ?').all(camp_id)
   return existing
 }
 
@@ -1662,7 +1666,6 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         if (Number.isInteger(rule.min_per_week) && rule.min_per_week >= 1) fields.min_per_week = rule.min_per_week
         if (Number.isInteger(rule.max_per_week) && rule.max_per_week >= 1) fields.max_per_week = rule.max_per_week
         if (rule.priority === 'high' || rule.priority === 'low') fields.priority = rule.priority
-        else priorityUnknown = true
         // F5: a multi-block span read from the file (src/ingest/textSpans.js) — the engine
         // places span_blocks consecutive blocks as one session.
         if (Number.isInteger(rule.span_blocks) && rule.span_blocks >= 2) fields.span_blocks = rule.span_blocks
@@ -1683,7 +1686,6 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         if (fileShowsZero) fields.min_per_week = 0
         else if (groupIds.length > 0 && !(Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1)) {
           fields.min_per_week = 1
-          minPerWeekUnknown = true
         }
         // Review round follow-up: inferActivityRules (src/ingest/activityRules.js)
         // ALSO floors min_per_week to 1 for a never-observed activity, so
@@ -1693,9 +1695,10 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // the exact, narrow signal for "no observation basis at all"; an
         // activity observed at least once (appearances>=1) that merely rounds
         // below 1 is a legitimate weak inference and stays 'inferred'.
-        if (rule.support?.appearances === 0 && Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1) {
-          minPerWeekUnknown = true
-        }
+        // Which fields this create commits as unknown: ONE rule shared with the review flag.
+        const unknown = unknownFieldsOnCreate(rule, groupIds.length)
+        priorityUnknown = unknown.includes('priority')
+        minPerWeekUnknown = unknown.includes('min_per_week')
 
         // T114 follow-up — co-schedule inference (src/ingest/coScheduleRules.js),
         // arriving on its own sub-object so its `support` cannot collide with the

@@ -8,6 +8,7 @@
 import { applyResolutions } from './reconciliationResolutions.js'
 import { normalizeName } from '../ingest/preview.js'
 import { markElectivePlacements } from '../ingest/capturePlacements.js'
+import { listSetName, listKey, uniqueChoices } from '../ingest/electiveSetName.js'
 import { describeWriteFailure } from '../utils/writeErrorMessage.js'
 import { ALIAS_COHORT_SCOPED } from './importAliasScope.js'
 import { normalizeWordKey } from '../utils/normalizeWordKey.js'
@@ -303,12 +304,8 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
 function nameListSets(listCells) {
   const byList = new Map()
   for (const { cell, choices } of listCells) {
-    const unique = []
-    const seen = new Set()
-    for (const c of choices) if (!seen.has(normalizeName(c))) { seen.add(normalizeName(c)); unique.push(c) }
-    const sorted = [...unique].sort((x, y) => normalizeName(x).localeCompare(normalizeName(y)))
-    const key = sorted.map(normalizeName).join('|')
-    if (!byList.has(key)) byList.set(key, { name: `Electives (${sorted.join(', ')})`, choices: unique, cellTexts: [] })
+    const key = listKey(choices)
+    if (!byList.has(key)) byList.set(key, { name: listSetName(choices), choices: uniqueChoices(choices), cellTexts: [] })
     byList.get(key).cellTexts.push(cell)
   }
   return [...byList.values()]

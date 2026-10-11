@@ -66,3 +66,9 @@ describe('decisionTitle says what will happen (audit 714 item 2)', () => {
     expect(report.decisions[0].title).toBe('Add Carpool as an activity for every group at 8:40 AM and 3:40 PM?')
   })
 })
+
+describe('a real create keeps its create title (no unknown-field question exists any more, ADR 2026-08-20 amendment)', () => {
+  it('Add …, with groups and times', () => {
+    expect(decisionTitle(decision(), ctx)).toBe('Add Carpool as an activity for every group at 8:40 AM and 3:40 PM?')
+  })
+})
