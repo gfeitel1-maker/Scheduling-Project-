@@ -46,6 +46,17 @@ describe('a kept field is not written; the row’s other changes are', () => {
     expect(swim()).toEqual({ min_per_week: 2, max_per_week: 3 })
   })
 
+  it('a mixed answer keeps min_per_week and takes the file’s max_per_week', () => {
+    seed()
+    const res = commit({
+      approved: { activities: ['Swim'] },
+      activityRules: rule(2, 4),
+      resolutions: [{ entity: 'activities', name: 'Swim', field: 'min_per_week', reason: 'stale', choice: 'keep' }],
+    })
+    expect(res.held).toBe(false)
+    expect(swim()).toEqual({ min_per_week: 1, max_per_week: 4 })
+  })
+
   it('without the resolution both fields change (the control)', () => {
     seed()
     commit({ approved: { activities: ['Swim'] }, activityRules: rule(2, 4) })

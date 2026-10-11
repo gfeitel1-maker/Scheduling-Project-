@@ -54,6 +54,7 @@ function outcomeFor(decision, answer) {
   if (decision.kind === 'confirm_value') {
     // 'looks_right' took the proposal; 'edited' (Don't add / Keep mine) declined it; "not an event" reclassified it.
     if (answer.action === 'looks_right') return OUTCOMES.ACCEPTED
+    if (answer.action === 'mixed') return OUTCOMES.CHANGED
     if (answer.action === 'edited') return answer.notAnEvent === true ? OUTCOMES.CHANGED : OUTCOMES.REJECTED
     return OUTCOMES.UNANSWERED
   }

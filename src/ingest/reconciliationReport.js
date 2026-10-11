@@ -210,6 +210,9 @@ function classifyItem(item, fieldProvenance, activityEvidence) {
         field: fields, // dedup-by-root-cause: one decision per row, every changed field listed
         confidence,
         proposedValue,
+        currentValue: fields.length === 1
+          ? displayValue(fields[0], item.fields[fields[0]].from ?? null)
+          : Object.fromEntries(fields.map((f) => [f, displayValue(f, item.fields[f].from ?? null)])),
         unknowns: [], // C1 does not build UNKNOWN-field detection — deferred, see module doc
         evidence: activitySupportFor(item, activityEvidence),
         reason: item.reason ?? null,
