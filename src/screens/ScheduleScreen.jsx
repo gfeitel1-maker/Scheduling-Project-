@@ -64,7 +64,7 @@ const SILENCE_DNDKIT_ANNOUNCEMENTS = {
   onDragCancel: () => undefined,
 }
 
-export default function ScheduleScreen({ campId, role, onNavigate, initialRoute }) {
+export default function ScheduleScreen({ campId, role, onNavigate, initialRoute, openVersionName, onOpenVersionHandled }) {
   // Which route is on screen is driven by the sidebar entry the director
   // clicked (App.jsx SCREENS -> 'schedule:manual' / 'schedule:generated'). The
   // neutral 'schedule' entry passes nothing and lands on the first-run choice
@@ -392,6 +392,47 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     groups, activities, days, timeBlocks, fixedEvents, events: eventsAll, electiveSets: electiveSetsAll, weekId, replacedDayIds,
     activityExclusions, groupExclusions, locationExclusions,
   })
+
+  // Post-import "Open it in Manual": restore the named imported version through
+  // the ordinary restore path (which keeps the current week as an automatic
+  // version first). A Manual that already has placements asks before replacing.
+  const [openVersionConfirm, setOpenVersionConfirm] = useState(null)
+  const openVersionStarted = useRef(false)
+  const finishOpenVersion = () => { setOpenVersionConfirm(null); onOpenVersionHandled?.() }
+  // The route's versions arrive a moment after `loading` clears, so a missing version is only
+  // reported once nothing has turned up for a few seconds; finding it cancels that.
+  const openVersionMissingTimer = useRef(null)
+  useEffect(() => { openVersionStarted.current = false }, [openVersionName])
+  useEffect(() => () => clearTimeout(openVersionMissingTimer.current), [])
+  useEffect(() => {
+    if (!openVersionName || loading || route !== 'manual' || openVersionStarted.current) return
+    // Snapshots are newest-first, so a re-imported file's newest version wins.
+    const snap = routeState.snapshots.find((s) => s.name === openVersionName)
+    if (!snap) {
+      if (!openVersionMissingTimer.current) {
+        openVersionMissingTimer.current = setTimeout(() => {
+          openVersionMissingTimer.current = null
+          if (openVersionStarted.current) return
+          openVersionStarted.current = true
+          setActionError(`Couldn't find the version "${openVersionName}". Open Versions to pick one.`)
+          finishOpenVersion()
+        }, 3000)
+      }
+      return
+    }
+    clearTimeout(openVersionMissingTimer.current)
+    openVersionMissingTimer.current = null
+    openVersionStarted.current = true
+    if (routeState.slotsByRoute.manual.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setOpenVersionConfirm(snap)
+      return
+    }
+    restoreSnapshot(snap)
+      .catch((err) => { console.error("open imported version failed", err); setActionError(`Couldn't open "${openVersionName}". Try Versions.`) })
+      .finally(finishOpenVersion)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openVersionName, loading, route, routeState.snapshots])
 
   // Week mutation orchestration: create/rename/archive/unarchive/duplicate/delete.
   const weeksHook = useWeeks({
@@ -1502,6 +1543,25 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           onChoose={r => { setExportChoosing(false); exportRoute(r, exportFormat) }}
           onCancel={() => setExportChoosing(false)}
         />
+      )}
+
+      {openVersionConfirm && (
+        <div style={S.overlay}>
+          <div style={{ ...S.modalLg, maxWidth: 420 }}>
+            <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Open last year&apos;s schedule in Manual?</div>
+            <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 20 }}>
+              Your current Manual schedule is saved as a version first.
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="press-97" onClick={finishOpenVersion} style={S.btnSecondary}>Cancel</button>
+              <button
+                className="press-97"
+                onClick={() => { const snap = openVersionConfirm; setOpenVersionConfirm(null); restoreSnapshot(snap).finally(finishOpenVersion) }}
+                style={S.btnPrimary}
+              >Open it</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Regen confirm */}

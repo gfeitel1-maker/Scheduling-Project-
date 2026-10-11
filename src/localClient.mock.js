@@ -985,7 +985,7 @@ export const mockShoresh = {
   // off localStorage on every call (never a live reference), so skipping the
   // final saveState() is sufficient to discard every mutation this run made —
   // CLONE-RUN-DISCARD without a second copy step.
-  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions, openDecisions } = {}) {
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, sourceFileName, compoundCellDecisions, openDecisions } = {}) {
     const state = loadState()
     if (!state.camp) throw new Error('ingest: no camp')
     // U1 Invariant 3 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) —
@@ -1659,15 +1659,16 @@ export const mockShoresh = {
         const unresolvedItems = describeUnresolved(unresolved, (state.time_blocks ?? []).filter((b) => b.camp_id === campId))
         if (slots.length > 0) {
           const snapshotId = randomId()
+          const versionName = sourceFileName ? `Imported from ${sourceFileName}` : 'Imported schedule'
           state.schedule_snapshots.push({
             id: snapshotId,
             template_id: template.id,
-            name: 'Imported schedule',
+            name: versionName,
             is_auto: false,
             created_at: new Date().toISOString(),
             slots: JSON.stringify(slots),
           })
-          version = { created: true, snapshotId, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
+          version = { created: true, snapshotId, versionName, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
         } else {
           version = { created: false, snapshotId: null, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
         }

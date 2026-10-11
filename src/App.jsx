@@ -188,6 +188,9 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // a pre-selection, carried the same way electiveFocusSetId/eventFocusId
   // carry their own drill-in targets. `{ type: 'day'|'event', id }`.
   const [specialScheduleFocus, setSpecialScheduleFocus] = useState(null)
+  // Post-import "Open it in Manual": the imported version's name, carried to
+  // Manual Build, which restores it and then clears this.
+  const [openVersionName, setOpenVersionName] = useState(null)
   // Every in-session navigation goes through this: it clears any carried
   // drill-in focus once the director leaves the screen it targets. Clearing
   // at the navigation edge (rather than in an effect keyed on `screen`)
@@ -204,6 +207,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
     if (target !== 'schedule:special') setSpecialScheduleFocus(null)
     if (opts?.specialDayId) setSpecialScheduleFocus({ type: 'day', id: opts.specialDayId })
     if (opts?.buildEventId) setSpecialScheduleFocus({ type: 'event', id: opts.buildEventId })
+    setOpenVersionName(target === 'schedule:manual' ? opts?.openVersionName ?? null : null)
     setScreen(next)
   }
   // Single instance of the pending-conflicts source for this whole shell —
@@ -457,6 +461,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
         ...(resolvedScreen === 'schedule:electives' ? { initialElectiveSetId: electiveFocusSetId } : {}),
         ...(resolvedScreen === 'activities' && newActivityName ? { initialNewName: newActivityName } : {}),
         ...(resolvedScreen === 'specialevents' ? { initialFocus: specialEventsFocus } : {}),
+        ...(resolvedScreen === 'schedule:manual' && openVersionName ? { openVersionName, onOpenVersionHandled: () => setOpenVersionName(null) } : {}),
         ...(resolvedScreen === 'schedule:special' ? { initialSelection: specialScheduleFocus } : {}),
         ...(EVENT_KIND_BY_SCREEN[resolvedScreen] ? { kind: EVENT_KIND_BY_SCREEN[resolvedScreen] } : {}),
         ...(resolvedScreen === 'reconciliation' ? { entry: 'openDecisions' } : {}),

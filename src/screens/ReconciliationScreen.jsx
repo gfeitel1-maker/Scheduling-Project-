@@ -1,3 +1,4 @@
+import { importedVersionLine } from '../ingest/importedVersionLine'
 import { useEffect, useRef, useState } from 'react'
 import { localClient } from '../localClient'
 import { journalEntriesFor } from '../ingest/decisionJournal.js'
@@ -691,6 +692,7 @@ function CommittedTray({ notices, leftOut, outcome, graceWindow, onNavigate }) {
   const reduced = prefersReducedMotion()
   const [showDetail, setShowDetail] = useState(false)
   const undoCapable = Array.isArray(outcome?.invertibleOps)
+  const versionLine = importedVersionLine(outcome?.version)
   const tray = commitTrayState({
     notices,
     leftOut,
@@ -720,6 +722,15 @@ function CommittedTray({ notices, leftOut, outcome, graceWindow, onNavigate }) {
       <div style={contentEnter}>
         {notices.length > 0 && (
           <div style={styles.understoodRow}>{notices.join(' ')}</div>
+        )}
+
+        {versionLine && (
+          <div style={styles.understoodRow} role="status">
+            <span>{versionLine.text}</span>{' '}
+            <button className="press-97" onClick={() => onNavigate?.('schedule:manual', { openVersionName: versionLine.versionName })} style={styles.linkButton}>
+              Open it in Manual
+            </button>
+          </div>
         )}
 
         {leftOut && (

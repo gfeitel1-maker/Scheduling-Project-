@@ -1755,3 +1755,93 @@ describe('empty route with saved versions (packaged audit 714d1b32 item 7)', () 
     expect(screen.queryByRole('button', { name: /Versions/ })).toBeNull()
   })
 })
+
+// Post-import "Open it in Manual": an import saves last year's schedule as a
+// named version and never fills the grid. The result screen's action lands the
+// director on Manual with that version restored through the ordinary restore
+// path, which keeps the week being replaced as an automatic version first.
+describe('ScheduleScreen: open an imported version in Manual', () => {
+  const MANUAL_TEMPLATE = 'schedule-template:camp-1:manual'
+  const VERSION = 'Imported from campB.txt'
+  const importedSlots = JSON.stringify([
+    { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-restored', fixed_event_id: null, is_fixed_event: false, flags: {} },
+  ])
+  function mockManual({ withSlot, snapshotSlots = importedSlots }) {
+    mockList({
+      schedule_templates: [{ id: MANUAL_TEMPLATE, camp_id: CAMP_ID, name: '', kind: 'manual', week_id: CAMP_ID }],
+      template_slots: withSlot ? [slotRow({ template_id: MANUAL_TEMPLATE })] : [],
+      schedule_snapshots: [
+        { id: 'snap-imp', template_id: MANUAL_TEMPLATE, name: VERSION, is_auto: false, created_at: '2026-01-01T00:00:00.000Z', slots: snapshotSlots },
+      ],
+      activities: [activity(), activity({ id: 'act-restored', name: 'Arts & Crafts' })],
+    })
+  }
+  const open = (onHandled = () => {}) =>
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="manual" openVersionName={VERSION} onOpenVersionHandled={onHandled} />)
+
+  it('restores the version into an empty Manual with no confirmation, keeping an automatic version first', async () => {
+    mockManual({ withSlot: false })
+    const onHandled = vi.fn()
+    open(onHandled)
+
+    await waitFor(() => {
+      expect(localClient.bulkReplace).toHaveBeenCalledWith(
+        'token-abc', 'template_slots', MANUAL_TEMPLATE,
+        expect.arrayContaining([expect.objectContaining({ activity_id: 'act-restored' })])
+      )
+    })
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'is_auto', true)
+    expect(screen.queryByText(/saved as a version first/)).toBeNull()
+    await waitFor(() => expect(onHandled).toHaveBeenCalled())
+  })
+
+  // Code review of #921: a missing version left the click doing nothing at all.
+  it('says so when the imported version is no longer there, and finishes', async () => {
+    mockList({
+      schedule_templates: [{ id: MANUAL_TEMPLATE, camp_id: CAMP_ID, name: '', kind: 'manual', week_id: CAMP_ID }],
+      template_slots: [],
+      schedule_snapshots: [],
+      activities: [activity()],
+    })
+    const onHandled = vi.fn()
+    open(onHandled)
+    expect(await screen.findByText(/Couldn't find the version "Imported from campB\.txt"/, undefined, { timeout: 6000 })).toBeTruthy()
+    await waitFor(() => expect(onHandled).toHaveBeenCalled())
+    expect(localClient.bulkReplace).not.toHaveBeenCalled()
+  })
+
+  it('asks first when Manual already has placements, and never restores until confirmed', async () => {
+    mockManual({ withSlot: true })
+    open()
+
+    await waitFor(() => expect(screen.getByText('Your current Manual schedule is saved as a version first.')).toBeTruthy())
+    expect(localClient.bulkReplace).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open it' }))
+    await waitFor(() => {
+      expect(localClient.bulkReplace).toHaveBeenCalledWith(
+        'token-abc', 'template_slots', MANUAL_TEMPLATE,
+        expect.arrayContaining([expect.objectContaining({ activity_id: 'act-restored' })])
+      )
+    })
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'is_auto', true)
+  })
+
+  it('cancelling the confirmation leaves Manual untouched', async () => {
+    mockManual({ withSlot: true })
+    open()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByText(/saved as a version first/)).toBeNull()
+    expect(localClient.bulkReplace).not.toHaveBeenCalled()
+  })
+
+  it('shows the existing skipped-cells message when the version has cells that no longer exist', async () => {
+    const dead = JSON.stringify([
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-gone', fixed_event_id: null, is_fixed_event: false, flags: {} },
+    ])
+    mockManual({ withSlot: false, snapshotSlots: dead })
+    open()
+    await waitFor(() => expect(screen.getByText(/Restored; 1 cell\(s\) skipped/)).toBeTruthy())
+  })
+})

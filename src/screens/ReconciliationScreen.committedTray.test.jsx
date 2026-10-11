@@ -11,7 +11,7 @@
 // pins the receipt as a DOM descendant of the tray container.
 
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 
 vi.mock('../localClient', () => ({
   localClient: {
@@ -53,5 +53,33 @@ describe('CommittedTray receipt placement', () => {
     expect(tray).toBeTruthy()
     expect(tray.contains(continueButton)).toBe(true)
     expect(tray.contains(receipt)).toBe(true)
+  })
+
+  it("says where last year's schedule went and offers to open it in Manual", () => {
+    const onNavigate = vi.fn()
+    render(
+      <ReconciliationScreen
+        phase="committed"
+        outcome={{ total: 28, version: { created: true, versionName: 'Imported from campB.txt' } }}
+        notices={[]}
+        onNavigate={onNavigate}
+      />
+    )
+    expect(screen.getByText("Last year's schedule is saved as a version: Imported from campB.txt.")).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Open it in Manual' }))
+    expect(onNavigate).toHaveBeenCalledWith('schedule:manual', { openVersionName: 'Imported from campB.txt' })
+  })
+
+  it('shows no version line when the import saved no version', () => {
+    render(
+      <ReconciliationScreen
+        phase="committed"
+        outcome={{ total: 28, version: { created: false, versionName: null } }}
+        notices={[]}
+        onNavigate={vi.fn()}
+      />
+    )
+    expect(screen.queryByText(/saved as a version/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open it in Manual' })).toBeNull()
   })
 })

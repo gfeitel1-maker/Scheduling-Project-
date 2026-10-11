@@ -113,6 +113,7 @@ describe('materializeImportedVersion', () => {
     const second = await materializeImportedVersion(db, fakeSyncClient(db), args)
 
     expect(first.created).toBe(true)
+    expect(first.versionName).toBe('Imported from campB.txt')
     expect(second.created).toBe(false)
     expect(second.unchanged).toBe(true)
     // one per candidate route, and no more after the second run
