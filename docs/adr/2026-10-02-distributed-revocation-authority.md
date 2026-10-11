@@ -895,7 +895,7 @@ transport capability is touched, consistent with the base ADR's own Tier-4 state
    against `evaluateLogin` specifically — an admin wrongly locked out of the network gate must not
    separately fail login via `deviceTrustStatus`'s own direct `revoked_at` read.
 
-## Known limitation (v1) — strict two-device-camp revocation deadlock (owner-accepted, fast-follow T333)
+## Known limitation (v1) — strict two-device-camp revocation deadlock (owner-accepted; T333 recovery rejected 2026-10-11)
 
 **Owner ruling 2026-10-03 (Option 2 — ship now, document the limit).** The gate-precedence +
 self-heal in Amendment 2026-10-03 closes RISK-1 for any camp with **three or more** reachable devices:
@@ -921,3 +921,145 @@ marker to allow reconnection, **plus** a marker lifecycle that clears on corrobo
 blind-revoke-then-genuine-quorum sequence cannot become a readmission hole) re-touches the admission
 gate's readmission guarantee and is deferred to **fast-follow ticket T333**, where Security must
 re-confirm the no-readmission sequence. Until then this limitation stands as accepted for v1.
+
+## Amendment 2026-10-11: T333 uncorroborated-revoke marker
+
+**Status: REJECTED 2026-10-11, not built (owner ruling, option B).** Recorded as a rejected alternative. Red Hat found an inherent stale-view window: a two-device camp cannot tell a blind revoke from a genuine quorum revoke it has not yet heard of. So probation adoption would readmit a genuinely quorum-revoked device and send it camp data until the quorum syncs. That breaks the absolute no-readmission guarantee, and the Grader returned FAIL. Recovery is also LAN-only, because a revoke rotates the rendezvous secrets. The "Known limitation (v1)" above stands, with its recovery path: re-pair, add a third device, or export to a new camp and re-upload. The design text below is kept for the record and is not current instruction.
+
+### Candidate approaches considered
+
+1. **Stored device-local marker table** (what the ticket sketches): a row set at `revokeDevice` time, cleared by projection. Rejected: a stored flag can go stale, and a stale flag is exactly the blind-revoke-then-quorum readmission hole. Needs a schema bump and a migration for a fresh-camps-only product.
+2. **Derived predicate over existing device-local state (chosen)**: "uncorroborated" is computed on read from `applied_authority_log` + `authority_cache`, both fully re-derived from the document on every projection pass. No new table, no schema change, no lifecycle to forget, nothing to restart-persist.
+3. **Admit the peer as a normal peer when the predicate holds**: simplest gate edit. Rejected: the predicate cannot tell a blind-revoked admin from an ordinary single-admin-revoked device (a lost laptop), because the revoking device has no grant knowledge in either case. Full admission would hand a revoked ordinary device the camp's data. Not acceptable.
+4. **Restricted "probation" admission with a quarantine doc (chosen as the admission shape)**: the predicate permits one narrow thing only: the revoked peer may *deliver* its document into a scratch doc; this device discloses nothing of its own and merges nothing until the scratch doc proves the grant.
+5. **Out-of-band recovery** (owner re-approves in the UI, or a "forgive revoke" button): rejected. It is the inert-affordance shape that was reverted; any un-revoke that is not driven by a verified grant is a readmission path.
+
+Recommendation: 2 + 4. Confidence: medium-high on the predicate and lifecycle (it reduces to facts the existing replay already computes); medium on the probation channel, because I did not prototype the Automerge sync of an empty-start scratch doc and the Maker must prove it in the first red test.
+
+### 1. What "uncorroborated" means, and where the marker lives
+
+Let `S` be this device. Target `T` is **uncorroborated-revoked on S** iff, evaluated against S's own verified state:
+
+- `authority_cache(T) = 'revoked'`, AND
+- `applied_authority_log` has at least one `kind = 'revoke'` row for `T` with `signer_device_id = S`, AND
+- `applied_authority_log` has **no** row for `T` with `signer_device_id != S` and `kind = 'revoke'` (no other admin's vote has been seen), AND
+- `applied_authority_log` has **no** row for `T` with `kind IN ('grant','genesis')` (S has never synced a verified entry establishing `T`'s role).
+
+Any other signer's valid revoke carries its causal ancestors (including the grant, if `T` were an admin) into S's document when merged, so condition 3 is implied-safe for admins and merely stricter for ordinary devices. `applied_authority_log` only ever contains entries that passed signature and causal-validity checks (`electron/automerge/projector.js:424-427` region, `isEntryTrusted` skip at the insert loop), so a forged grant cannot be used to fake corroboration in either direction.
+
+**Where it lives: nowhere new.** It is a pure read-time function `isUncorroboratedRevoke(db, selfDeviceId, targetDeviceId)` over the device-local, never-synced `applied_authority_log` / `authority_cache` (`electron/db/schema.sql:1897-1923`). Justification: (a) it cannot sync as authority because neither table is registered in `PROJECTIONS`; (b) it cannot go stale because both inputs are rebuilt from the document by `upsertCampAuthorityLogEntity` on every pass (`electron/automerge/projector.js:410-411` delete-and-reinsert), including purge/rebuild; (c) restart persistence is by construction; (d) no schema bump. The one thing it does not record is "S's revoke was blind at mint time"; it does not need to, because the predicate is true exactly while S has no grant knowledge of `T`, which is the definition.
+
+Known cost, stated plainly: an ordinary device revoked by a single admin also satisfies the predicate (no grant exists for it anywhere). Section 2 is designed so that this costs nothing but a bounded read.
+
+### 2. Gate A consult rule: probation, not admission
+
+The predicate never turns a denial into an admission. `evaluateAuthenticate` (`electron/auth/connectionAuth.js:142-153`) still returns `{ ok: false, code: 4404, reason: 'device_revoked_by_authority' }`, now with one added field `probationEligible: true` when the predicate holds. Every existing caller that checks only `ok` keeps denying, so a missed call site fails closed. Only the auth transport (`electron/sync/automerge/authGate.js`) reads the field; on `probationEligible` it keeps the stream open for the probation exchange instead of closing, and never adds the peer to the live admission set.
+
+What the probation peer **may** do: send Automerge sync messages for the camp document, received into a **scratch document that starts empty**, driven by a sync state created from that empty doc. S therefore sends nothing derived from its live document (its first sync message says "I have nothing"; the peer answers with its whole doc).
+
+What it **may not** do, enforced by structure not by checks:
+- No data flows from S to the peer (the scratch doc contains only the peer's own data).
+- Nothing from the peer is merged into S's live document or projected, until the adoption test below passes.
+- It is never entered in `peerDeviceIds` or the admitted set, so Gate B (`isPeerRevoked`, `electron/sync/automerge/syncNode.js:373-377`), `evaluateLogin` (`connectionAuth.js:303`, still denies on `'revoked'`), `evaluatePairingRequest` (`connectionAuth.js:228`) and every `authorize()` call treat it exactly as a revoked device. No authority action is honored on its behalf; `tearDownRevokedConnectedPeers` (`syncNode.js:163-170`) is unaffected because the peer is not in `peerDeviceIds`.
+
+**Adoption test (the only way out of probation).** After each received message, replay the scratch doc's `camp_authority_log` with the existing `createVerifiedEntryTrust` + `createAuthorityReplayContext`. Adopt iff (a) the scratch doc's genesis entry equals S's genesis (same camp), and (b) the scratch doc's replay shows `T` in `grantedSet`, i.e. a verified grant chain back to the founder. On adopt: `Automerge.merge(live, scratch)` through the normal merge/project path (`projectAndNotify`). Projection re-derives `authority_cache`: with the grant now present, S's lone revoke is a vote, `T` becomes `'admin'`, `clearStaleRevocation` clears `devices.revoked_at` (`projector.js:437-447`) and the connection closes; the peer reconnects through the ordinary `'admin'` branch. If the test never passes, the scratch doc is discarded when the stream ends. A revoked ordinary device can therefore never write into S's document, and learns nothing.
+
+Bounding: probation streams are one per peer, capped in size (reuse the existing frame cap), rate-limited with the existing per-source limiter, and the scratch doc is in memory only. No wall-clock expiry on the predicate: it costs nothing to keep true, and an expiry would reintroduce the permanent lockout for an admin who is offline a long time. (Governor question 1.)
+
+### 3. Lifecycle
+
+There is no stored marker to clear. The predicate flips false, atomically with the projection pass that makes it false, on each of:
+
+- **Grant arrival, self-heal:** a verified `grant`/`genesis` row for `T` appears (`applied_authority_log` rebuild) AND the replay now yields `'admin'`: condition 4 fails, status is no longer `'revoked'`, Gate A takes the existing `'admin'` branch.
+- **Genuine quorum revocation arrival:** the grant and further valid votes arrive and the replay stays `'revoked'`: conditions 3 and 4 both fail, predicate false, `probationEligible` is absent, Gate A denies as today.
+- **Another admin's revoke arrives for an ordinary `T`:** condition 3 fails, denied.
+- **Any rebuild/purge/restart:** re-derived from the document, same result.
+
+Safety does not depend on cleanup timing: the predicate is evaluated on read, so there is no interval in which a stale "yes" can be consulted after the inputs changed. This is the property that removes the hole in the ticket's stored-marker framing.
+
+### 4. Proof sketch: blind revoke then genuine quorum cannot readmit
+
+Claim: if `T` is genuinely quorum-revoked in the document S holds, `isUncorroboratedRevoke` is false and no scratch doc can reach adopt.
+
+1. Genuine quorum revocation of an admin `T` requires, in the replay (`electron/automerge/authorityReplay.js:306-318`, vote tally over distinct valid signers), a valid `grant` for `T` in `T`'s causal ancestry plus enough valid revoke votes from distinct signers. Quorum with S as the only signer is impossible unless the quorum threshold is 1, in which case S's revoke is genuinely sufficient and no grant knowledge is required to be correct (see Governor question 2).
+2. Once S has merged the quorum, the document contains the grant and at least one revoke with `signer != S`. Conditions 3 and 4 are false in the next projection; the predicate is false on every later read, including after restart.
+3. Adoption requires a verified grant chain for `T` and a replay in which `T` is not revoked. Merging the scratch doc into live can only add changes; the live replay is monotonic (this ADR's "monotonic under merge" section), so quorum votes already in the live doc still hold `T` at `'revoked'` after the merge. A scratch doc made by `T` alone cannot remove a vote already in the live document, and cannot forge one (signature + causal-validity checks).
+4. A revoked device cannot move the predicate in its favour: the predicate can only be made true by *absence* of entries, and S controls what its live doc contains because nothing from a probation peer is merged before adoption.
+5. Therefore the only transition from `'revoked'` to admitted is the one the ticket wants: a verified grant makes S's own lone revoke a mere vote. That is a replay outcome, not a gate exception.
+
+The sequence "S blind-revokes `T`; later the quorum forms": between the two, `T` can reach S in probation only. After the quorum syncs in via a third device (or via `T` itself delivering it), the predicate is false. If the quorum entries and the grant arrive in a *single* sync message, the projection that evaluates them is one pass, so the predicate is never true alongside them.
+
+### 5. Red tests the Maker must write (before any implementation)
+
+Pure predicate (new unit test next to wherever `isUncorroboratedRevoke` lands):
+1. True for a self-signed revoke with no grant/genesis row for `T` and no other signer.
+2. **Never set for corroborated revokes:** false when a verified `grant` for `T` exists (admin case, and quorum case); false when another signer has a revoke for `T`; false when the revoke was signed by another device only; false when `T` is `'admin'`.
+3. **Cleared paths, both:** start true; apply (a) the grant only, status becomes `'admin'`, predicate false and `devices.revoked_at` cleared; (b) a genuine quorum (grant + enough votes), status `'revoked'`, predicate false.
+4. **Restart persistence:** close and reopen the DB (and separately run the full purge/rebuild path); the predicate gives the same answer in both the true and the false state.
+5. Forgery: an untrusted/forged grant entry (bad signature or invalid signer) does not clear the predicate (not inserted into `applied_authority_log`), and a forged revoke from another signer does not either.
+
+Gate and transport:
+6. `evaluateAuthenticate` returns `ok:false` with `probationEligible:true` only when the predicate holds; in every other `'revoked'` case it carries no such field. `evaluateLogin` and `evaluatePairingRequest` still deny a probation-eligible device.
+7. Probation peer is never in the admitted set or `peerDeviceIds`; no sync message S sends contains any change from S's live doc (assert on the bytes: scratch starts empty); no change from the peer appears in S's live doc before adoption.
+
+End to end (real two-device harness, no third device; use `test/integration` helpers):
+8. **Strict 2-device recovery:** X (not the founder-of-record for A's grant) blind-revokes admin A under lag; A reconnects; A's grant is adopted; A ends `'admin'`, `devices.revoked_at` cleared on X, A fully admitted on the next connection, X's Roster shows A as not revoked.
+9. **Never-readmit, plain:** quorum-revoked A is refused on a reconnect attempt on every peer, no probation offered.
+10. **Never-readmit, blind then quorum:** X blind-revokes A (probation available, assert); then the genuine quorum arrives (via a third device C that carries grant + votes); assert predicate false, A denied at Gate A, A's scratch-doc delivery attempt is never merged, and A is refused after restart of X.
+11. **Single-message case:** grant + quorum votes delivered in one merge; assert there is no observable state with status `'revoked'` and `probationEligible` true.
+12. **Ordinary revoked device in probation:** a lost ordinary device revoked by X gets no data from X and writes nothing into X's live doc (the adoption test fails for lack of a grant); stream closes.
+13. Existing 2026-10-03 amendment tests 1-6 stay green, unchanged. Test 5 of that list ("two-device residual is observed") is **inverted by this ticket** and must be rewritten to the recovery assertion above.
+
+### Files affected
+
+- `electron/auth/connectionAuth.js` (the predicate call and `probationEligible` field in `evaluateAuthenticate`), a new small module for `isUncorroboratedRevoke`, `electron/sync/automerge/authGate.js` and `electron/sync/automerge/syncNode.js` (the probation stream and scratch-doc adopt). `docs/adr/` "Known limitation (v1)" and `SECURITY.md` Known limitations are updated by the Maker when green.
+
+### Contract check (`org-interface-contracts`)
+
+Idempotent: the predicate is a pure read; adopt is an Automerge merge, idempotent by construction. Concurrent retries: probation streams are per-peer and independent; a repeated delivery re-runs the same adoption test. Unknown outcome: a dropped probation stream leaves S unchanged; the peer retries. Error shape: the existing `{ok:false, code:4404, reason}` plus one optional field, so unmodified callers fail closed. Authority boundary: `authority_cache` stays the single enforcement truth; no gate reads a stored flag; nothing probation-side reaches `authorize()`. Trust boundary: all peer data is verified (signature, causal validity, genesis match) in a scratch doc before it touches the live doc.
+
+### ADR / schema
+
+No schema change, no new synced primitive, no Tier-4 capability. Reversible: removing the field and the probation branch restores today's behavior.
+
+### Open questions for Governor
+
+1. Product call: is a lock-out of an offline-for-weeks blind-revoked admin acceptable with no expiry on probation eligibility? Recommendation is no expiry (above), confidence medium.
+2. Confirm the quorum threshold for a two-admin camp: if a founder alone can quorum-revoke a sole other admin, a "blind" revoke by the founder is not blind at all and this ticket only covers non-founder revokers. The Maker must read the threshold in `authorityReplay.js` before test 8 and report it.
+
+### Revision 2026-10-11b: design-review corrections (Security F1-F3, Red Hat R1-R6) — supersedes the conflicting parts of the amendment above
+
+The Security and Red Hat design reviews of the amendment above raised blockers. They are resolved here; where this section and the amendment above disagree, **this section governs**. The predicate (Section 1) and the lifecycle (Section 3) are unchanged. The probation channel (Section 2) is replaced by the following.
+
+**Q2 answered (quorum threshold).** `quorumThreshold(n) = floor((n-1)/2)+1` (`electron/automerge/authorityReplay.js`): n=1 and n=2 need one vote, n=3 and n=4 need two. In a camp with two admins either admin alone can fully revoke the other, and that revoke is genuine, not blind. A *blind* revoke of an admin therefore needs at least three admins ever granted, with the revoker not yet holding the target's grant. The "strict two-device" scenario is the case where the third admin (the granter, F) is offline or absent and only X (revoker) and A (target) can reach each other. The end-to-end test builds F as a signing identity that never runs a node.
+
+**Wire shape (replaces "scratch doc driven by a sync state").** No Automerge sync is run with the probation peer, so the untested "sync from an empty-start doc" question disappears:
+1. `evaluateAuthenticate` gains an optional `selfDeviceId`. Inside the existing `authority_cache = 'revoked'` branch it still returns `ok:false, code:4404, reason:'device_revoked_by_authority'`, and adds `probationEligible:true` only when (a) `isUncorroboratedRevoke(db, selfDeviceId, T)` and (b) the device row's already-bound `libp2p_peer_id` equals the connecting peer id. (b) is a **read-only** comparison, never `bindOrVerifyPeerIdentity` (which would TOFU-bind an attacker's peer id as a side effect of a denial). This closes Security F1: a stolen token presented from a different peer id gets plain 4404.
+2. `authGate.js` sends `auth_failed` with `probation:true` and records a one-shot, 60-second, size-capped (50) pending grant `{peerId -> deviceId}`. Only that peer id can then open a new protocol `PROBATION_PROTO` (`/shoresh/probation/1.0.0`), which is a different protocol id from every normal protocol so no `hello`, schema or camp metadata of S's live doc is ever sent on it. The handler consumes the grant, receives **one** frame (the peer's whole document, capped at the existing 32 MiB frame cap, which is therefore also the cumulative cap) and passes the bytes to `syncNode`. S sends back only a tiny JSON ack (`probation_adopted` or `probation_refused`). The pending grant, not the connection, is what authorises the push, and the peer is never added to `authenticatedPeers` or `peerDeviceIds`.
+3. The revoked device's side: `mutualAuth` already receives the `auth_failed` reply via `onRejected`; a new injected `onProbationOffered(peerId)` fires when `reply.probation === true`. `syncNode` wires it to push `A.save(<own live doc>)` over `PROBATION_PROTO` and, on `probation_adopted`, call `mutualAuth.tryAuthenticate(peerId)` so the normal admitted path runs.
+
+**Adoption = verify the UNION, then merge (Security F2, Red Hat R2).** S never merges the peer's document on the strength of a replay of the peer's document alone. In one synchronous section (no `await`, so no quorum entry can land between the check and the merge):
+1. Re-evaluate `isUncorroboratedRevoke(db, selfDeviceId, T)` **now**; false means refuse. (This is the mid-stream re-check: a quorum that arrived after the grant was issued flips the predicate false.)
+2. `A.load` the bytes; refuse unless `sharesGenesis`.
+3. Build `trial = A.merge(A.clone(liveDoc), incoming)`, run `createVerifiedEntryTrust` + `createAuthorityReplayContext` on `trial`, and require **`T` in `grantedSet` of the trial**, and `resolveAuthorityPeerIds(trial).get(T) === fromPeerId` (the Noise-authenticated peer id equals the grant's `target_peer_id`; Security F1, second layer).
+4. Only then `A.merge(liveDoc, incoming)` for real, reconcile and project. If any step fails, nothing is merged and nothing is written. A trial that leaves `T` revoked (for example the peer's document carries one more vote against `T`) is therefore discarded in full, including the peer's data.
+
+The peer's whole document, including its own edits, is merged on success. That is acceptable because success means the union replay classifies `T` as a current, verified admin.
+
+**The guarantee, restated honestly (Security F3, Red Hat R1).** The original wording ("absolute") overclaimed. The true, provable statement is:
+
+> **Once a genuine quorum revocation of `T` is in S's own document, `T` is never admitted by S and S never merges anything from `T` via probation, in any ordering, including after restart.**
+
+What is *not* claimed: S cannot know about a quorum it has not yet received. If S blind-revoked `T`, a real quorum Q revoked `T` elsewhere, and `T` (cut off from Q) reaches S before Q does, S's view is "one lone vote against a granted admin", which is below threshold; the adoption test passes and `T` is admitted by S. This is an honest-failure window (plain sync lag between S and Q), and it is **bounded and self-closing**: when Q's entries reach S by any path, the replay is monotonic under merge, `T` is `'revoked'` again, `tearDownRevokedConnectedPeers` evicts `T`, Gate A denies it, and the predicate is false. What `T` obtained during the window is what an admitted peer of S gets. This residual cannot be closed without S knowing a quorum it does not know; it is recorded in `SECURITY.md` and needs the owner's explicit acceptance. A test asserts the re-eviction.
+
+**Residuals recorded rather than designed away (Red Hat R3-R6).**
+- *R3, WAN:* `revokeDevice` forgets the revoked peer's address and rotates the rendezvous namespace and address key, and the revoked device is never sent the new values. Recovery is guaranteed over the LAN, and over any path where the revoked device still knows how to reach S. It is **not** guaranteed over the WAN ladder once rotation has run. No new rendezvous channel is added for a revoked peer (that would be a readmission-adjacent leak).
+- *R4, latent vote:* after recovery S's lone vote against `T` stays in the document (it is permanent by the replay's own rule, and `T` is granted, so it is a counted vote). At n=3 `T` is then one honest revoke from another admin away from removal. No tidy-lie fix is attempted; the Roster shows `T` as an admin because that is what the replay says. Re-granting `T` would void the stale vote (the replay drops votes that predate a later grant) and is the operator remedy.
+- *R5, two blind revokers:* if two different admins each blind-revoke `T`, the predicate is false (another signer exists) and, once the grant arrives, two votes at n=3 are a legitimate quorum. That is the correct replay outcome, not a bug, and it is **not** recoverable by this mechanism. The ticket's scope is the single-revoker lock-out.
+- *R6, DoS:* a probation delivery costs one `A.load` + one trial merge + one replay. It is gated by a valid camp token, a bound peer id, a one-shot 60 s grant and the 32 MiB frame cap. The only standing cost is that a revoked ordinary device (a lost laptop) can make S do that work once per authenticate; accepted as an honest-failure cost.
+
+**Red tests added by the reviews** (in addition to the 13 above): peer-id mismatch gets no `probationEligible` and cannot push; a peer document carrying an extra vote against `T` is discarded whole; a quorum arriving between the grant and the push is refused at the commit-time re-check; the stale-S window admits and the later quorum re-evicts.
+
+### Closure (T333 landed)
+
+The "Known limitation (v1)" section above is closed by this mechanism, with the residuals listed in this revision. `SECURITY.md` Known limitations records the same.

@@ -2,7 +2,7 @@
 ticket: T333
 document_type: ticket
 title: Two-device-camp revocation recovery — Gate-A uncorroborated-marker consult + marker lifecycle (no readmission)
-status: open
+status: closed
 created: 2026-10-03
 archive_when: "a strict two-device camp recovers from a blind admin-revoke under sync lag (the locked-out admin can reconnect and the state self-corrects) AND Security has re-confirmed, red-before-green, that the blind-revoke-then-genuine-quorum sequence cannot readmit a genuinely quorum-revoked device"
 task_class: security-auth
@@ -61,3 +61,7 @@ The proper fix re-touches the admission gate and MUST preserve the no-readmissio
   suite; Grader.
 - When done, update the ADR "Known limitation (v1)" section and `SECURITY.md` Known limitations to
   record the limitation as closed.
+
+## Closed 2026-10-11: won't do (owner ruling, option B)
+
+The derived-predicate and probation design (ADR amendment 2026-10-11, kept as a rejected alternative) was built and reviewed, and the Grader returned FAIL. A two-device camp cannot tell a blind revoke from a genuine quorum it has not heard of, so recovery would readmit a genuinely quorum-revoked device during that window. The code was discarded. The v1 limitation stays documented, with its recovery path: re-pair, add a third device, or export to a new camp and re-upload. Hostile-admin cases are out of scope (owner).
