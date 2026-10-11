@@ -127,7 +127,10 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
     busyRef.current = true
     const run = ++runRef.current
     setError(null)
+    setRetrying(false)
+    let dialing = false
     const runOnce = async () => {
+      dialing = true
       const started = await localClient.joinStart(rejoin ? { code, rejoin: true } : { code })
       if (started.status === 'invalid_code') {
         // A typo, reported as a typo. Deriving a search from nonsense would
@@ -151,6 +154,7 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
       }
 
       const found = await localClient.joinFindHost()
+      dialing = false
       if (found.status !== 'found') {
         setStep(STEP.notFound)
         return
@@ -206,7 +210,7 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
           return
         } catch (err) {
           if (run !== runRef.current) return
-          if (!isTransientJoinError(err)) {
+          if (!dialing || !isTransientJoinError(err)) {
             setError(err?.message || "Something went wrong while joining. You can try again.")
             setStep(STEP.code)
             return

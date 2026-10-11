@@ -97,4 +97,26 @@ describe('JoinByCodeScreen transient dial failures', () => {
     expect(localClient.joinStart).toHaveBeenCalledTimes(1)
     unmount()
   })
+
+  it('after Cancel during a retry, a fresh submit shows the first-attempt copy', async () => {
+    localClient.joinStart.mockRejectedValueOnce(reset())
+    const user = setup()
+    render(<JoinByCodeScreen />)
+    await submit(user)
+    await user.click(screen.getByText(/cancel/i))
+    localClient.joinStart.mockReturnValue(new Promise(() => {}))
+    await user.click(screen.getByRole('button', { name: /continue/i }))
+    expect(screen.getByText('Looking for your camp…')).toBeTruthy()
+    expect(screen.queryByText(/trying again/)).toBeNull()
+  })
+
+  it('does not retry a timeout from the pairing request (would re-send it to the host)', async () => {
+    localClient.joinRequestPairing.mockRejectedValue(Object.assign(new Error('timed out'), { name: 'TimeoutError' }))
+    const user = setup()
+    render(<JoinByCodeScreen />)
+    await submit(user)
+    await tick(10000)
+    expect(localClient.joinRequestPairing).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('timed out')).toBeTruthy()
+  })
 })
