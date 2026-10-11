@@ -1779,6 +1779,32 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     expect(db.prepare('SELECT COUNT(*) c FROM special_day_placements').get().c).toBe(0)
   })
 
+  it('copySpecialDayBlocks: staff may copy; a bad token is refused before any write; a failure rolls back and is returned', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { staffToken } = await seedBindable(handlers, { staffName: 'CopyStaff', adminName: 'CopyAdmin' })
+    const campId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    db.prepare("INSERT INTO groups (id, camp_id, name) VALUES ('cg1', ?, 'G1')").run(campId)
+    db.prepare("INSERT INTO activities (id, camp_id, name) VALUES ('ca1', ?, 'Carpool')").run(campId)
+    const blocks = [{ id: 'cb-1', name: 'Morning', sort_order: 0 }]
+    const cells = [{ groupId: 'cg1', blockId: 'cb-1', activityId: 'ca1', groupName: 'G1', blockLabel: 'Morning', eventName: 'Carpool' }]
+    const args = { specialDayId: 'sd-b', blocks, cells }
+
+    expect(() => handlers.copySpecialDayBlocks({ token: 'not-a-token', ...args })).toThrow()
+    expect(() => handlers.copySpecialDayBlocks({ ...args })).toThrow('token is required')
+    expect(db.prepare('SELECT COUNT(*) c FROM special_day_time_blocks').get().c).toBe(0)
+
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    db.exec("CREATE TRIGGER boom BEFORE INSERT ON special_day_slots BEGIN SELECT RAISE(ABORT, 'boom'); END")
+    expect(handlers.copySpecialDayBlocks({ token: staffToken, ...args })).toEqual({ ok: false, reason: 'failed' })
+    quiet.mockRestore()
+    expect(db.prepare('SELECT COUNT(*) c FROM special_day_time_blocks').get().c).toBe(0)
+    db.exec('DROP TRIGGER boom')
+
+    expect(handlers.copySpecialDayBlocks({ token: staffToken, ...args })).toEqual({ ok: true, blocksWritten: 1, cellsWritten: 1, skipped: [], docWarning: false })
+    expect(db.prepare('SELECT COUNT(*) c FROM special_day_slots').get().c).toBe(1)
+  })
+
   it('bindSpecialDay returns the refusal shape: occupied without confirm, replaced with confirm, unknown special day', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })

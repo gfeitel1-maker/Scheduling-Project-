@@ -20,6 +20,7 @@ vi.mock('../../localClient', () => ({
     list: vi.fn(),
     write: vi.fn(),
     deleteEntity: vi.fn(),
+    copySpecialDayBlocks: vi.fn(),
     onOpApplied: vi.fn(() => () => {}),
   },
 }))
@@ -43,6 +44,7 @@ beforeEach(() => {
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.onOpApplied.mockReset().mockReturnValue(() => {})
+  localClient.copySpecialDayBlocks.mockReset().mockImplementation(async ({ blocks, cells }) => ({ ok: true, blocksWritten: blocks.length, cellsWritten: cells.length, skipped: [] }))
 })
 
 function baseFixtures({ slots = [], groups, activities = [], locations = [] } = {}) {
@@ -298,13 +300,9 @@ describe('SpecialDayGridEditor — Copy time blocks on an empty special schedule
       if (entity === 'groups') return Promise.resolve([{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A' }])
       return Promise.resolve([])
     })
-    localClient.write.mockImplementation((_t, entity, id, field, value) => {
-      if (entity === 'special_day_time_blocks') {
-        let row = specialBlocks.find((b) => b.id === id)
-        if (!row) { row = { id }; specialBlocks.push(row) }
-        row[field] = value
-      }
-      return Promise.resolve({ status: 'applied' })
+    localClient.copySpecialDayBlocks.mockImplementation(async ({ specialDayId, blocks, cells }) => {
+      specialBlocks.push(...blocks.map((b) => ({ ...b, special_day_id: specialDayId })))
+      return { ok: true, blocksWritten: blocks.length, cellsWritten: cells.length, skipped: [] }
     })
   }
 
@@ -322,6 +320,14 @@ describe('SpecialDayGridEditor — Copy time blocks on an empty special schedule
     expect(screen.queryByRole('button', { name: 'Copy time blocks' })).toBeNull()
   })
 
+  it('shows one line when the copy landed here but the document flush failed', async () => {
+    emptyDayFixtures()
+    localClient.copySpecialDayBlocks.mockResolvedValue({ ok: true, blocksWritten: 2, cellsWritten: 0, skipped: [], docWarning: true })
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy time blocks' }))
+    expect(await screen.findByText('Copied here, but syncing to other devices may be incomplete.')).toBeTruthy()
+  })
+
   it('does not offer the action once the special day has blocks', async () => {
     baseFixtures()
     render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
@@ -334,7 +340,9 @@ describe('SpecialDayGridEditor — Copy time blocks on an empty special schedule
     const listeners = []
     localClient.onOpApplied.mockImplementation((cb) => { listeners.push(cb); return () => {} })
     const base = localClient.list.getMockImplementation()
+    let placements = []
     localClient.list.mockImplementation((entity) => {
+      if (entity === 'special_day_placements') return Promise.resolve(placements)
       if (entity === 'fixed_events') return Promise.resolve([{ id: 'f1', camp_id: CAMP_ID, kind: 'recurring', name: 'Lunch 2', day_id: 'mon', time_block_id: 'cb1', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }])
       if (entity === 'days_of_operation') return Promise.resolve([{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }, { id: 'tue', camp_id: CAMP_ID, label: 'Tuesday' }])
       return base(entity)
@@ -342,6 +350,7 @@ describe('SpecialDayGridEditor — Copy time blocks on an empty special schedule
     render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Copy time blocks' }))
     expect(await screen.findByText(/Lunch waves differ by weekday/)).toBeTruthy()
+    placements = [{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: SD_ID }]
     listeners.forEach((cb) => cb({ entity: 'special_day_placements', entity_id: 'p', field: 'week_id' }))
     await waitFor(() => expect(screen.queryByText(/Lunch waves differ by weekday/)).toBeNull())
   })
@@ -362,23 +371,16 @@ describe('SpecialDayGridEditor — Copy time blocks on an empty special schedule
   it('two rapid Bring clicks write one set of cells, and two rapid Copy clicks copy once', async () => {
     emptyDayFixtures()
     const base = localClient.list.getMockImplementation()
-    const slots = []
     localClient.list.mockImplementation((entity) => {
       if (entity === 'fixed_events') return Promise.resolve([{ id: 'f1', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb1', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }])
       if (entity === 'days_of_operation') return Promise.resolve([{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }, { id: 'tue', camp_id: CAMP_ID, label: 'Tuesday' }])
       if (entity === 'special_day_placements') return Promise.resolve([{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: SD_ID }])
-      if (entity === 'special_day_slots') return Promise.resolve(slots)
       return base(entity)
     })
-    const baseWrite = localClient.write.getMockImplementation()
-    localClient.write.mockImplementation(async (t, entity, id, field, value) => {
+    const baseCopy = localClient.copySpecialDayBlocks.getMockImplementation()
+    localClient.copySpecialDayBlocks.mockImplementation(async (args) => {
       await new Promise((r) => setTimeout(r, 5))
-      if (entity === 'special_day_slots') {
-        let row = slots.find((x) => x.id === id)
-        if (!row) { row = { id }; slots.push(row) }
-        row[field] = value
-      }
-      return baseWrite(t, entity, id, field, value)
+      return baseCopy(args)
     })
     render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
     const copy = await screen.findByRole('button', { name: 'Copy time blocks' })
@@ -390,31 +392,29 @@ describe('SpecialDayGridEditor — Copy time blocks on an empty special schedule
     fireEvent.click(bring)
     fireEvent.click(bring)
     await waitFor(() => expect(screen.queryByText(/Also bring/)).toBeNull())
-    expect(slots.filter((x) => x.activity_id === 'a1')).toHaveLength(1)
+    const calls = localClient.copySpecialDayBlocks.mock.calls.map(([a]) => a)
+    expect(calls).toHaveLength(2)
+    expect(calls.flatMap((a) => a.cells).filter((c) => c.activityId === 'a1')).toHaveLength(1)
   })
 
   it('offers recurring events after the copy and places them when the director clicks Bring', async () => {
     emptyDayFixtures()
     const base = localClient.list.getMockImplementation()
-    const slotWrites = []
     localClient.list.mockImplementation((entity) => {
       if (entity === 'fixed_events') return Promise.resolve([{ id: 'f1', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb1', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }])
       if (entity === 'days_of_operation') return Promise.resolve([{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }, { id: 'tue', camp_id: CAMP_ID, label: 'Tuesday' }])
       if (entity === 'special_day_placements') return Promise.resolve([{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: SD_ID }])
       return base(entity)
     })
-    const baseWrite = localClient.write.getMockImplementation()
-    localClient.write.mockImplementation((t, entity, id, field, value) => {
-      if (entity === 'special_day_slots') slotWrites.push(field)
-      return baseWrite(t, entity, id, field, value)
-    })
     render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Copy time blocks' }))
 
     expect(await screen.findByText('Also bring 1 recurring event from Monday?')).toBeTruthy()
-    expect(slotWrites).toHaveLength(0)
+    expect(localClient.copySpecialDayBlocks).toHaveBeenCalledTimes(1)
+    expect(localClient.copySpecialDayBlocks.mock.calls[0][0].cells).toEqual([])
     fireEvent.click(screen.getByRole('button', { name: 'Bring' }))
-    await waitFor(() => expect(slotWrites).toContain('activity_id'))
+    await waitFor(() => expect(localClient.copySpecialDayBlocks).toHaveBeenCalledTimes(2))
+    expect(localClient.copySpecialDayBlocks.mock.calls[1][0].cells.map((c) => c.activityId)).toEqual(['a1'])
     expect(screen.queryByText(/Also bring/)).toBeNull()
   })
 })

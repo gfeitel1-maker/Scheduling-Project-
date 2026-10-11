@@ -8,23 +8,25 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { openTemplatedDb } from './db/testDbTemplate.js'
 import { commitIngest } from './ops/ingest.js'
+import { copySpecialDayBlocks } from './ops/copySpecialDayBlocks.js'
 import { parseTextGrid } from '../src/ingest/textGrid.js'
 import { extractEntities } from '../src/ingest/extractEntities.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
 import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
 import { inferActivityRules } from '../src/ingest/activityRules.js'
 
-vi.mock('../src/localClient', () => ({ localClient: { list: vi.fn(), write: vi.fn(), deleteEntity: vi.fn() } }))
+vi.mock('../src/localClient', () => ({ localClient: { list: vi.fn(), copySpecialDayBlocks: vi.fn() } }))
 import { localClient } from '../src/localClient'
 import { copyCampTimeBlocks } from '../src/screens/specialDay/copyCampTimeBlocks'
 
 const SD = 'sd1'
+let db
 let tables
 let campId
 let slots
 
 beforeAll(() => {
-  const { db } = openTemplatedDb()
+  ;({ db } = openTemplatedDb())
   campId = randomUUID()
   const cohortId = randomUUID()
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp B', 'a'.repeat(64))
@@ -39,6 +41,7 @@ beforeAll(() => {
     activityRules: inferActivityRules(proposal.entities.activities, proposal.activityPages, proposal.seenCounts, proposal.entities.days_of_operation.length, proposal.entities.groups, pinOnly),
     camp_id: campId, cohort_id: cohortId, device_id: 'device-1', fixedEvents, pinOnlyActivityNames: [...pinOnly], seenCounts: proposal.seenCounts ?? null,
   })
+  db.prepare('INSERT INTO special_days (id, camp_id, name) VALUES (?, ?, ?)').run(SD, campId, 'Color War')
   tables = {}
   for (const t of ['groups', 'days_of_operation', 'time_blocks', 'activities', 'fixed_events']) tables[t] = db.prepare(`SELECT * FROM ${t}`).all()
 })
@@ -51,20 +54,20 @@ beforeEach(() => {
     if (e === 'special_day_placements') return []
     return tables[e] ?? []
   })
-  localClient.write.mockReset().mockImplementation(async (_t, entity, id, field, value) => {
-    if (entity === 'special_day_slots') {
-      let row = slots.find((s) => s.id === id)
-      if (!row) { row = { id }; slots.push(row) }
-      row[field] = value
-    }
-    return { status: 'applied' }
+  db.prepare('DELETE FROM special_day_slots WHERE special_day_id = ?').run(SD)
+  db.prepare('DELETE FROM special_day_time_blocks WHERE special_day_id = ?').run(SD)
+  // The real main-process copy against the real committed rows, so the cells asserted below are
+  // what the database holds after the single transaction.
+  localClient.copySpecialDayBlocks.mockReset().mockImplementation(async (args) => {
+    const r = copySpecialDayBlocks(db, args, { author_user_id: null, device_id: 'device-1' })
+    slots = db.prepare('SELECT * FROM special_day_slots WHERE special_day_id = ?').all(SD)
+    return r
   })
 })
 
 describe('copyCampTimeBlocks on campB committed rows', () => {
   it('carries each group\'s own lunch wave and Busses, and nothing into groups without that wave', async () => {
     const r = await copyCampTimeBlocks({ campId, specialDayId: SD })
-    expect(r.cellFailure).toBeNull()
     expect(r.varies).toBe(true)
     const actName = new Map(tables.activities.map((a) => [a.id, a.name]))
     const groupName = new Map(tables.groups.map((g) => [g.id, g.name]))

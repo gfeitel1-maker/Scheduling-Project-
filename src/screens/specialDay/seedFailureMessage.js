@@ -1,8 +1,8 @@
-// T106 fix round — non-atomic seeding (accepted): each block's writes in
-// SpecialDaysScreen.seedFromCampTimeBlocks are sequential op-log calls, not a
-// transaction. A failure partway through leaves the already-written blocks
-// in place — this says so, so a director isn't misled into thinking the seed
-// either fully succeeded or fully failed. Its own module (rather than a named
+import { describeWriteFailure } from '../../utils/writeErrorMessage'
+
+// The copy is one atomic main-process write, so a failure means nothing was added
+// (seededCount is 0 for it); the partial wording is kept for a count that is not 0.
+// Its own module (rather than a named
 // export alongside the screen's default component) so it can be unit-tested
 // without react-refresh's only-export-components constraint.
 export function seedFailureMessage(seededCount, totalCount) {
@@ -11,12 +11,11 @@ export function seedFailureMessage(seededCount, totalCount) {
     : "Couldn't add blocks."
 }
 
-export function cellFailureMessage(names) {
-  const list = [...new Set(names.filter(Boolean))].join(' and ')
-  return `Blocks copied; couldn't add ${list || 'your fixed events'} — add them by hand or try again`
-}
+export const COPY_TIMEOUT_MESSAGE = "Couldn't confirm the copy finished \u2014 check the schedule before copying again."
+export const DOC_WARNING = 'Copied here, but syncing to other devices may be incomplete.'
 
-export function bringFailureMessage(names, written) {
-  const list = [...new Set(names.filter(Boolean))].join(' and ')
-  return `${written > 0 ? `Added ${written} cell${written === 1 ? '' : 's'}; c` : 'C'}ouldn't add ${list} — try again`
+// The copy is one call, so "did it land?" is unknown after a timeout: say that, not a plain failure.
+export function copyFailureMessage(err) {
+  if (err?.timedOut) return COPY_TIMEOUT_MESSAGE
+  return describeWriteFailure(err, seedFailureMessage(err?.seededCount ?? 0, err?.totalCount ?? 0))
 }

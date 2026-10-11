@@ -3330,6 +3330,50 @@ export const mockShoresh = {
     return { ok: true, ops_written: rows.length - state.special_day_placements.length }
   },
 
+  // Mirrors electron/ops/copySpecialDayBlocks.js: blocks and cells in one all-or-none step, a
+  // cell that already holds an activity is kept and reported. localStorage state, no op-log.
+  async copySpecialDayBlocks({ specialDayId, blocks = [], cells = [] } = {}) {
+    const snapshot = JSON.stringify(loadState())
+    const state = loadState()
+    if (!(state.special_days || []).some((d) => d.id === specialDayId)) return { ok: false, reason: 'unknown-special-day' }
+    const taken = state.special_day_time_blocks || []
+    if (blocks.some((b) => taken.some((t) => t.id === b.id))) return { ok: false, reason: 'block-exists' }
+    const incoming = new Set(blocks.map((b) => b.id))
+    if (cells.some((c) => !incoming.has(c.blockId) && !taken.some((t) => t.id === c.blockId && t.special_day_id === specialDayId))) {
+      return { ok: false, reason: 'unknown-block' }
+    }
+    try {
+      state.special_day_time_blocks = [...taken, ...blocks.map((b) => ({
+        id: b.id, special_day_id: specialDayId, name: b.name, sort_order: b.sort_order ?? 0, start_time: b.start_time || null, end_time: b.end_time || null,
+      }))]
+      const slots = state.special_day_slots || (state.special_day_slots = [])
+      const activityName = new Map((state.activities || []).map((a) => [a.id, a.name]))
+      let cellsWritten = 0
+      const skipped = []
+      for (const c of cells) {
+        const row = slots.find((s) => s.special_day_id === specialDayId && s.group_id === c.groupId && s.time_block_id === c.blockId)
+        if (row?.activity_id) {
+          if (row.activity_id !== c.activityId) {
+            skipped.push(`${activityName.get(row.activity_id) ?? 'Another activity'} kept in ${c.groupName} ${c.blockLabel} — ${c.eventName} not added there`)
+          }
+          continue
+        }
+        if (row) {
+          row.activity_id = c.activityId
+          if (c.locationId) row.location_id = c.locationId
+        } else {
+          slots.push({ id: crypto.randomUUID(), special_day_id: specialDayId, group_id: c.groupId, time_block_id: c.blockId, activity_id: c.activityId, location_id: c.locationId || null })
+        }
+        cellsWritten += 1
+      }
+      saveState(state)
+      return { ok: true, blocksWritten: blocks.length, cellsWritten, skipped }
+    } catch {
+      saveState(JSON.parse(snapshot))
+      return { ok: false, reason: 'failed' }
+    }
+  },
+
   // Permanently delete an event and its scoped rows, mirroring
   // deleteEvent.js's cascade (Events internal sub-schedule Slice 2,
   // docs/adr/2026-08-22-event-internal-subschedule.md §3): event_slots
