@@ -18,7 +18,9 @@
 // resolution, overlap and span behaviour are read from the product modules.
 //
 // SYNTHETIC_ONLY=s05 runs one camp (debugging aid; the scorecard then holds only that camp).
-// Scorecard path: SYNTHETIC_SCORECARD_PATH, else docs/work/evidence/2026-10-11-synthetic-15-scorecard.json.
+// Scorecard: written ONLY when asked. SHORESH_WRITE_SCORECARD=1 writes the tracked
+// docs/work/evidence/2026-10-11-synthetic-15-scorecard.json; SYNTHETIC_SCORECARD_PATH=<file> writes there instead.
+// A plain run writes nothing.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -53,8 +55,13 @@ import buildSchedule from '../src/engine/buildSchedule.js'
 
 const DIR = path.join(process.cwd(), 'docs/work/specs/samples/synthetic')
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(DIR, 'manifest.json'), 'utf8'))
-const SCORECARD_PATH = process.env.SYNTHETIC_SCORECARD_PATH
-  ?? path.join(process.cwd(), 'docs/work/evidence/2026-10-11-synthetic-15-scorecard.json')
+const DEFAULT_SCORECARD_PATH = path.join(process.cwd(), 'docs/work/evidence/2026-10-11-synthetic-15-scorecard.json')
+// The scorecard is tracked evidence: it is (re)written only on request, never by a plain test run.
+function scorecardWriteTarget(env) {
+  if (env.SYNTHETIC_SCORECARD_PATH) return env.SYNTHETIC_SCORECARD_PATH
+  return env.SHORESH_WRITE_SCORECARD === '1' ? DEFAULT_SCORECARD_PATH : null
+}
+const SCORECARD_PATH = scorecardWriteTarget(process.env)
 const deviceId = 'device-1'
 const userId = 'u1'
 const COUNTED_TABLES = ['groups', 'tiers', 'days_of_operation', 'time_blocks', 'activities', 'locations', 'fixed_events', 'elective_sets']
@@ -606,6 +613,16 @@ describe.skipIf(!process.env.SYNTHETIC_REPRO)('repro', () => {
   })
 })
 
+// A normal test run (CI, the gate, a developer's vitest) must not rewrite tracked evidence.
+describe('scorecard write gate', () => {
+  it('writes nowhere unless asked: SHORESH_WRITE_SCORECARD=1 or an explicit SYNTHETIC_SCORECARD_PATH', () => {
+    expect(scorecardWriteTarget({})).toBeNull()
+    expect(scorecardWriteTarget({ SHORESH_WRITE_SCORECARD: '0' })).toBeNull()
+    expect(scorecardWriteTarget({ SHORESH_WRITE_SCORECARD: '1' })).toBe(DEFAULT_SCORECARD_PATH)
+    expect(scorecardWriteTarget({ SYNTHETIC_SCORECARD_PATH: '/tmp/x.json' })).toBe('/tmp/x.json')
+  })
+})
+
 describe('synthetic corpus: 15 fictional camps through the real pipeline', () => {
   it('has 15 camps', () => {
     expect(MANIFEST.camps).toHaveLength(15)
@@ -613,6 +630,7 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
 
   afterAll(() => {
     cleanupTemplatedDbs()
+    if (!SCORECARD_PATH) return
     const scorecard = { generatedAt: new Date().toISOString(), runtimeMs: Date.now() - startedAt, node: process.version, camps: results }
     fs.mkdirSync(path.dirname(SCORECARD_PATH), { recursive: true })
     fs.writeFileSync(SCORECARD_PATH, JSON.stringify(scorecard, null, 2) + '\n')

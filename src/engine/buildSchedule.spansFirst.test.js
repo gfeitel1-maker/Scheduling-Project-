@@ -118,3 +118,23 @@ describe('buildSchedule: a span respects max_groups_per_slot in every block it c
     expect(overLimit(slots, acts)).toEqual([])
   })
 })
+
+// A span honours prefer_before_day the way a single-block activity does: while a group has fewer
+// than prefer_before_day_min sessions, a head on or after the target day is chosen only when no
+// earlier day fits (F5 follow-up d).
+describe('buildSchedule: a span honours prefer_before_day', () => {
+  it('places prefer_before_day_min sessions before the target day when there is room', () => {
+    const early = act('ropes', { span_blocks: 2, min_per_week: 2, max_per_week: 4, max_groups_per_slot: 6, prefer_before_day: 3, prefer_before_day_min: 2 })
+    const { slots, findings } = buildSchedule(input([...singles, early]))
+    for (const g of groups) {
+      const dayIdx = [...cellsByGroupDay(slots, 'ropes')].filter(([k]) => k.startsWith(`${g.id}|`)).map(([k]) => Number(k.split('|')[1].slice(1))).sort()
+      expect(dayIdx, g.id).toEqual([0, 1])
+    }
+    expect(findings.filter((f) => f.kind === 'DISTRIBUTION' && f.activityId === 'ropes')).toEqual([])
+  })
+
+  it('stays deterministic with a prefer_before_day goal', () => {
+    const early = act('ropes', { span_blocks: 2, min_per_week: 2, max_per_week: 4, max_groups_per_slot: 6, prefer_before_day: 3, prefer_before_day_min: 2 })
+    expect(buildSchedule(input([...singles, early]))).toEqual(buildSchedule(input([...singles, early])))
+  })
+})

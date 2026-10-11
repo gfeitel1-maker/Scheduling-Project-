@@ -706,7 +706,8 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   // needs N free blocks in a row, and once singles have taken cells there is
   // rarely such a run left (a text-grid camp's span went from 6 placed to 0).
   // Round-robin over groups, one session per group per sweep, up to the
-  // activity's min_per_week; the head is the free fit whose day holds the
+  // activity's min_per_week; the head is the free fit that honours
+  // prefer_before_day (scoreForPrefer), then whose day holds the
   // fewest of this activity's sessions so far (spreads load across days), then
   // the earliest in openSlots order. No rand(): a camp with no span activity
   // draws exactly the same PRNG sequence as before.
@@ -723,13 +724,20 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
           if (getCount(group.id, act.id) >= min) continue
           let best = null
           let bestLoad = Infinity
+          let bestDeferred = Infinity
           for (const s of slotsToFill) {
             if (s.groupId !== group.id) continue
             if (assigned.has(keyOf(s))) continue
             if (!s.eligibleActs.includes(act)) continue
             if (!canPlace(act, s.groupId, s.dayId, s.blockId)) continue
             const load = actDayLoad.get(`${act.id}|${s.dayId}`) || 0
-            if (load < bestLoad) { best = s; bestLoad = load }
+            // prefer_before_day: a head on/after the target day, while the group is
+            // still short of prefer_before_day_min, loses to any earlier-day head
+            // (the same deferral the single-block round applies).
+            const deferred = scoreForPrefer(act, s.groupId, s.dayId)
+            if (deferred < bestDeferred || (deferred === bestDeferred && load < bestLoad)) {
+              best = s; bestLoad = load; bestDeferred = deferred
+            }
           }
           if (!best) continue
           place(act, best.groupId, best.dayId, best.blockId)

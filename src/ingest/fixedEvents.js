@@ -20,6 +20,8 @@ import { isDayName } from './textGrid.js'
 import { activityNamesFromCell, canonicalDay, dayNameFromTitle, cleanTitle } from './extractEntities.js'
 import { normalizeName } from './preview.js'
 import { numberedBase } from './nameShape.js'
+import { inferTextSpans } from './textSpans.js'
+import { isMealName } from './eventKeptWhenUnanswered.js'
 import { CONFIDENCE, classifyConfidence, tierFromHighFlag } from './confidence.js'
 
 const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
@@ -274,9 +276,26 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
     if (!buckets.has(dayKey)) buckets.set(dayKey, [])
     buckets.get(dayKey).push({ key, group, block, activity, period, days, occ: daySet.size, operating })
   }
+  // A catalogue-length text span (F5) is one session of an ACTIVITY, so arm 2
+  // never claims it, however many groups print it on the same day: under strict
+  // category exclusivity (docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md)
+  // its name sits in one bucket, and a span is the activity bucket. "Catalogue
+  // length" is at most half the day's blocks: a span filling more of the day
+  // (an all-day Color War) is a day-long event and arm 2 keeps it. Meals are
+  // never released. Arm 1 (held most days) is untouched. Released only when
+  // EVERY group prints it (the shape that was being pinned): a span held by a
+  // two-thirds subset is still admitted, because that is how a part-day trip
+  // (s11 Museum Trip, 4 of 6 groups) becomes an event today and nothing in the
+  // grid tells that trip from a catalogue span.
+  const blocksPerDay = (proposal?.entities?.time_blocks ?? []).length
+  const catalogueSpanNorms = new Set()
+  for (const [norm, sp] of inferTextSpans(parsed, proposal).spans) {
+    if (sp.span_blocks * 2 <= blocksPerDay && !isMealName(sp.name)) catalogueSpanNorms.add(norm)
+  }
   for (const buckets of byBlockActivity.values()) {
     for (const entries of buckets.values()) {
       const groupsHere = new Set(entries.map((e) => e.group))
+      if (groupsHere.size === totalGroups && catalogueSpanNorms.has(normalizeName(entries[0].activity))) continue
       if (groupsHere.size < 2) continue
       if (groupsHere.size * 3 < totalGroups * 2) continue
       // Confidence on this arm is a statement about the axis that justified it:

@@ -16,7 +16,7 @@ Findings only: nothing in product code was changed. Source of every number below
 `electron/syntheticCamps.harness.integration.test.js` over the corpus in
 `docs/work/specs/samples/synthetic/` (manifest and expected facts per camp: that directory's `README.md` and `manifest.json`).
 
-- Run: `npx vitest run electron/syntheticCamps.harness.integration.test.js` (about 53 s on a loaded 4-core machine, load average ~25; per-camp 0.6 to 7.9 s; 152 tests, 143 pass, 8 expected-fail, 1 skipped repro hook).
+- Run: `SHORESH_WRITE_SCORECARD=1 npx vitest run electron/syntheticCamps.harness.integration.test.js` to regenerate the JSON (a plain run writes nothing; `SYNTHETIC_SCORECARD_PATH=<file>` writes elsewhere) (about 53 s on a loaded 4-core machine, load average ~25; per-camp 0.6 to 7.9 s; 152 tests, 143 pass, 8 expected-fail, 1 skipped repro hook).
 - Per camp: fresh db, parse -> extract -> inferFixedEvents -> dry run -> `buildReconciliationReport` -> `foldTriageInputs` -> commit, once with ZERO answers and once on a separate fresh db confirming every `confirm_value` (plus every `elective_candidate`, so the elective path is reachable). Then Generate (`buildSchedule`) and Manual-from-import (`capturePlacements` -> `materializeImportedVersion`) on both, then on the zero-answers db a Keep re-import and a Replace re-import (CPU from `process.cpuUsage`).
 - The glue mirrors `ImportScreen`/`ReconciliationScreen` (division and co-schedule inference, `electiveCandidates`, `allCampOverrides`, `openDecisions`); it does NOT run ImportScreen's other pre-steps (name-variant merge prompts, compound-cell patterns, location bindings) or the XLSX path.
 
