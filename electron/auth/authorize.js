@@ -71,7 +71,7 @@ export function authorize({ db, token, action, resourceId }) {
     return deny(db, action, role, 'forbidden', session.userId, session.deviceId, session.jti)
   }
 
-  if (typeof action === 'string' && action.startsWith('users.')) {
+  if (typeof action === 'string' && (action.startsWith('users.') || action.startsWith('security.'))) {
     recordAuditEvent(db, {
       actorUserId: session.userId,
       deviceId: session.deviceId,

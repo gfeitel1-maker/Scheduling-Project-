@@ -414,8 +414,15 @@ document is not supported: older builds cannot read either. The ruling is no dow
 - **It is a deliberate hard-fail:** no key means no readable data, with no graceful fallback (the key is
   minted and sealed automatically, with no passphrase to forget, and survives app reinstalls).
 - **Turning it off is not an ambient setting.** Once a device holds its key file, the
-  `SHORESH_AT_REST_ENCRYPTION` environment variable is ignored. No in-app disable is offered; a future
-  director-gated disable is a separate ticket (`docs/adr/2026-10-08-at-rest-encryption-sticky-no-ambient-disable.md`).
+  `SHORESH_AT_REST_ENCRYPTION` environment variable is ignored. The one deliberate exit is an admin-only
+  `security.disable_at_rest_encryption` action (Devices screen, type-to-confirm; staff are denied by
+  `authorize()`'s default-deny): it backs up, decrypts the document and every db this device keyed
+  (`PRAGMA rekey = ''`), verifies row counts and bytes, writes the `encryption.disabled` marker, then
+  removes and overwrites the key file. Any failure restores from the backups and leaves encryption on;
+  an unreadable or inconsistent state is refused. A key file present always wins over the marker.
+  Older user backups made while encrypted cannot be opened afterwards. See
+  `docs/adr/2026-09-28-at-rest-encryption-disable-control.md` and
+  `docs/adr/2026-10-08-at-rest-encryption-sticky-no-ambient-disable.md`.
 - **Headless tools need a director-granted authorization.** The MCP server and CLIs reach an encrypted DB
   only through the Electron unlock helper (`electron/unlockDbKey.js`), which releases the key to a tool
   only if it presents a live, non-revoked per-tool secret (`SHORESH_TOOL_SECRET` or `--secret-stdin`,

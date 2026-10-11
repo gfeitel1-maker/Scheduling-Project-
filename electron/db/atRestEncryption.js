@@ -15,21 +15,34 @@ const rawValue = process.env.SHORESH_AT_REST_ENCRYPTION
 
 export const AT_REST_ENCRYPTION = rawValue === 'off' ? 'off' : 'on'
 
-let stickyOn = false
+// Written by the director-gated disable (electron/db/disableAtRestEncryption.js, T345) as its last step.
+// Without it, default-on would mint a fresh key and re-encrypt the plaintext db on the next launch.
+export const OPT_OUT_FILE = 'encryption.disabled'
 
-// An unknown state (any error but ENOENT) latches ON: it must never read as safe to disable.
+let stickyOn = false
+let stickyOff = false
+
+// An unknown state (any error but ENOENT) latches ON: it must never read as safe to disable. The only
+// way off is the opt-out marker WITH no key file; a key file always wins over the marker.
 export function latchEncryptionIfKeyPresent(userDataDir, { fsImpl = fs } = {}) {
   try {
     fsImpl.statSync(path.join(userDataDir, KEY_FILE))
     stickyOn = true
   } catch (err) {
     if (err?.code !== 'ENOENT') stickyOn = true
+    else {
+      try {
+        fsImpl.statSync(path.join(userDataDir, OPT_OUT_FILE))
+        stickyOff = true
+      } catch { /* no marker (or unreadable): stays on by default */ }
+    }
   }
   return stickyOn
 }
 
 export function isAtRestEncryptionEnabled() {
-  return AT_REST_ENCRYPTION === 'on' || stickyOn
+  if (stickyOn) return true
+  return AT_REST_ENCRYPTION === 'on' && !stickyOff
 }
 
 // acquireDbKey(userDataDir, safeStorage) -> Buffer(32) | null

@@ -6,7 +6,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
+import { openLocalDb, encryptingDatabaseCtor, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
 import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, isHostDevice, issueDeviceToken } from './auth/localAuth.js'
 import { promoteToAdmin } from './ops/promoteToAdmin.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
@@ -84,6 +84,7 @@ import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './
 import * as Automerge from '@automerge/automerge'
 import { validateBackupPair, restoreFromBackup, RestoreRefusal } from './db/backupRestore.js'
 import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
+import { disableAtRestEncryption, DISABLE_PHRASE } from './db/disableAtRestEncryption.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled, latchEncryptionIfKeyPresent } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
@@ -155,6 +156,12 @@ function isNonEmptyString(v) {
 // once by makeHandlers so this module-level function still doesn't need its
 // own getMainWindow parameter threaded through ~35 call sites.
 let currentMainWindowGetter = () => null
+
+// T345 — set once by main bootstrap: quiesces the live db/document/sync, runs disableAtRestEncryption,
+// and schedules the restart. A module-level seam (like currentMainWindowGetter) so the handler stays
+// testable without Electron. Null means nothing is wired, which the handler reports, never hides.
+let atRestDisableRunner = null
+export function setAtRestDisableRunner(fn) { atRestDisableRunner = fn }
 
 // The exact authorize() denial reasons that mean this session/device can no
 // longer act at all — identity or trust is gone, not just this one call.
@@ -2330,6 +2337,17 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
+  // T345 (docs/adr/2026-09-28-at-rest-encryption-disable-control.md): admin-only via authorize()'s
+  // default-deny (no staff grant for this action), exact confirmation phrase, then the verified
+  // decrypt-back. Returns { ok:false } for a refusal or failed disable (encryption is still on).
+  async function disableAtRestEncryptionHandler({ token, phrase } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'security.disable_at_rest_encryption' })
+    if (phrase !== DISABLE_PHRASE) return { ok: false, error: 'confirmation_mismatch' }
+    if (!atRestDisableRunner) return { ok: false, error: 'unavailable' }
+    return atRestDisableRunner()
+  }
+
   function deleteWeekHandler({ token, weekId } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // ADMIN-ONLY, deliberately '.delete' not '.write': deleteWeek() is a
@@ -3233,6 +3251,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     dismissOpenReconciliationDecisions: dismissOpenReconciliationDecisionsHandler,
     duplicateWeek: duplicateWeekHandler,
     deleteWeek: deleteWeekHandler,
+    disableAtRestEncryption: disableAtRestEncryptionHandler,
     attributeSubject: attributeSubjectHandler,
     deleteElectiveSet: deleteElectiveSetHandler,
     deleteElectiveRun: deleteElectiveRunHandler,
@@ -3464,8 +3483,9 @@ if (isElectronEntryPoint()) {
   let docCipher = null
   let dbKey = null
   let dbPath = getCurrentProjectPath(userDataPath, defaultDbPath)
+  const dataPathsForKey = () => [...new Set([dbPath, ...readRecentProjects(userDataPath).map((e) => e.path)])]
   const keyGuard = {
-    dataPaths: [...new Set([dbPath, ...readRecentProjects(userDataPath).map((e) => e.path)])],
+    dataPaths: dataPathsForKey(),
     docPaths: () => {
       const dir = path.join(userDataPath, 'automerge')
       try { return fs.readdirSync(dir).filter((n) => n.endsWith('.automerge')).map((n) => path.join(dir, n)) } catch (err) {
@@ -3526,6 +3546,7 @@ if (isElectronEntryPoint()) {
     'shoresh:get-sync-status',
     'shoresh:get-port-mapping-status',
     'shoresh:retry-sync',
+    'shoresh:disable-at-rest-encryption',
     'shoresh:ingest-commit',
     'shoresh:ingest-reconcile',
     'shoresh:ingest-undo',
@@ -3617,6 +3638,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:get-sync-status', () => handlers.getSyncStatus())
     ipcMain.handle('shoresh:get-port-mapping-status', () => handlers.getPortMappingStatus())
     ipcMain.handle('shoresh:retry-sync', () => handlers.retrySync())
+    ipcMain.handle('shoresh:disable-at-rest-encryption', (_event, args) => handlers.disableAtRestEncryption(args))
     ipcMain.handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
     ipcMain.handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))
     ipcMain.handle('shoresh:ingest-undo', (_event, args) => handlers.ingestUndo(args))
@@ -4071,6 +4093,22 @@ if (isElectronEntryPoint()) {
     },
   }))
   const startAutomergeSyncNodeIfEnabled = () => syncStarterHolder.start()
+  setAtRestDisableRunner(async () => {
+    const restart = () => setTimeout(() => { app.relaunch(); app.exit(0) }, 1500)
+    try {
+      try { flushAutomergeDoc() } catch (err) { console.error('disable encryption: automerge flush failed:', err?.message ?? err) }
+      await syncStarterHolder.shutdown()
+      db.close()
+      const dbPaths = dataPathsForKey().filter((p) => fs.existsSync(p))
+      const res = disableAtRestEncryption({ userDataDir: userDataPath, dbPaths, safeStorage, Database: encryptingDatabaseCtor() })
+      restart()
+      return { ok: true, restarting: true, warnings: res.warnings }
+    } catch (err) {
+      console.error('disable encryption failed; encryption stays on:', err?.message ?? err)
+      restart()
+      return { ok: false, error: err?.code ?? 'disable_failed', message: err?.message ?? String(err), restarting: true }
+    }
+  })
   const initialHandlers = makeHandlers(db, deviceId, {
     getMainWindow: () => mainWindow,
     dbPath,

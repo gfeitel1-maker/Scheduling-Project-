@@ -2004,6 +2004,9 @@ export const mockShoresh = {
   async retrySync() {
     return { ok: true }
   },
+  async disableAtRestEncryption() {
+    return { ok: false, error: 'unavailable' }
+  },
   onSyncStatusChanged() {
     return () => {}
   },

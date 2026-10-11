@@ -13,7 +13,7 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { openLocalDb } from './localDb.js'
-import { isPlaintextSqliteFile } from './sqliteCipher.js'
+import { isPlaintextSqliteFile, decryptEncryptedToPlaintext, readTableCounts } from './sqliteCipher.js'
 
 const require = createRequire(import.meta.url)
 // require() succeeding is NOT enough — the native binding is located lazily and only fails at
@@ -35,6 +35,26 @@ function tmpFile(tag) {
 const key = () => crypto.randomBytes(32)
 
 describe.skipIf(!driverAvailable)('SQLite at-rest encryption — real driver, through openLocalDb', () => {
+  it('decryptEncryptedToPlaintext turns a keyed db back into a plaintext one with identical rows (T345)', () => {
+    const f = tmpFile('decrypt')
+    const k = key()
+    const enc = openLocalDb(f, { key: k })
+    enc.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('c1', 'Camp One')
+    enc.pragma('wal_checkpoint(TRUNCATE)')
+    enc.close()
+    const D = require('better-sqlite3-multiple-ciphers')
+    const expectedCounts = readTableCounts(D, f, k)
+    const bak = `${f}.bak`
+    const { backupPath } = decryptEncryptedToPlaintext(f, k, {
+      Database: D, expectedCounts, writeBackup: (p) => { fs.copyFileSync(p, bak); return bak },
+    })
+    expect(backupPath).toBe(bak)
+    expect(isPlaintextSqliteFile(f)).toBe(true)
+    const plain = openLocalDb(f, { plaintext: true })
+    expect(plain.prepare('SELECT name FROM camps WHERE id = ?').get('c1').name).toBe('Camp One')
+    plain.close()
+  })
+
   it('recovers a half-encrypted db from its plaintext .bak and re-migrates (crash during rekey)', () => {
     const f = tmpFile('crash')
     const k = key()
