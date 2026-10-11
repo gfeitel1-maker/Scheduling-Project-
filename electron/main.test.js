@@ -2910,6 +2910,65 @@ describe('ingestCommit: placements materialize a version end-to-end (T117 slice 
   })
 })
 
+// T370: a HELD commit rolls the catalog back byte-identical, so it must not save a partial
+// "Imported from X" version either. Otherwise the follow-up full commit (different slots) slips
+// past the identical-version skip and two versions stack.
+describe('ingestCommit: a held commit saves no version (T370)', () => {
+  async function campWithHandEditedSwim() {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    await seedCampAndUser({ name: 'Ruth', pin: '432100', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '432100' })
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, 0, 0)').run(randomUUID(), campIdHere, 'Week 1')
+    db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, 'Bunk 1')
+    db.prepare('INSERT INTO days_of_operation (id, camp_id, label) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, 'Monday')
+    db.prepare('INSERT INTO time_blocks (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, '09:00')
+    // A hand-edited rule, so a re-import carrying a different value is held as stale.
+    await handlers.ingestCommit({
+      token, approved: { activities: ['Swim'] },
+      activityRules: { Swim: { min_per_week: 3 } }, humanEditedFields: { activities: { Swim: ['min_per_week'] } },
+    })
+    return { handlers, token }
+  }
+  const versions = () => db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c
+  const placements = [{ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '09:00', activityName: 'Swim' }]
+
+  const fullCommit = (handlers, token) => handlers.ingestCommit({
+    token, approved: { activities: ['Swim'] }, activityRules: { Swim: { min_per_week: 5 } }, placements, sourceFileName: 'campB.txt',
+    resolutions: [{ entity: 'activities', name: 'Swim', field: 'min_per_week', reason: 'stale', choice: 'keep' }],
+  })
+
+  it('a held commit saves no version; the follow-up full commit saves its versions once, with no stacking', async () => {
+    const { handlers, token } = await campWithHandEditedSwim()
+    const before = versions()
+
+    const held = await handlers.ingestCommit({ token, approved: { activities: ['Swim'] }, activityRules: { Swim: { min_per_week: 5 } }, placements, sourceFileName: 'campB.txt' })
+    expect(held.held).toBe(true)
+    expect(held.version).toBeUndefined()
+    expect(versions()).toBe(before)
+
+    const full = await fullCommit(handlers, token)
+    expect(full.held).toBeFalsy()
+    expect(full.version.created).toBe(true)
+    const afterFull = versions()
+    expect(afterFull).toBeGreaterThan(before)
+
+    // The same file committed again is the identical version: nothing stacks.
+    await fullCommit(handlers, token)
+    expect(versions()).toBe(afterFull)
+  })
+
+  it('a commit that is not held still saves its version, unchanged', async () => {
+    const { handlers, token } = await campWithHandEditedSwim()
+    const before = versions()
+    const out = await handlers.ingestCommit({ token, approved: { activities: ['Swim'] }, placements, sourceFileName: 'campB.txt' })
+    expect(out.held).toBeFalsy()
+    expect(out.version.created).toBe(true)
+    expect(versions()).toBeGreaterThan(before)
+  })
+})
+
 // T118 slice 4 — end-to-end: a director's freshly-resolved compound-cell
 // decision writes a compound_cell_decisions row AFTER the catalog commit
 // succeeds, and the upstream rewrite means the wrapper name never had to be
