@@ -69,6 +69,13 @@ describe('handlers', () => {
     expect(handlers.listLearned({ token: tokens.staff }).answers).toHaveLength(0)
   })
 
+  it('tells the viewer which recalled answers and listed records are theirs (the UI says "you")', () => {
+    handlers.rememberImportAnswers({ token: tokens.staff, importId: 'i1', entries: [{ decision, answer: { action: 'edited' } }] })
+    expect(handlers.matchImportAnswers({ token: tokens.staff, decisions: [decision] })[decision.id].answeredByYou).toBe(true)
+    expect(handlers.matchImportAnswers({ token: tokens.admin, decisions: [decision] })[decision.id].answeredByYou).toBe(false)
+    expect(handlers.listLearned({ token: tokens.staff }).viewerUserId).toBe('u-staff')
+  })
+
   it('refuses a missing or invalid token on every handler', () => {
     for (const name of ['matchImportAnswers', 'rememberImportAnswers', 'listLearned', 'changeImportAnswer', 'forgetImportAnswer', 'forgetImportPattern', 'keepImportAnswer']) {
       expect(() => handlers[name]({})).toThrow()
