@@ -1985,7 +1985,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       .prepare('SELECT id, tier_id FROM groups WHERE camp_id = ?')
       .all(camp_id)
     for (const row of db
-      .prepare('SELECT cohort_id, day_id, time_block_id, name, is_all_groups, group_ids, unit_ids, unit_id, schedule_week_id, span_blocks FROM fixed_events WHERE camp_id = ?')
+      .prepare('SELECT cohort_id, day_id, time_block_id, name, is_all_groups, group_ids, unit_ids, unit_id, schedule_week_id, span_blocks FROM fixed_events WHERE camp_id = ? ORDER BY id')
       .all(camp_id)) {
       const slotKey = fixedEventSlotKey(row.cohort_id, row.day_id, row.time_block_id, row.name, row.schedule_week_id, row.span_blocks ?? 1)
       fixedEventSlots.add(slotKey)
