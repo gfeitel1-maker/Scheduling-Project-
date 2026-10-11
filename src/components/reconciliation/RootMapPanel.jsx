@@ -6,6 +6,7 @@ import { screenForNode, SCREEN_LABEL } from './rootMapNav.js'
 import { prefersReducedMotion, S } from '../../styles/shared'
 import { isDecisionResolvedFor } from '../../screens/reconciliationTriage.js'
 import RosterList from './RosterList.jsx'
+import RecallSummary from './RecallSummary.jsx'
 import { tileStates } from './selectionModel.js'
 
 // Census roster (docs/adr/2026-08-19-roots-census-and-persistent-inspector.md
@@ -110,7 +111,7 @@ function usePanelCrossfade(dep) {
 
 export default function RootMapPanel({
   model, selection, lanes, dismissedGaps, answers, onAnswer, onDismissGap, onUndismissGap,
-  expandedEvidence, onToggleEvidence, onNavigate, onClearSelection, locations,
+  expandedEvidence, onToggleEvidence, onNavigate, onClearSelection, locations, recall = null, cardProps = null,
 }) {
   const allDecisions = [...lanes.hold, ...lanes.standard]
   const byId = new Map(allDecisions.map((d) => [d.id, d]))
@@ -121,6 +122,11 @@ export default function RootMapPanel({
   // Resolved items stay reachable via the "N resolved · Show all" footer
   // below (the Red Hat MEDIUM companion), never lost.
   const [showResolved, setShowResolved] = useState(false)
+  // The Remembered group (answer memory, spec 4.3): collapsed unless a remembered answer's camp
+  // has changed since it was given.
+  const [rememberedOpen, setRememberedOpen] = useState(null)
+  const needLook = recall?.needLookCount ?? 0
+  const rememberedShown = rememberedOpen ?? needLook > 0
   // RootMapPanel isn't remounted on selection change (same instance,
   // `selection` is just a changing prop), so `showResolved` would otherwise
   // stay stuck true for the rest of the session after one "Show all" click
@@ -200,6 +206,59 @@ export default function RootMapPanel({
           <button className="press-97" onClick={onClearSelection} style={styles.showAll}>Show all</button>
         )}
       </div>
+
+      {recall && (
+        <>
+          <RecallSummary
+            rememberedCount={recall.rememberedCount}
+            open={rememberedShown}
+            onToggle={() => setRememberedOpen(!rememberedShown)}
+            autoCount={recall.autoCount}
+            undoneNote={recall.undoneNote}
+            undoing={recall.undoing}
+            onUndo={recall.onUndoAuto}
+            firstEver={recall.firstEver}
+          />
+          {rememberedShown && recall.rememberedDecisions.length > 0 && (
+            <div style={styles.rememberedGroup}>
+              <div style={styles.domainGroupHeading}>
+                {`Remembered answers (${recall.rememberedDecisions.length})${needLook > 0 ? ` - ${needLook} need a look` : ''}`}
+              </div>
+              {recall.rememberedDecisions.map((d) => (
+                <DecisionCard
+                  key={`remembered-${d.id}`}
+                  decision={d}
+                  rank={lanes.hold.includes(d) ? 'hold' : 'standard'}
+                  answer={answers[d.id]}
+                  onAnswer={(a) => onAnswer(d.id, a)}
+                  expanded={expandedEvidence.has(d.id)}
+                  onToggleEvidence={() => onToggleEvidence(d.id)}
+                  locations={locations}
+                  {...(cardProps?.(d, [d.id]) ?? {})}
+                />
+              ))}
+            </div>
+          )}
+          {recall.firstEver && recall.autoCount > 0 && recall.autoAppliedDecisions.length > 0 && (
+            <div style={styles.rememberedGroup}>
+              <div style={styles.domainGroupHeading}>{`Auto-applied answers (${recall.autoAppliedDecisions.length})`}</div>
+              {recall.autoAppliedDecisions.map((d) => (
+                <DecisionCard
+                  key={`auto-${d.id}`}
+                  decision={d}
+                  rank={lanes.hold.includes(d) ? 'hold' : 'standard'}
+                  answer={answers[d.id]}
+                  onAnswer={(a) => onAnswer(d.id, a)}
+                  expanded={expandedEvidence.has(d.id)}
+                  onToggleEvidence={() => onToggleEvidence(d.id)}
+                  locations={locations}
+                  {...(cardProps?.(d, [d.id]) ?? {})}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       <div style={crossfade} data-testid="panel-crossfade">
       {selection.type === 'node' && (
@@ -316,6 +375,7 @@ export default function RootMapPanel({
               expanded={expandedEvidence.has(d.id)}
               onToggleEvidence={() => onToggleEvidence(d.id)}
               locations={locations}
+              {...(cardProps?.(d, ids) ?? {})}
             />
           ))}
           {rest.filter((d) => answers[d.id] !== undefined).map((d) => (
@@ -328,6 +388,7 @@ export default function RootMapPanel({
               expanded={expandedEvidence.has(d.id)}
               onToggleEvidence={() => onToggleEvidence(d.id)}
               locations={locations}
+              {...(cardProps?.(d, [d.id]) ?? {})}
             />
           ))}
         </div>
@@ -378,6 +439,9 @@ const styles = {
     padding: '8px 0',
   },
   domainGroup: {
+    marginBottom: 14,
+  },
+  rememberedGroup: {
     marginBottom: 14,
   },
   domainGroupHeading: {

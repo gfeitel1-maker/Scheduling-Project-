@@ -319,7 +319,7 @@ function instanceRecall(db, tables, decision, sig, heads, progress, nearKind = n
   const asRecorded = !qualifying
   return {
     tier: 0, source: 'instance', match: exact ? 'exact' : 'near', nearKind, memoryId: newest.id, answer,
-    answeredAt: newest.confirmed_at, answeredBy: newest.confirmed_by, answeredByName: newest.authorName ?? null,
+    answeredAt: newest.confirmed_at, answeredBy: newest.confirmed_by, answeredByName: newest.authorName ?? null, campShape: newest.camp_shape ?? null,
     asRecorded, contradiction: contradiction ? verdicts.size : 0,
     autoApply: exact && isAutoApplyEligible(decision, newest.answer),
     why: `${asRecorded ? 'As recorded: ' : ''}Remembered from ${describeAuthor(newest)}'s answer on ${dateLabel(newest.confirmed_at)}`,
