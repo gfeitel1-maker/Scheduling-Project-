@@ -54,6 +54,7 @@ import { inferCoScheduleRules } from '../src/ingest/coScheduleRules.js'
 import { proposeSpecialDay } from '../src/ingest/specialDayFile.js'
 import { buildSpecialDayPlan } from '../src/ingest/specialDayPlan.js'
 import { foldTriageInputs, heldBackDecisions } from '../src/screens/reconciliationTriage.js'
+import { decisionTitle } from '../src/ingest/decisionTitle.js'
 import { resolvePriorityForGeneration } from '../src/ingest/resolvePriorityForGeneration.js'
 import { resolveFixedEventGroupIds, resolveFixedEventDayIds } from '../src/engine/fixedEventScope.js'
 import { computeOverlaps } from '../src/utils/computeOverlaps.js'
@@ -705,6 +706,21 @@ async function runCamp(m) {
     const repl = safe(() => importFile(zero.d, zero.id, text, { mode: 'replace' }))
     const cpu = process.cpuUsage(c0)
     rec.reimportReplace = { ok: repl.ok, cpuMs: Math.round((cpu.user + cpu.system) / 1000), ...(repl.ok ? { held: repl.value.committed.held, counts: tableCounts(zero.d) } : { error: repl.error }) }
+    // Final audit (campB): Keep after Replace of the same file asked to "Add Sports as an activity"
+    // for names the camp already had.
+    const liveActivityKeys = new Set(zero.d.prepare('SELECT name FROM activities WHERE camp_id = ?').all(zero.id).map((r) => normalizeName(r.name)))
+    const keep2Before = tableCounts(zero.d)
+    const keep2 = safe(() => importFile(zero.d, zero.id, text, { mode: 'add' }))
+    const keep2After = tableCounts(zero.d)
+    rec.keepAfterReplace = keep2.ok
+      ? {
+          ok: true,
+          createQuestionsForExisting: keep2.value.report.decisions
+            .filter((dec) => /^Add /.test(decisionTitle(dec, { placements: keep2.value.placements, allGroupNames: keep2.value.proposal.entities.groups ?? [] }) ?? '') && liveActivityKeys.has(normalizeName(dec.entityName)))
+            .map((dec) => dec.entityName),
+          newRecords: Object.fromEntries(Object.keys(keep2Before).map((k) => [k, keep2After[k] - keep2Before[k]]).filter(([, n]) => n !== 0)),
+        }
+      : { ok: false, error: keep2.error }
   }
   zero.d.close()
 
@@ -907,6 +923,9 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
     })
     hard('re-import with Keep writes zero new records', (r) => {
       expect(r.reimportKeep).toEqual({ ok: true, newRecords: {} })
+    })
+    hard('Keep re-import after Replace asks no create question for an existing activity and writes nothing', (r) => {
+      expect(r.keepAfterReplace).toEqual({ ok: true, createQuestionsForExisting: [], newRecords: {} })
     })
     hard('re-import with Replace completes', (r) => {
       expect(r.reimportReplace?.ok).toBe(true)

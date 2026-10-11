@@ -58,6 +58,15 @@ export function decisionTitle(decision, { placements = [], allGroupNames = [] } 
       : `Make ${name} a fixed event?`
   }
 
+  // An unknown-field question (ADR 2026-08-20) asks about one field the file never states; its
+  // `field` is a single name, not a list, and it is never a create.
+  if (decision.unknownField) {
+    const asked = decision.unknowns?.[0] ?? decision.field
+    if (asked === 'priority') return `How important is ${name}? The file doesn’t say.`
+    if (asked === 'min_per_week') return `How often should ${name} run each week? The file doesn’t say.`
+    return `Check ${name}’s ${fieldNames([asked])}? The file doesn’t say.`
+  }
+
   const fields = Array.isArray(decision.field) ? decision.field : []
   if (fields.length > 0) {
     const value = valueText(decision.proposedValue)

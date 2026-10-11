@@ -66,3 +66,16 @@ describe('decisionTitle says what will happen (audit 714 item 2)', () => {
     expect(report.decisions[0].title).toBe('Add Carpool as an activity for every group at 8:40 AM and 3:40 PM?')
   })
 })
+
+describe('an unknown-field question says what it asks (final audit: read as "Add Sports as an activity")', () => {
+  const unknown = (field) => decision({ entityId: 'a1', field, unknownField: true, unknowns: [field] })
+  it('priority', () => {
+    expect(decisionTitle(unknown('priority'), ctx)).toBe('How important is Carpool? The file doesn’t say.')
+  })
+  it('weekly minimum', () => {
+    expect(decisionTitle(unknown('min_per_week'), ctx)).toBe('How often should Carpool run each week? The file doesn’t say.')
+  })
+  it('never reads as adding an activity', () => {
+    expect(decisionTitle(unknown('priority'), ctx)).not.toMatch(/^Add /)
+  })
+})
