@@ -342,6 +342,38 @@ Decided in this revision (owner may veto, none needs an answer to proceed):
 **Remaining owner question: Q1 only**, and only as a veto: do directors think of "Color War for just the
 Seniors" as a special day or as an event?
 
+## Slice 0 findings (2026-10-11)
+
+Implementation notes from reading the code at b43f100d. Decisions are unchanged, except where marked
+**affects a decision**.
+
+1. **Week per event: partially true.** `fixed_events.schedule_week_id` exists and the commit's fields loop can
+   write it, but no week reaches the import: AppShell's `weekId` (src/App.jsx) is passed only to the
+   activities/groups/locations/electives screens, and neither the `ingestCommit` IPC nor `commitIngest` takes a
+   week. Slice 2 threads it App -> ImportScreen -> IPC -> plan.
+2. **Same-name events with disjoint groups: false, affects a decision.** Ids are random, but identity is
+   `fixedEventSlotKey(cohort, day, block, name)` with scope deliberately excluded: same-slot events are unioned
+   into one row, and a re-imported live slot is "unchanged" whatever its groups. The key has no week either, so a
+   week-bound trip that shares name, day and block with an existing all-weeks row is never written. The rule
+   "same name, disjoint group-sets, same day: separate events" holds only when the runs start on different
+   blocks; slice 2 must add `schedule_week_id` to the slot identity and decide whether disjoint same-slot trips
+   stay one unioned row (recommended: yes, one event, union of groups) or split.
+3. **replaceScope and special days: does not touch them.** But Replace re-mints `days_of_operation` and `groups`,
+   and `special_day_placements.day_id` / `special_day_slots.group_id` are soft references, so existing placements
+   and cells dangle and an orphan placement silently replaces nothing (effectiveDays.js). N6's "the day and its
+   binding remain, which is correct" is only half true; slice 3b must re-point or flag them.
+4. **Import permission: covered in effect.** Import checks only `groups.import`; the only non-admin role (staff)
+   holds it and every special-day `.read`/`.write`. Generic `write()` refuses `special_day_placements`, so the
+   placement goes through `bindSpecialDay` (or its appendOp form) inside the transaction.
+5. **A special day grid may omit groups: true.** `special_day_slots` is sparse and nothing requires every group;
+   a placed day still blanks every group, consistent with Q1.
+6. **commitPlan extends: transaction yes, Undo no.** `U2_DELETABLE_ENTITIES` (electron/ops/undoReferences.js)
+   stops at `fixed_events`; slice 3a must add the four special-day entities and their reference edges or Undo
+   silently leaves them. `captureInverse` is refused in replace mode.
+7. **Not in the ADR: the existing "Just this once" path.** The import's multi-block candidates already offer
+   "Every week" / "Just this once"; the latter mints an `events` catalog row with no placement. A detected trip
+   that is also a multi-block candidate would be claimed twice; slice 1 or 2 must set precedence or retire it.
+
 ## Consequences
 
 If accepted: slices 0-5, no schema or genesis change, no new IPC; the special-day import becomes transactional,
