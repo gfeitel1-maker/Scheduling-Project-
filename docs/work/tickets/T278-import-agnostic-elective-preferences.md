@@ -1,7 +1,7 @@
 ---
 title: "Import-agnostic elective preferences: an ETL spine, a canonical preference record, and a learned axis binding"
 document_type: ticket
-status: open
+status: closed
 created: 2026-09-27
 task_class: database-sync
 archive_when: "all four stage tickets T279, T280, T281 and T282 are completed, and the owner has ruled on every open question in docs/adr/2026-09-27-elective-preference-etl-canonical-record-and-learned-axis-binding.md section 9"

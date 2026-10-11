@@ -2,7 +2,7 @@
 ticket: T340
 document_type: ticket
 title: WAN relay/hole-punch activation go-live checklist (owner decision — pre-SHORESH_RELAY_ENABLED)
-status: open
+status: closed
 created: 2026-10-03
 archive_when: "the owner has made the WAN activation go-live decision and, if he proceeds, every pre-activation precondition below is resolved or explicitly owner-accepted and SHORESH_RELAY_ENABLED is set true in a shipped build; or the owner declines activation and that decision is recorded"
 task_class: security-auth

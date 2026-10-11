@@ -2,7 +2,7 @@
 ticket: T344
 document_type: ticket
 title: Shard/isolate heavy real-libp2p suites away from the jsdom tests so load flakes stop
-status: open
+status: closed
 created: 2026-10-08
 archive_when: "the gate no longer co-schedules the heavy real-libp2p integration suites (electron/sync/**, electron/**/*.integration) concurrently with the jsdom browser-env tests on the same runner, proven by the formerly-flaky tests (q-assignmentpanel-flake-under-libp2p-load, q-relay-revoke-security-assertion-flakes-under-load) passing a stress run (>=20 isolated + >=10 under artificial load) with zero failures and no raised asyncUtilTimeout/testTimeout (T188/T308 stand)"
 task_class: test-infrastructure

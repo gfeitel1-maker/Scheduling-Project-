@@ -2,7 +2,7 @@
 ticket: T346
 document_type: ticket
 title: approveDevice reports failure when the joining device is gone, and leaves no half-authorized row
-status: open
+status: closed
 created: 2026-10-08
 archive_when: "approveDevice returns { authorized: false, reason: 'joiner_disconnected' } and leaves the devices row unauthorized (no secret, no admin grant, no allow audit) whenever pairing-decision delivery returns false or no libp2p node exists, and DeviceManagerScreen renders the inline flag 'The device disconnected before approval — ask it to request again' on that request; both pinned by red-first tests"
 task_class: security-auth

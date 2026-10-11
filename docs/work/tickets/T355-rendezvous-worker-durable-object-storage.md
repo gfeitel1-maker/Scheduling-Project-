@@ -2,7 +2,7 @@
 ticket: T355
 document_type: ticket
 title: Rendezvous Worker storage moves to one SQLite-backed Durable Object per namespace
-status: in-progress
+status: closed
 created: 2026-10-09
 archive_when: "the Worker stores peers in a per-namespace Durable Object with an exact 200-peer cap and 30/min write budget, tests pin both, and the keeper has deployed and run the ADR's three acceptance checks"
 task_class: security-auth

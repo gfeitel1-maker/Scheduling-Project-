@@ -2,7 +2,7 @@
 ticket: T351
 document_type: ticket
 title: Lift the remaining setup-device-only ("mode === 'client'") gates to any admin on a trusted, non-revoked device
-status: open
+status: closed
 created: 2026-10-09
 archive_when: "every mode==='client' refusal listed below is removed or STOP-reported; each lifted handler is reachable by an admin on a trusted non-revoked client-mode device and refused for a non-admin role and for a revoked/untrusted device, each proven red-first against the real IPC handler; no user-facing string says 'the device this camp was set up on' for a lifted behaviour; npm run verify green in CI"
 task_class: security-auth

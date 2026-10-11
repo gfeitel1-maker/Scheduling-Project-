@@ -1,7 +1,7 @@
 ---
 title: "CI minutes: stop re-verifying a tree that already went green"
 document_type: ticket
-status: open
+status: closed
 created: 2026-09-25
 task_class: test-infrastructure
 archive_when: "the gate no longer runs on push to main, a daily scheduled run on main exists, node_modules is restored from a lockfile-keyed cache on an exact hit, and a week of run history shows roughly half the previous run count with no loss of PR coverage"

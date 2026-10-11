@@ -2,7 +2,7 @@
 ticket: T349
 document_type: ticket
 title: S3 — Rung 2 camp-peer address gossip and signaling over the authenticated libp2p stream, inert
-status: open
+status: closed
 created: 2026-10-08
 archive_when: "electron/sync/automerge/punchGossip.js, punchSignaling.js and punchRung2.js exist with their red-first tests green; the signed camp-encrypted reflexive-address field is read only through readReflexive; /shoresh/punch-signal/1 is served only to authGate-admitted, registry-trusted peers; and the modules are wired into syncStarter.js behind SHORESH_PUNCH_ENABLED by a follow-up"
 task_class: security-auth

@@ -2,7 +2,7 @@
 ticket: T354
 document_type: ticket
 title: S4a — rung 1 (absorbs parked T348; PR #762 closed), remembered public reflexive candidate redialled with zero signaling, inert behind SHORESH_PUNCH_ENABLED
-status: open
+status: closed
 created: 2026-10-09
 archive_when: "attemptRung1 redials a peer's remembered punch memory with zero signaling messages and reports mapping-moved, timeout or no-memory so a coordinator can escalate; the device's stable DTLS cert/key and ICE credentials live in the SQLCipher-covered database (never a plaintext file at rest); a revoked peer's memory is not redialled; schema v93 and its rollback pass; nothing activates without SHORESH_PUNCH_ENABLED"
 task_class: security-auth

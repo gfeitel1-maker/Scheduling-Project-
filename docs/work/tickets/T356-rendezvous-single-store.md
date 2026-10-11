@@ -2,7 +2,7 @@
 ticket: T356
 document_type: ticket
 title: Rendezvous Worker uses one Durable Object for the whole service, with a global write budget
-status: in-progress
+status: closed
 created: 2026-10-09
 archive_when: "the Worker stores every namespace in one Durable Object, tests pin the per-namespace and global budgets, and the keeper has deployed and run the ADR's acceptance checks"
 task_class: security-auth

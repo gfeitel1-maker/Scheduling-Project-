@@ -1,7 +1,7 @@
 ---
 title: "Stage 3 — a remembered, versioned, revocable per-camp axis binding"
 document_type: ticket
-status: open
+status: closed
 created: 2026-09-27
 task_class: database-sync
 archive_when: "a director-confirmed axis binding is remembered per camp and re-proposed on a matching re-import while NOT auto-applying to a drifted file; a RECALLED binding is re-run through the domain and coverage checks on EVERY import, so a binding that no longer matches the file re-asks instead of silently narrowing (this is what closes P38, where renaming one rank header dropped rank 3 for 13 campers under ok=true); the match/drift key is derived from header text, axis labels and geometry only and provably never from cell contents; a remembered binding is revocable by an explicit act that is not byte-drift, expires on a change to the camp's elective COORDINATE SET into re-confirmation (NOT 'across a season boundary' — there is no season concept in this schema, grep returns zero, and a schedule changing shape is the right trigger rather than a date passing; ADR 13.6a), and is listed on a review surface showing when it was confirmed and what it has been applied to; the seedlings reservation at electron/db/schema.sql:245/:251 is either filled by this work or its comments corrected; and the owner has ruled on persistence, on replication, and on what the record id is derived from"

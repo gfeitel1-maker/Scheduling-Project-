@@ -1,7 +1,7 @@
 ---
 title: T372-import-undo-trusts-renderer-entity-list
 document_type: ticket
-status: open
+status: closed
 created: 2026-10-11
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-10-11-import-electives-keep-their-shape.md]

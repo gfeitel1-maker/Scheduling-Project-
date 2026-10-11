@@ -1,7 +1,7 @@
 ---
 title: "Camp data record — a self-maintaining openable file of the camp's data"
 document_type: ticket
-status: in-progress
+status: closed
 task_class: architecture
 date: 2026-09-28
 created: 2026-09-28
