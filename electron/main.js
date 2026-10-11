@@ -626,7 +626,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // must not be reported as failed because the version step had trouble.
     // T370: a HELD commit rolled the catalog back byte-identical, so it saves no version either;
     // otherwise the follow-up full commit's different slots slip past the identical-version skip
-    // and two "Imported from X" versions stack.
+    // and two "Imported from X" versions stack. The compound-cell decisions above are written even
+    // on a held commit, on purpose: they record the director's answers, which the follow-up commit
+    // must not ask again.
     if (!outcome?.held && Array.isArray(placements) && placements.length > 0) {
       return materializeImportedVersion(db, syncClient, {
         campId: camp.id, authorUserId: session.userId, placements, sourceFileName: cleanSourceFileName(sourceFileName),
