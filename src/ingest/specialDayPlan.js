@@ -56,11 +56,12 @@ export function matchExistingActivity(name, activities, aliases) {
  */
 export function resolveSpecialDayName(name, activities, aliases, fixedEvents) {
   const m = matchExistingActivity(name, activities, aliases)
-  const k = normalizeName(name)
-  const fe = (fixedEvents ?? []).find((e) => normalizeName(e.name) === k)
+  const k = activityNameKey(name)
+  const fe = (fixedEvents ?? []).find((e) => activityNameKey(e.name) === k)
   const eventLike = isMealName(name) || !!fe
   if (m.activityId || m.ambiguous) return { ...m, eventLike }
-  return { activityId: fe?.activity_id ?? null, ambiguous: false, eventLike }
+  const feActivityLive = fe?.activity_id && activities.some((a) => a.id === fe.activity_id)
+  return { activityId: feActivityLive ? fe.activity_id : null, ambiguous: false, eventLike }
 }
 
 /**
