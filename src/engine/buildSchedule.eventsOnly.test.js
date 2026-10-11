@@ -38,6 +38,18 @@ describe('events-only time blocks', () => {
     expect(slots.filter((s) => s.blockId === 'flag' && s.type === 'activity')).toEqual([])
   })
 
+  it('a preplaced (locked) multi-block span cannot cross into an events-only block', () => {
+    const span = { ...archery, id: 'ropes', name: 'Ropes', span_blocks: 2 }
+    const blocks = [{ ...mainBlock, id: 'pre', sort_order: 0, start_time: '09:05', end_time: '09:50' }, flagBlock(1), { ...mainBlock, sort_order: 2, start_time: '10:00', end_time: '10:45' }]
+    const { slots } = buildSchedule({
+      groups, tiers: [{ id: 't1', name: 'Junior' }], days: [day], timeBlocks: blocks, activities: [span], fixedEvents: [], campId: 'test', replacedDayIds: [],
+      preplacedSlots: [{ groupId: 'g1', dayId: 'd1', blockId: 'pre', activityId: 'ropes' }],
+    })
+    expect(slots.filter((s) => s.blockId === 'flag' && s.type === 'activity')).toEqual([])
+    // The lock would have to cross the events-only block, so it is not honoured as a two-block span.
+    expect(slots.find((s) => s.groupId === 'g1' && s.blockId === 'pre').activityId).not.toBe('ropes')
+  })
+
   it('flipping the toggle off makes the block schedulable again', () => {
     const slots = run(0)
     expect(slots.some((s) => s.blockId === 'flag' && s.groupId === 'g2' && s.type === 'activity')).toBe(true)

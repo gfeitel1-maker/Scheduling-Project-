@@ -602,7 +602,7 @@ describe('TimeBlocksScreen — events only (F2)', () => {
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Flag Raising')).not.toBeNull())
-    expect(screen.getByText(/Events only/)).toBeTruthy()
+    expect(screen.getByText("Events only — Generate won't place activities here")).toBeTruthy()
   })
 
   it('lets the director turn Events only off, writing events_only 0', async () => {
@@ -614,7 +614,7 @@ describe('TimeBlocksScreen — events only (F2)', () => {
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Flag Raising')).not.toBeNull())
     fireEvent.click(screen.getByRole('button', { name: 'Edit Flag Raising' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: /Events only/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: "Events only — Generate won't place activities here" }))
     fireEvent.click(screen.getByText('Save'))
     await waitFor(() =>
       expect(localClient.write).toHaveBeenCalledWith('token-abc', 'time_blocks', 'block-1', 'events_only', 0)

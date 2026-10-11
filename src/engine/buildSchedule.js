@@ -665,7 +665,12 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
     // guard fixedEventLookup effectively gets via the openSlots exclusion above.
     if (!assigned.has(key) && !electiveLookup.has(key) && !eventLookup.has(key)) {
       const act = activities.find(a => a.id === pre.activityId)
-      if (act) {
+      // F2: a locked multi-block span is not honoured across an events-only block, same rule as the
+      // tail check in blockedBy; place() would otherwise book the tail there.
+      const headIdx = blockOrder.get(pre.blockId)
+      const crossesEventsOnly = act && headIdx !== undefined &&
+        timeBlocksSorted.slice(headIdx + 1, headIdx + (act.span_blocks || 1)).some(b => b.events_only)
+      if (act && !crossesEventsOnly) {
         place(act, pre.groupId, pre.dayId, pre.blockId)
         preplacedKeys.add(key)
       }

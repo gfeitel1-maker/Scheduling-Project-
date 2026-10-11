@@ -86,7 +86,7 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings, overlaps }
             {POD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <label style={{ display: 'block', marginTop: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
-            <input type="checkbox" checked={eventsOnly} onChange={e => setEventsOnly(e.target.checked)} /> Events only
+            <input type="checkbox" checked={eventsOnly} onChange={e => setEventsOnly(e.target.checked)} /> Events only — Generate won't place activities here
           </label>
         </td>
         <td style={{ ...S.td, textAlign: 'right' }}>
@@ -117,7 +117,7 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings, overlaps }
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
           style={{ cursor: 'pointer' }}
         >{block.name}</span>
-        {block.events_only ? <div style={{ ...S.fieldFlag, color: 'var(--text-secondary)' }}>Events only: Generate leaves this block for fixed events</div> : null}
+        {block.events_only ? <div style={{ ...S.fieldFlag, color: 'var(--text-secondary)' }}>Events only — Generate won't place activities here</div> : null}
         {duplicateSiblings?.length > 0 && <DuplicateNameDot row={block} siblings={duplicateSiblings} entityLabel="time block" />}
         {overlaps?.map(o => <div key={o.id} style={overlapFlagStyle}>Overlaps {o.name}</div>)}
       </td>
