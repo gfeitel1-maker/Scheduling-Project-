@@ -530,6 +530,30 @@ describe('review_legacy_priority — batch decision rendering (R7)', () => {
   })
 })
 
+describe('per-field Keep inside a multi-field update card', () => {
+  it('keep one field, take the other: the commit carries a keep resolution for the kept field only', async () => {
+    localClient.ingestReconcile.mockResolvedValue({
+      planItems: [{
+        op: 'update', entity: 'activities', entity_id: 'a1', _name: 'Swim',
+        fields: { min_per_week: { from: 1, to: 2 }, max_per_week: { from: 3, to: 4 } }, evidence: { tier: 'low' },
+      }],
+      fixedEventsReport: {}, legacyPriorityActivities: [], fieldProvenance: {}, evidenceSupport: {},
+    })
+    localClient.ingestCommit.mockResolvedValue({ held: false, total: 1 })
+    render(<ReconciliationScreen baseInputs={{ approved: { activities: ['Swim'] }, cohort_id: null, mode: 'add' }} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+
+    await userEvent.click(within(screen.getByRole('group', { name: 'Most per week' })).getByText('Keep yours'))
+    await userEvent.click(screen.getByText('Apply these choices'))
+    await screen.findByText(/1 of 1 question/)
+    await userEvent.click(screen.getByText('Use this setup'))
+    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
+    const inputs = localClient.ingestCommit.mock.calls[0][0]
+    expect(inputs.approved.activities).toContain('Swim')
+    expect(inputs.resolutions).toEqual([{ entity: 'activities', name: 'Swim', reason: 'stale', field: 'max_per_week', choice: 'keep' }])
+  })
+})
+
 describe('F3 — required readiness gap card', () => {
   it('renders a required_gap hold-lane card, sorted first, when a required readiness area is missing', async () => {
     localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())

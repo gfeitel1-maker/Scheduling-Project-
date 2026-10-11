@@ -475,3 +475,12 @@ describe('a declined confirm_value ("Don’t add" / "Keep mine") is absent from 
     expect(out.resolutions).toEqual([])
   })
 })
+
+describe('applyResolutions: a mixed per-field answer', () => {
+  const decision = { id: 'd', kind: 'confirm_value', entity: 'activities', entityName: 'Swim', field: ['min_per_week', 'max_per_week'], unknowns: [] }
+  it('keeps only the kept fields and leaves the row approved', () => {
+    const out = applyResolutions({ approved: { activities: ['Swim'] }, decisions: [decision], answers: { d: { action: 'mixed', keep: ['max_per_week'] } }, fixedEvents: [] })
+    expect(out.resolutions).toEqual([{ entity: 'activities', name: 'Swim', reason: 'stale', field: 'max_per_week', choice: 'keep' }])
+    expect(out.approved.activities).toEqual(['Swim'])
+  })
+})

@@ -219,6 +219,10 @@ function summaryOf(decision, answer) {
   if (!answer) return 'Resolved'
   if (answer.notAnEvent) return 'Treated as an activity'
   if (answer.action === 'looks_right') return 'Using the file’s value'
+  if (answer.action === 'mixed') {
+    const taken = (decision.field ?? []).filter((f) => !answer.keep.includes(f))
+    return `Kept yours for ${answer.keep.map(fieldLabel).join(', ')}; took the file’s ${taken.map(fieldLabel).join(', ')}`
+  }
   if (answer.choice === 'accept') return 'Will use the file’s value'
   if (answer.choice === 'keep') return 'Keeping the current value'
   if (answer.choice === 'existing') return 'Using your existing record'
@@ -296,6 +300,36 @@ function LocationHoldControls({ decision, onAnswer, locations }) {
   )
 }
 
+// Per-field choice inside one multi-field update card. The whole-card buttons stay the fast path.
+function PerFieldChoice({ decision, onAnswer }) {
+  const [kept, setKept] = useState([])
+  const toggle = (f, keep) => setKept((k) => (keep ? [...new Set([...k, f])] : k.filter((x) => x !== f)))
+  const apply = () => {
+    if (kept.length === 0) onAnswer({ action: 'looks_right' })
+    else if (kept.length === decision.field.length) onAnswer({ action: 'edited' })
+    else onAnswer({ action: 'mixed', keep: decision.field.filter((f) => kept.includes(f)) })
+  }
+  return (
+    <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {decision.field.map((f) => {
+        const isKept = kept.includes(f)
+        return (
+          <div key={f} role="group" aria-label={fieldLabel(f)} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)' }}>
+            <span style={{ fontWeight: 600, color: 'var(--text)', minWidth: 110 }}>{fieldLabel(f)}</span>
+            <span>{`Yours: ${formatFieldValue(decision.currentValue?.[f])}`}</span>
+            <span>{`File: ${formatFieldValue(decision.proposedValue?.[f])}`}</span>
+            <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
+              <button className="press-97" aria-pressed={isKept} onClick={() => toggle(f, true)} style={isKept ? cardStyles.btnCompactPrimary : cardStyles.btnCompactSecondary}>Keep yours</button>
+              <button className="press-97" aria-pressed={!isKept} onClick={() => toggle(f, false)} style={!isKept ? cardStyles.btnCompactPrimary : cardStyles.btnCompactSecondary}>Use file’s</button>
+            </span>
+          </div>
+        )
+      })}
+      <div><button className="press-97" onClick={apply} style={cardStyles.btnCompactSecondary}>Apply these choices</button></div>
+    </div>
+  )
+}
+
 function ResolutionControls({ decision, onAnswer, locations, suggested = null }) {
   const hit = (payload) => Boolean(suggested) && sameAnswer(payload, suggested)
   const dash = (payload) => (hit(payload) ? SUGGESTED_OUTLINE : null)
@@ -316,6 +350,7 @@ function ResolutionControls({ decision, onAnswer, locations, suggested = null })
             <button className="press-97" onClick={() => onAnswer({ action: 'edited', notAnEvent: true })} style={cardStyles.linkButton}>Not an event, treat as an activity</button>
           )}
         </div>
+        {isChange && decision.field.length > 1 && !decision.unknownField && <PerFieldChoice decision={decision} onAnswer={onAnswer} />}
         {classifies && (
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>Choose this if it's a regular activity, not something that blocks the schedule.</div>
         )}

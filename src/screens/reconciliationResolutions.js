@@ -55,7 +55,7 @@ export function isEditableDecision(decision) {
 
 export function isDecisionResolved(decision, answer) {
   if (decision.kind === 'confirm_value') {
-    return answer?.action === 'looks_right' || answer?.action === 'edited'
+    return answer?.action === 'looks_right' || answer?.action === 'edited' || answer?.action === 'mixed'
   }
   if (decision.kind === 'confirm_change') {
     // A backed decision resolves via the real Overwrite/Keep gate; a
@@ -129,6 +129,13 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents, pi
         droppedFixedEventKeys.add(fixedEventMatchKey(decision.entityName, decision.timeBlock, decision.days))
         if (answer.notAnEvent === true) asActivityNames.add(normalizeName(decision.entityName ?? ''))
         else declinedNames.add(normalizeName(decision.entityName ?? ''))
+        continue
+      }
+      // A mixed answer keeps only the fields the director kept; the row stays approved so the rest apply.
+      if (answer?.action === 'mixed' && Array.isArray(decision.field)) {
+        for (const field of decision.field.filter((f) => answer.keep?.includes(f))) {
+          resolutions.push({ entity: decision.entity, name: decision.entityName, reason: 'stale', field, choice: 'keep' })
+        }
         continue
       }
       if (declined && Array.isArray(decision.field) && decision.field.length > 0) {

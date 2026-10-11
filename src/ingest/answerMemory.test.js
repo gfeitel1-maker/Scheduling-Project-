@@ -168,3 +168,13 @@ describe('name_kind: is a recurring name a fixed time or a schedulable activity 
     expect(isAutoApplyEligible(d, { verdict: 'accept' })).toBe(false)
   })
 })
+
+// #928: a per-field ('mixed') answer can't be one remembered verdict, so it is never stored; that
+// null is the only thing keeping recall and auto-apply from reading it back.
+describe('a mixed answer is never remembered', () => {
+  it('toRecordAnswer returns null for it', () => {
+    const update = { id: 'u1', kind: 'confirm_value', entity: 'activities', entityName: 'Swim', field: ['min_per_week', 'max_per_week'] }
+    expect(toRecordAnswer(update, { action: 'mixed', keep: ['max_per_week'] })).toBeNull()
+  })
+})
+

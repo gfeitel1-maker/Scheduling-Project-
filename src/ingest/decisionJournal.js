@@ -54,6 +54,7 @@ function outcomeFor(decision, answer) {
   if (decision.kind === 'confirm_value') {
     // 'looks_right' took the proposal; 'edited' (Don't add / Keep mine) declined it; "not an event" reclassified it.
     if (answer.action === 'looks_right') return OUTCOMES.ACCEPTED
+    if (answer.action === 'mixed') return OUTCOMES.CHANGED
     if (answer.action === 'edited') return answer.notAnEvent === true ? OUTCOMES.CHANGED : OUTCOMES.REJECTED
     return OUTCOMES.UNANSWERED
   }
@@ -179,6 +180,9 @@ function chosenOf(answer) {
     // `undefined` when absent, so the kinds that answer by `choice` are stored
     // exactly as before.
     action: answer.action ?? undefined,
+    // A per-field answer ('mixed') records WHICH fields kept the camp's value; the rest took the
+    // file's. Without it the journal knows the row was split but not how (Code Review, #928).
+    keep: Array.isArray(answer.keep) ? [...answer.keep] : undefined,
     // The activity a mapping pointed AT. Named rather than an id because a
     // resolution is about a spelling, and the id is not what was compared.
     activityName: answer.activityName ?? undefined,

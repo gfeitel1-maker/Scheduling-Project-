@@ -309,7 +309,7 @@ export function isDecisionResolvedFor(decision, answers, dismissedGaps = new Set
     const isIdentity = decision._held ? decision._heldKind === 'identity' : true
     return isIdentity ? (a.choice === 'existing' || a.choice === 'create') : (a.choice === 'accept' || a.choice === 'keep')
   }
-  if (decision.kind === 'confirm_value') return a.action === 'looks_right' || a.action === 'edited'
+  if (decision.kind === 'confirm_value') return a.action === 'looks_right' || a.action === 'edited' || a.action === 'mixed'
   if (decision.kind === 'confirm_change') return a.choice === 'accept' || a.choice === 'keep' || a.ack === true
   if (decision.kind === 'review_legacy_priority') return a.resolved === true
   if (decision.kind === 'all_camp_override') return a.choice === 'all_camp' || a.choice === 'as_written'
