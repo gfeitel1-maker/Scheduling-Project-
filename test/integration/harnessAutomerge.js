@@ -186,7 +186,10 @@ export class AmHost {
     // mirroring main.js's setJoinWindow.
     this.joinSecret = null
     const baseStartSyncNode = startSyncNodeOverride || startSyncNode
+    // Every harness device is 127.0.0.1, so libp2p's per-host inbound limit (5/s) counts the whole camp as one
+    // host and, on a fast Linux runner, resets a handshake (T373). Production devices have distinct hosts.
     const extraOpts = {
+      inboundConnectionThreshold: 1000,
       ...(localSchemaVersion !== undefined ? { localSchemaVersion } : {}),
       ...(handshakeSchemaVersion !== undefined ? { handshakeSchemaVersion } : {}),
     }
@@ -365,7 +368,10 @@ export class AmClient {
     this.hostPeerId = null
     this._mutual = null
     const baseStartSyncNode = startSyncNodeOverride || startSyncNode
+    // Every harness device is 127.0.0.1, so libp2p's per-host inbound limit (5/s) counts the whole camp as one
+    // host and, on a fast Linux runner, resets a handshake (T373). Production devices have distinct hosts.
     const extraOpts = {
+      inboundConnectionThreshold: 1000,
       ...(localSchemaVersion !== undefined ? { localSchemaVersion } : {}),
       ...(handshakeSchemaVersion !== undefined ? { handshakeSchemaVersion } : {}),
     }

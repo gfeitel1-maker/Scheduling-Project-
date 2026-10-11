@@ -359,6 +359,12 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     deadlineTimers.delete(evt.detail)
   })
 
+  // Each doc/sync frame arrives on its own one-shot stream, and the sender closes only ITS half. libp2p
+  // counts a stream against the connection's inbound limit (32 per protocol) until BOTH halves close,
+  // so a handler that stops reading without closing its own half leaks one slot per message and, after
+  // 32, every further message on that connection is reset (T373).
+  const releaseInboundStream = (stream) => () => stream.close().catch(() => {})
+
   await node.handle(PROTO, (stream, connection) => {
     const fromPeerId = connection.remotePeer.toString()
     // Stage 5d-1 admission gate (ADR §3, threat #1/#4): a peer that has not
@@ -385,7 +391,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     }).catch(() => {
       // A malformed/adversarial peer closing or corrupting the stream must not
       // crash this node — see design doc's "what must NOT be trusted" section.
-    })
+    }).finally(releaseInboundStream(stream))
   }, { runOnLimitedConnection: true })
   // ^ T337 gate-fix round 2 (Code Reviewer LOW, FIX 3): without this opt-in, libp2p refuses to
   // even INVOKE this handler for a stream arriving over a "limited" connection (circuit-relay-v2's
@@ -411,7 +417,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
       })
     }).catch(() => {
       // A malformed/adversarial peer closing or corrupting the stream must not crash this node.
-    })
+    }).finally(releaseInboundStream(stream))
   }, { runOnLimitedConnection: true }) // same reasoning as PROTO's handler above
 
   // The planned host handoff (docs/adr/2026-10-09-host-succession-simple.md). Reachable only by a
@@ -510,6 +516,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
   async function sendDocTo(peerId, docBytes) {
     const stream = await node.dialProtocol(toDialTarget(peerId), PROTO, { runOnLimitedConnection: true })
     await sendFramed(stream, docBytes)
+    await stream.close().catch(() => {})
   }
 
   // Stage 5f-2: real Automerge sync protocol (initSyncState/generateSyncMessage/
