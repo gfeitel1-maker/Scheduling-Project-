@@ -28,6 +28,7 @@ function reconciliationRows(model, decisionsById) {
           name: entry.name,
           why: decision?.reason ?? 'Needs your review.',
           domainTag: domain.label,
+          childTag: child.key,
           sourceKind: 'reconciliation',
         })
       }

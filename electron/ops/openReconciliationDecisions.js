@@ -25,11 +25,18 @@ function hasTable(db) {
 export function listOpenReconciliationDecisions(db, campId) {
   if (!hasTable(db)) return []
   if (!campId) return []
+  // Cleanup for rows an older build persisted: an "Add X as an activity?" question
+  // about a name ingest had already claimed as an event (activities.catalog_role =
+  // 'pinned_event'). The importer no longer raises these; this hides the leftovers.
   return db
     .prepare(
       `SELECT id, camp_id, entity_type, cohort_id, entity_id, identity_key, kind,
               domain_key, child_key, entity_name, reason, import_run_id, created_at
-         FROM open_reconciliation_decisions WHERE camp_id = ? ORDER BY created_at ASC`
+         FROM open_reconciliation_decisions o WHERE camp_id = ?
+          AND NOT (entity_type = 'activities' AND kind = 'confirm_value' AND EXISTS (
+                SELECT 1 FROM activities a WHERE a.camp_id = o.camp_id
+                   AND a.catalog_role = 'pinned_event' AND a.name = o.entity_name))
+        ORDER BY created_at ASC`
     )
     .all(campId)
 }

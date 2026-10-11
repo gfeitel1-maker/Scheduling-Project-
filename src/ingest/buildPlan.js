@@ -17,6 +17,7 @@ import { normalizeName, recognitionKey } from './preview.js'
 import { dbFieldFor } from './fieldUpdate.js'
 import { startMinutesForOrdering } from './orderTimeBlocks.js'
 import { UNIQUE_FIRST_FIELD, UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS } from '../data/setupCrudRepository.js'
+import { eventKeptWhenUnanswered } from './eventKeptWhenUnanswered.js'
 
 // ADR 2026-08-17-onescreen-reconciliation-merge.md §1 — moved here (not
 // duplicated) from preview.js, whose UI-only tick-state role is gone. This is
@@ -429,10 +430,22 @@ export function buildPlan(source, existing = null, resolutions = []) {
   // link and silently disable the fixed-event-duplicate suppression, placing the
   // event twice with no error. A MARKER, NOT A HOLE.
   //
-  // tier:'low' is KEPT alongside the marker. It is now orthogonal — whichever way
-  // the director answers the card, the row carries the marker and cannot become a
-  // free choice — so it costs nothing and keeps the director informed that ingest
-  // made a classification.
+  // The row is not demoted to tier:'low' merely for being claimed. That was kept
+  // "alongside the marker" on the claim that it cost nothing, but a low create
+  // becomes an "Add X as an activity?" review question (and, unanswered, a
+  // persisted open item) about a name the importer already classified as an
+  // event. The marker is the exclusion; the row is born 'new' and asks nothing.
+  // The one exception is a name whose every event is itself unconfirmed (low
+  // confidence): the director is asked about the EVENT, and an unanswered event
+  // is held back, so its backing row must follow that answer, not precede it.
+  const unconfirmedEventNames = (() => {
+    const byName = new Map()
+    for (const fe of Array.isArray(source?.fixedEvents) ? source.fixedEvents : []) {
+      const key = normalizeName(fe?.name ?? '')
+      byName.set(key, (byName.get(key) ?? true) && fe?.confidence === 'low' && !eventKeptWhenUnanswered(fe))
+    }
+    return new Set([...byName].filter(([, low]) => low).map(([k]) => k))
+  })()
   const pinOnlyActivityNames = new Set(
     Array.isArray(source?.pinOnlyActivityNames) ? source.pinOnlyActivityNames.map((n) => normalizeName(n)) : []
   )
@@ -702,7 +715,7 @@ export function buildPlan(source, existing = null, resolutions = []) {
         }
         const isPinOnly = entity === 'activities' && pinOnlyActivityNames.has(normalizeName(name))
         const tier = isPinOnly
-          ? 'low'
+          ? (unconfirmedEventNames.has(normalizeName(name)) ? 'low' : 'new')
           : createConfidenceTier(entity, name, seenCounts)
         // T266 — the marker, written at creation. This is the line that turns the
         // demotion into an exclusion. `fields` is the create payload, so the row

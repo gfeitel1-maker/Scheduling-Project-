@@ -39,8 +39,8 @@ describe('buildAttentionList', () => {
     const rows = buildAttentionList({ model, decisionsById, structureIssues: [] })
 
     expect(rows).toEqual([
-      { id: 'd1', name: 'Waterfront', why: 'No location matched.', domainTag: 'Scheduling', sourceKind: 'reconciliation' },
-      { id: 'd2', name: 'Nature Explorers', why: 'Cohort unclear.', domainTag: 'Scheduling', sourceKind: 'reconciliation' },
+      { id: 'd1', name: 'Waterfront', why: 'No location matched.', domainTag: 'Scheduling', childTag: 'Activities', sourceKind: 'reconciliation' },
+      { id: 'd2', name: 'Nature Explorers', why: 'Cohort unclear.', domainTag: 'Scheduling', childTag: 'Activities', sourceKind: 'reconciliation' },
     ])
   })
 
