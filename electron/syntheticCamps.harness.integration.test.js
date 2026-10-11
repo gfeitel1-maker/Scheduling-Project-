@@ -36,6 +36,7 @@ import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
 import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
 import { inferActivityRules } from '../src/ingest/activityRules.js'
 import { capturePlacements } from '../src/ingest/capturePlacements.js'
+import { inferTextSpans } from '../src/ingest/textSpans.js'
 import { buildReconciliationReport } from '../src/ingest/reconciliationReport.js'
 import { inferDivisionEntities } from '../src/ingest/inferDivisions.js'
 import { buildBlastRadiusIndex } from '../src/ingest/blastRadius.js'
@@ -100,6 +101,7 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
   const rules = inferActivityRules(
     proposal.entities.activities, proposal.activityPages, proposal.seenCounts,
     proposal.entities.days_of_operation.length, proposal.entities.groups, pinOnly,
+    inferTextSpans({ pages: parsed.pages }, proposal).spans,
   )
   // inferActivityRules returns a Map; ImportScreen sends commitIngest a plain object keyed by activity name.
   const activityRules = {}
@@ -111,6 +113,7 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
       min_per_week: rule.min_per_week,
       max_per_week: rule.max_per_week,
       priority: rule.priority,
+      ...(rule.span_blocks ? { span_blocks: rule.span_blocks } : {}),
       co_schedule: coSchedule.get(name),
     }
   }
@@ -576,7 +579,26 @@ describe.skipIf(!process.env.SYNTHETIC_REPRO)('repro', () => {
     const groupName = new Map(input.groups.map((x) => [x.id, x.name]))
     const events = input.fixedEvents.map((fe) => `${fe.name} | ${blockName.get(fe.time_block_id)} | ${dayLabel.get(fe.day_id)} | ${resolveFixedEventGroupIds(fe, input.groups).map((g) => groupName.get(g)).join(',')}`)
     const acts = d.prepare('SELECT name, catalog_role, span_blocks, min_per_week FROM activities WHERE camp_id = ?').all(id)
-    console.log('REPRO ' + JSON.stringify({ blocks: [...blockName.values()], events, activities: acts, questions: imp.report.decisions.map((x) => `${x.kind}:${x.entity}:${x.entityName}`) }, null, 1))
+    // Generate summary (F5 evidence): placed/unfillable cells, and each span activity's run lengths.
+    const { slots } = buildSchedule(input)
+    const act = slots.filter((s) => s.type === 'activity')
+    const order = new Map(input.timeBlocks.map((b, i) => [b.id, i]))
+    const spanRuns = input.activities.filter((a) => (a.span_blocks ?? 1) > 1).map((a) => {
+      const by = new Map()
+      for (const s of act) if (s.activityId === a.id) by.set(`${s.groupId}|${s.dayId}`, [...(by.get(`${s.groupId}|${s.dayId}`) ?? []), order.get(s.blockId)])
+      const runs = {}
+      for (const arr of by.values()) {
+        arr.sort((x, y) => x - y)
+        let len = 1
+        for (let i = 1; i <= arr.length; i++) {
+          if (i < arr.length && arr[i] === arr[i - 1] + 1) len++
+          else { runs[len] = (runs[len] ?? 0) + 1; len = 1 }
+        }
+      }
+      return { name: a.name, span_blocks: a.span_blocks, min_per_week: a.min_per_week, runs }
+    })
+    const generate = { placed: act.filter((s) => s.activityId).length, unfillable: act.filter((s) => s.flags?.UNFILLABLE).length, spanRuns }
+    console.log('REPRO ' + JSON.stringify({ blocks: [...blockName.values()], events, activities: acts, questions: imp.report.decisions.map((x) => `${x.kind}:${x.entity}:${x.entityName}`), generate }, null, 1))
     d.close()
   })
 })
