@@ -106,4 +106,11 @@ describe('special-day commit lives in commitPlan', () => {
     expect(d.prepare("SELECT id FROM activities WHERE id = ?").all(relayId)).toHaveLength(1)
     expect(d.prepare("SELECT id FROM import_evidence WHERE entity_type = 'special_days'").all()).toHaveLength(0)
   })
+
+  it('a minted activity gets an id derived from camp and name, so two devices converge', async () => {
+    commit(plan())
+    const { deriveSpecialDayActivityId } = await import('./electiveDerivedIds.js')
+    const tug = d.prepare("SELECT id FROM activities WHERE name = 'Tug'").all()
+    expect(tug.map((r) => r.id)).toEqual([deriveSpecialDayActivityId(campId, 'Tug')])
+  })
 })

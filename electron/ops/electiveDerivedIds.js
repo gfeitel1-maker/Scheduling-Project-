@@ -424,6 +424,10 @@ export function deriveSpecialDayId(campId, name) {
   return `sd1:${join([opaque('camp_id', campId), electiveChoiceLabelKey(name)])}`
 }
 
+export function deriveSpecialDayActivityId(campId, name) {
+  return `sda1:${join([opaque('camp_id', campId), electiveChoiceLabelKey(name)])}`
+}
+
 export function deriveSpecialDayTimeBlockId(specialDayId, sortOrder) {
   return `sdtb1:${join([derivedParent('special_day_id', specialDayId, 'sd1:'), String(Number(sortOrder))])}`
 }

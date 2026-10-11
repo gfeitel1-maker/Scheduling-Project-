@@ -31,7 +31,7 @@ import { PROJECTIONS } from './projections.js'
 import { writeRouteSnapshot, campCatalog } from './deleteRecord.js'
 import { attachNames } from '../../src/utils/snapshotRemap.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
-import { deriveSpecialDayId, deriveSpecialDayTimeBlockId, deriveSpecialDaySlotId } from './electiveDerivedIds.js'
+import { deriveSpecialDayActivityId, deriveSpecialDayId, deriveSpecialDayTimeBlockId, deriveSpecialDaySlotId } from './electiveDerivedIds.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
 import { replaceOpenDecisionsForCommit, removeOpenDecisionsForImport } from './openReconciliationDecisions.js'
 import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.js'
@@ -2794,7 +2794,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           const live = liveActivities.filter((r) => normalizeName(r.name) === key)
           if (live.length > 1) throw new Error(`"${a.name}" matches more than one activity; nothing was written.`)
           if (live.length === 1) { activityIdByName.set(a.name, live[0].id); continue }
-          const id = randomUUID()
+          const id = deriveSpecialDayActivityId(camp_id, a.name)
           sdOp('activities', id, 'name', a.name)
           sdOp('activities', id, 'camp_id', camp_id)
           liveActivities.push({ id, name: a.name })
