@@ -17,6 +17,7 @@
 
 import { whitespaceInsensitiveName, normalizeName, activityNameKey } from './preview.js'
 import { mapWithCollisions } from './mapWithCollisions.js'
+import { isMealName } from './eventKeptWhenUnanswered.js'
 import { dayNameFromTitle, titleNamesDay } from './extractEntities.js'
 
 const key = (s) => whitespaceInsensitiveName(String(s ?? ''))
@@ -44,6 +45,22 @@ export function matchExistingActivity(name, activities, aliases) {
   if (live.length > 1) return { activityId: null, ambiguous: true }
   if (live.length === 1) return { activityId: live[0].id, ambiguous: false }
   return { activityId: aliases?.get(normalizeName(name)) ?? null, ambiguous: false }
+}
+
+/**
+ * A name in a one-day file is EVENT-LIKE when it is a meal or names one of the camp's fixed events. Such a name
+ * resolves to an existing activity (a live one, or the camp event's own), else is minted as a pinned_event
+ * marker, never as a catalogue activity. SHARED by the plan and the commit.
+ * @param {Array<{name: string, activity_id?: string|null}>} [fixedEvents]  the camp's live fixed events
+ * @returns {{activityId: string|null, ambiguous: boolean, eventLike: boolean}}
+ */
+export function resolveSpecialDayName(name, activities, aliases, fixedEvents) {
+  const m = matchExistingActivity(name, activities, aliases)
+  const k = normalizeName(name)
+  const fe = (fixedEvents ?? []).find((e) => normalizeName(e.name) === k)
+  const eventLike = isMealName(name) || !!fe
+  if (m.activityId || m.ambiguous) return { ...m, eventLike }
+  return { activityId: fe?.activity_id ?? null, ambiguous: false, eventLike }
 }
 
 /**
@@ -92,10 +109,13 @@ export function buildSpecialDayPlan(proposal, live) {
   // exactly what the commit will mint. An ambiguous name resolves to NOTHING rather than to a guess, same as
   // an ambiguous column above.
   const activityRows = proposal.activityNames.map((name) => {
-    const m = matchExistingActivity(name, activities, live?.aliases)
-    return { name, activityId: m.activityId, ambiguous: m.ambiguous }
+    const m = resolveSpecialDayName(name, activities, live?.aliases, live?.fixedEvents)
+    return { name, activityId: m.activityId, ambiguous: m.ambiguous, eventLike: m.eventLike }
   })
-  const newActivityNames = activityRows.filter((a) => !a.activityId && !a.ambiguous).map((a) => a.name)
+  const newActivityNames = activityRows.filter((a) => !a.activityId && !a.ambiguous && !a.eventLike).map((a) => a.name)
+  // Meals and the camp's own events are never added to the catalogue. With no activity behind the name yet, the
+  // commit mints a pinned_event marker (an event), and the name is listed here instead of in newActivityNames.
+  const eventNames = activityRows.filter((a) => a.eventLike && !a.activityId && !a.ambiguous).map((a) => a.name)
   // Which of the camp's EXISTING activities this day will bind to. Matching is
   // whitespace/case-insensitive so a re-import does not double the catalog, but
   // that means a one-off "Ga Ga pit" can silently attach to the camp's real,
@@ -151,6 +171,7 @@ export function buildSpecialDayPlan(proposal, live) {
     timeBlocks,
     activities: activityRows,
     newActivityNames,
+    eventNames,
     reusedActivityNames,
     ambiguousActivityNames: ambiguousActivityNamesList,
     slots,

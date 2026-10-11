@@ -371,3 +371,43 @@ describe('F3/F4 slice 4: the synthetic one-day files (s02, s05, s09) place when 
     expect(d.prepare('SELECT COUNT(*) c FROM special_day_placements').get().c).toBe(1)
   })
 })
+
+describe('meals and camp events in a one-day file are events, never plain catalogue activities', () => {
+  const days = (extra) => plan({
+    activities: [{ name: 'Lunch', activityId: null }, { name: 'Mifkad', activityId: null }],
+    newActivityNames: [],
+    slots: [
+      { columnName: 'Red', blockName: '9:15-9:45', activityName: 'Lunch' },
+      { columnName: 'Blue', blockName: '10:15', activityName: 'Mifkad' },
+    ],
+    ...extra,
+  })
+  const rowsNamed = (name) => d.prepare('SELECT id, catalog_role FROM activities WHERE camp_id = ? AND name = ?').all(campId, name)
+
+  it('mints a meal as a pinned_event marker', () => {
+    commit(days())
+    const rows = rowsNamed('Lunch')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].catalog_role).toBe('pinned_event')
+    const cell = d.prepare('SELECT activity_id FROM special_day_slots WHERE activity_id = ?').get(rows[0].id)
+    expect(cell).toBeTruthy()
+  })
+
+  it('reuses the activity behind a camp fixed event of that name', () => {
+    const markerId = randomUUID()
+    const feId = randomUUID()
+    for (const [entity, id, fields] of [
+      ['activities', markerId, { camp_id: campId, name: 'Flag Raising', catalog_role: 'pinned_event' }],
+      ['fixed_events', feId, { camp_id: campId, name: 'Mifkad', activity_id: markerId }],
+    ]) for (const [field, value] of Object.entries(fields)) appendOp(d, { entity, entity_id: id, field, value, author_user_id: userId, device_id: deviceId })
+    commit(days())
+    expect(rowsNamed('Mifkad')).toEqual([])
+    expect(d.prepare('SELECT COUNT(*) c FROM special_day_slots WHERE activity_id = ?').get(markerId).c).toBe(1)
+  })
+
+  it('a second one-day file with the same meal mints nothing twice', () => {
+    commit(days())
+    commit(days({ name: 'Another Day' }))
+    expect(rowsNamed('Lunch')).toHaveLength(1)
+  })
+})

@@ -1596,10 +1596,13 @@ export const mockShoresh = {
         for (const a of specialDay.activities ?? []) {
           const live = state.activities.find((r) => r.camp_id === campId && norm(r.name) === norm(a.name))
           if (live) { activityIdByName.set(a.name, live.id); continue }
+          const event = (state.fixed_events ?? []).find((e) => e.camp_id === campId && norm(e.name) === norm(a.name))
+          if (event?.activity_id && state.activities.some((r) => r.id === event.activity_id)) { activityIdByName.set(a.name, event.activity_id); continue }
+          const eventLike = isMealName(a.name) || !!event
           const id = randomId()
-          state.activities.push({ id, camp_id: campId, name: a.name })
+          state.activities.push({ id, camp_id: campId, name: a.name, ...(eventLike ? { catalog_role: 'pinned_event' } : {}) })
           activityIdByName.set(a.name, id)
-          activitiesCreated += 1
+          if (!eventLike) activitiesCreated += 1
         }
         const blockIdByName = new Map()
         for (const b of specialDay.timeBlocks ?? []) {
