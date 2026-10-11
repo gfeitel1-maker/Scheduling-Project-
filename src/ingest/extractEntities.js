@@ -567,7 +567,7 @@ export function extractEntities(parsed, compoundCellDecisions, confirmedNameMerg
       // time is a change-over rather than a period — the file names those
       // explicitly in other rows ("11:10-11:20 Change"), but the ones that
       // arrive unlabelled used to become schedulable blocks (T132).
-      if (row.label && /^\d{1,2}[:.]\d{2}/.test(row.label.trim()) && !isChangeOverSpan(row.label, row.cells)) {
+      if (row.label && /^\d{1,2}[:.]\d{2}/.test(row.label.trim()) && !isChangeOverSpan(row.label, row.cells.map(stripTimes))) {
         timeBlocks.push(row.label.trim())
       }
       // Slice 3a header-label detector, period form: "Chugim"/"Bechirot" etc.

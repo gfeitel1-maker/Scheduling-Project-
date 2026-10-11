@@ -39,15 +39,26 @@ describe('isChangeOverSpan', () => {
     expect(isChangeOverSpan('12:55-01:35')).toBe(false)
   })
 
-  it('keeps a short row that prints an event (F2: 10-minute Flag Raising, Reveille, Taps)', () => {
-    expect(isChangeOverSpan('08:50-09:00', ['Flag Raising', 'Flag Raising'])).toBe(false)
-    expect(isChangeOverSpan('07:30-07:40', ['Reveille'])).toBe(false)
+  it('keeps a short row when most groups agree on the same event (F2)', () => {
+    expect(isChangeOverSpan('08:50-09:00', ['Flag Raising', 'Flag Raising', 'Flag Raising'])).toBe(false)
+    expect(isChangeOverSpan('07:30-07:40', ['Reveille', 'Reveille', ''])).toBe(false) // partial: 2 of 3
   })
 
-  it('still drops a short row that is empty or only says Change', () => {
+  it('drops a short row where only a minority print something (overflow bleed)', () => {
+    expect(isChangeOverSpan('08:50-09:00', ['Flag Raising', '', ''])).toBe(true)
+    expect(isChangeOverSpan('1:05-1:10', ['Swim', 'Swim', 'Swim', '', 'Lunch'])).toBe(true) // 3 of 5
+    expect(isChangeOverSpan('1:45-1:50', ['Dance', 'Israel', 'Playground', '', ''])).toBe(true)
+  })
+
+  it('drops a short row that is empty or only says Change / Transition', () => {
     expect(isChangeOverSpan('11:10-11:20', ['', '-', ''])).toBe(true)
     expect(isChangeOverSpan('9:40-9:50', ['Change', 'Change'])).toBe(true)
+    expect(isChangeOverSpan('9:40-9:50', ['Transition.', 'Transition.'])).toBe(true)
     expect(isChangeOverSpan('1:05-1:10', [])).toBe(true)
+  })
+
+  it('treats Walk as an event, not passing time', () => {
+    expect(isChangeOverSpan('10:00-10:10', ['Walk', 'Walk', 'Walk'])).toBe(false)
   })
 
   it('states its threshold rather than hiding it', () => {

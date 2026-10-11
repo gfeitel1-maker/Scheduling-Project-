@@ -9,9 +9,13 @@ import { startMinutesForOrdering } from './orderTimeBlocks.js'
 // first-class periods because the extractor's only test was "does this label
 // start with a time".
 //
-// A short row is dropped only when it is also empty (F2, 2026-10-11 synthetic
-// scorecard): the file's own change-overs are blank or labelled "Change", while
-// a 10-minute row with a Flag Raising in it is a real block and its event.
+// A short row is dropped unless most groups print the same event in it (F2,
+// 2026-10-11 synthetic scorecard): the file's own change-overs are blank or
+// labelled "Change", while a 10-minute row with a Flag Raising in every column
+// is a real block and its event. campC's all-group "Closing Circle"
+// (03:20-03:25) and "Pick Up" (03:45-03:50) rows are kept for that reason;
+// campA's overflow slivers stay dropped (golden counts in
+// extractEntities.changeOver.test.js).
 //
 // 10 minutes is the line, and the corpus picked the number rather than taste.
 // The change-overs are 5 and 10 minutes ("11:10-11:20 Change", "9:40-9:50
@@ -48,14 +52,23 @@ export function isChangeOverSpan(label, cells = []) {
   return span <= CHANGE_OVER_MAX_MINUTES && !rowCarriesContent(cells)
 }
 
-// A short row that prints an event or activity (a 10-minute Flag Raising,
-// Reveille, Taps) is a period. Only an empty row, or one whose cells say
-// "Change"/"Transition", is passing time.
-const PASSING_TIME = /^(change|changeover|change[\s-]over|transition|passing(\s+time)?|travel|walk)$/i
+// A short row is a period only when at least two thirds of its cells print the
+// same event (the app's usual "most of the camp" line). Cells arrive with their
+// times already stripped. PDF overflow bleeds a neighbouring row's text into a
+// few cells of a sliver ("Swim", "Lunch", "Dance"/"Israel"/"Playground"), and
+// that never reaches agreement. Empty cells count against agreement, so a
+// lone group's text is not an event.
+const PASSING_TIME = /^(change|changeover|change[\s-]over|transition|passing(\s+time)?)[\s.!:]*$/i
+const AGREEMENT = 2 / 3
 
 function rowCarriesContent(cells) {
-  return cells.some((c) => {
+  if (cells.length === 0) return false
+  const tally = new Map()
+  for (const c of cells) {
     const text = String(c ?? '').trim()
-    return text !== '' && !/^[-–—.\s]+$/.test(text) && !PASSING_TIME.test(text)
-  })
+    if (text === '' || /^[-–—.\s]+$/.test(text) || PASSING_TIME.test(text)) continue
+    const key = text.toLowerCase()
+    tally.set(key, (tally.get(key) ?? 0) + 1)
+  }
+  return Math.max(0, ...tally.values()) >= cells.length * AGREEMENT
 }
