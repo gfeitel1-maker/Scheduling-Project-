@@ -1393,6 +1393,10 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
         priority: rule.priority,
         ...(rule.span_blocks ? { span_blocks: rule.span_blocks } : {}),
         ...(rule.min_from_file ? { min_from_file: true } : {}),
+        // B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md): the observation each rule came
+        // from. The commit writes the activity's inferred-field evidence only when it is present.
+        eligibility_known: rule.eligibility_known,
+        support: rule.support,
         // T114 follow-up — the co-schedule inference computed at parse time
         // above. Until this line existed, `coScheduleRef.current` was assigned
         // and never read by anything: every activity's observed capacity was
