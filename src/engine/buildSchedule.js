@@ -1223,7 +1223,7 @@ function eventsOnlySpanFinding(groupId, activityId, activityName, eventName) {
 // any stored rows on them are dropped up front, so every loop below — goals,
 // distribution and the fixed-event audit — sees only the days that run, with
 // or without fixedEvents/weekId (the manual route passes neither).
-export function computeFindings({ slots: allSlots, groups, activities, days: allDays, fixedEvents, timeBlocks, weekId = null, activityExclusions, groupExclusions, locationExclusions, replacedDayIds }) {
+export function computeFindings({ slots: allSlots, groups, activities, days: allDays, fixedEvents, overlapFixedEvents, timeBlocks, weekId = null, activityExclusions, groupExclusions, locationExclusions, replacedDayIds }) {
   const replaced = new Set(requireReplacedDayIds(replacedDayIds, 'computeFindings'))
   const findings = []
   if (!allSlots || !groups || !activities || !allDays) return findings
@@ -1314,10 +1314,15 @@ export function computeFindings({ slots: allSlots, groups, activities, days: all
   // engine uses in Pass 1 — anti-drift is the point (docs/adr/2026-09-16-
   // anchor-duplicate-finding.md). Absent/empty fixedEvents → no findings (safe
   // default for callers that don't yet thread fixedEvents/weekId through).
-  if (fixedEvents && fixedEvents.length > 0) {
+  // overlapFixedEvents: a caller that wants only the double-booking check (the
+  // Manual route) passes the events here and leaves fixedEvents out.
+  const overlapSource = overlapFixedEvents ?? fixedEvents
+  if (overlapSource && overlapSource.length > 0) {
     findings.push(...fixedEventOverlapFindings(
-      fixedEvents.filter((fe) => fe.schedule_week_id == null || fe.schedule_week_id === weekId), groups, days,
+      overlapSource.filter((fe) => fe.schedule_week_id == null || fe.schedule_week_id === weekId), groups, days,
     ))
+  }
+  if (fixedEvents && fixedEvents.length > 0) {
     // Suppress a week-closed activity from the exclusion set: an activity
     // closed via activityExclusions/groupExclusions/locationExclusions for
     // this week would not be excluded by a fresh build even though its
