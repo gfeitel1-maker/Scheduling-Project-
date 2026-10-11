@@ -4,6 +4,7 @@ import path from 'node:path'
 import { parseTextGrid } from './textGrid'
 import { extractEntities } from './extractEntities'
 import { inferFixedEvents } from './fixedEvents'
+import { buildPlan } from './buildPlan'
 
 // F2 (docs/work/evidence/2026-10-11-synthetic-15-scorecard.md): periodSpan's
 // change-over rule (T132) dropped every row of <= 10 minutes, including a
@@ -20,6 +21,16 @@ describe('F2 - a 10-minute row with an event is a block; a change-over is not', 
     expect(proposal.entities.time_blocks).toContain('08:50-09:00')
     const { fixedEvents } = inferFixedEvents({ pages: parsed.pages }, proposal, {})
     expect(JSON.stringify(fixedEvents)).toContain('Flag Raising')
+  })
+
+  it('creates the kept Flag Raising block events-only through the real extract -> infer -> plan path', () => {
+    const parsed = parseTextGrid(fs.readFileSync(REPRO, 'utf8'))
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents({ pages: parsed.pages }, proposal, {})
+    const p = buildPlan({ approved: { time_blocks: proposal.entities.time_blocks }, camp_id: 'c', cohort_id: 'k', fixedEvents })
+    const byName = (n) => p.items.find((i) => i.entity === 'time_blocks' && i._name === n)
+    expect(byName('08:50-09:00').fields.events_only).toMatchObject({ to: 1 })
+    expect(byName('09:05-09:50').fields.events_only).toBeUndefined()
   })
 
   it('still drops a genuinely empty 10-minute change-over row', () => {

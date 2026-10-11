@@ -173,11 +173,11 @@ export function assertUniqueFieldFirst(entity, fields) {
   return fields
 }
 
-export function fieldsFor(entity, name, campId, index, cohortId) {
-  return assertUniqueFieldFirst(entity, fieldsForUnchecked(entity, name, campId, index, cohortId))
+export function fieldsFor(entity, name, campId, index, cohortId, eventBlockNames = null) {
+  return assertUniqueFieldFirst(entity, fieldsForUnchecked(entity, name, campId, index, cohortId, eventBlockNames))
 }
 
-function fieldsForUnchecked(entity, name, campId, index, cohortId) {
+function fieldsForUnchecked(entity, name, campId, index, cohortId, eventBlockNames) {
   switch (entity) {
     // name FIRST — cohorts is UNIQUE_FIELD_ENTITIES-registered (T238).
     case 'cohorts':
@@ -212,11 +212,12 @@ function fieldsForUnchecked(entity, name, campId, index, cohortId) {
     // cohort_id, then name — same composite-scope reasoning as tiers above.
     case 'time_blocks': {
       const { start_time, end_time } = parseTimeRange(name)
-      // F2: extraction keeps a <=10-minute row only when most groups print an event in it, so such a
-      // block takes events and nothing else (Generate never fills it). Written on create only.
+      // F2: a <=10-minute block that a fixed event in this plan sits in takes events and nothing else
+      // (Generate never fills it). A short block with no event (every group printing a plain activity)
+      // stays schedulable. Written on create only.
       const clock = (t) => { const [h, m] = t.split(':'); return +h * 60 + +m }
       const span = start_time == null ? null : clock(end_time) - clock(start_time)
-      const eventsOnly = span != null && span > 0 && span <= CHANGE_OVER_MAX_MINUTES ? { events_only: 1 } : {}
+      const eventsOnly = span != null && span > 0 && span <= CHANGE_OVER_MAX_MINUTES && eventBlockNames?.has(String(name).trim()) ? { events_only: 1 } : {}
       return { cohort_id: cohortId, name, camp_id: campId, start_time, end_time, sort_order: index, ...eventsOnly }
     }
     // name FIRST — activities is UNIQUE_FIELD_ENTITIES-registered (T115).
@@ -409,6 +410,7 @@ export function buildPlan(source, existing = null, resolutions = []) {
   // proposal.seenCounts's own shape verbatim rather than a separate
   // pre-classified verdict).
   const seenCounts = source?.seenCounts ?? null
+  const eventBlockNames = new Set((Array.isArray(source?.fixedEvents) ? source.fixedEvents : []).map((fe) => String(fe?.time_block ?? '').trim()))
   // A3 (HARD BLOCKER, Red Hat) — the pin-only/dual-use guard's buildPlan-side
   // carry. ImportScreen.jsx's dualUseActivityNames/pinOnlyActivityNames used
   // to gate this at the deleted tick step (ADR 2026-08-09 Decision 1): a
@@ -705,7 +707,7 @@ export function buildPlan(source, existing = null, resolutions = []) {
       }
 
       const emitCreate = () => {
-        const raw = fieldsFor(entity, name, campId, index, cohortId)
+        const raw = fieldsFor(entity, name, campId, index, cohortId, eventBlockNames)
         const fields = {}
         for (const [field, value] of Object.entries(raw)) {
           fields[field] = { from: null, to: value, source: 'import' }
