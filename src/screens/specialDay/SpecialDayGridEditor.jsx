@@ -22,7 +22,7 @@ import SpecialDayCell from './SpecialDayCell'
 import SpecialDayPlacements from './SpecialDayPlacements'
 import FailureLine from './FailureLine'
 import RecurringOfferLine from './RecurringOfferLine'
-import { copyCampTimeBlocks, offerForPlacedDay } from './copyCampTimeBlocks'
+import { copyCampTimeBlocks, offerForPlacedDay, campEventsVaryByWeekday } from './copyCampTimeBlocks'
 import { seedFailureMessage } from './seedFailureMessage'
 import GridEditorFrame from '../../components/schedule/GridEditorFrame'
 
@@ -79,6 +79,28 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
   const enterStyle = useEnterTransition('liftFade')
   const notesPrintRef = useRef(null)
 
+  // The grid half of load(): time blocks, cells and the weekday note. A copy writes its cells
+  // one at a time, so this re-runs as they land (see the subscription below); it never touches
+  // the name/notes drafts, so a refresh cannot wipe what the director is typing.
+  async function reloadGrid() {
+    const [blocks, slotsData, placements, events, groupsData, days] = await Promise.all([
+      localClient.list('special_day_time_blocks'),
+      localClient.list('special_day_slots'),
+      localClient.list('special_day_placements'),
+      localClient.list('fixed_events'),
+      localClient.list('groups'),
+      localClient.list('days_of_operation'),
+    ])
+    const ownBlocks = (blocks || []).filter((b) => b.special_day_id === specialDayId)
+    setTimeBlocks(ownBlocks.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)))
+    setSlots((slotsData || []).filter((s) => s.special_day_id === specialDayId))
+    const placed = (placements || []).some((p) => p.special_day_id === specialDayId)
+    const campGroups = (groupsData || []).filter((g) => g.camp_id === campId)
+    const operatingDayIds = (days || []).filter((d) => d.camp_id === campId).map((d) => d.id)
+    const campEvents = (events || []).filter((ev) => ev.camp_id === campId)
+    setNotPlaced(ownBlocks.length > 0 && !placed && campEventsVaryByWeekday({ fixedEvents: campEvents, groups: campGroups, operatingDayIds }))
+  }
+
   async function load() {
     setLoading(true)
     setError(null)
@@ -118,12 +140,29 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
           .filter((l) => l.camp_id === campId)
           .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')))
       )
+      await reloadGrid()
     } catch {
       setError("Couldn't load camp setup.")
     } finally {
       setLoading(false)
     }
   }
+
+  // Keep up with writes that land after the editor opened: a copy still running on this
+  // device (onLocalWrite here) or another device's edits (the onOpApplied effect below).
+  // Debounced, grid only.
+  const refreshTimer = useRef(null)
+  const reloadGridRef = useRef(reloadGrid)
+  useEffect(() => { reloadGridRef.current = reloadGrid })
+  function scheduleGridRefresh() {
+    clearTimeout(refreshTimer.current)
+    refreshTimer.current = setTimeout(() => { reloadGridRef.current().catch(() => {}) }, 200)
+  }
+  useEffect(() => {
+    const offLocal = typeof localClient.onLocalWrite === 'function' ? localClient.onLocalWrite(scheduleGridRefresh) : null
+    return () => { clearTimeout(refreshTimer.current); offLocal?.() }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [specialDayId, campId])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load() }, [specialDayId])
@@ -146,6 +185,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
         onDeletedElsewhereRef.current?.()
       }
       if (op?.entity === 'special_day_placements') setNotPlaced(false)
+      if (String(op?.entity || '').startsWith('special_day')) scheduleGridRefresh()
     })
     return () => { unsub?.() }
   }, [specialDayId])

@@ -39,6 +39,9 @@ const LABELS = {
   seedPrompt: 'Start from your time blocks?',
   varyNote: 'Lunch waves differ by weekday \u2014 place this day to bring them',
   seedFromBlocks: 'Copy time blocks',
+  copying: ({ phase, done, total }) => phase === 'cells'
+    ? `Copying time blocks\u2026 adding fixed events ${done} of ${total}`
+    : `Copying time blocks\u2026 ${done} of ${total}`,
   startEmpty: 'Empty',
   createdHint: (name) => `"${name}" created — build it from Special Schedules under Schedule.`,
 }
@@ -239,6 +242,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
   const duplicateDaySiblings = useMemo(() => duplicateSiblingsByIdFor(days), [days])
   const duplicateEventSiblings = useMemo(() => duplicateSiblingsByIdFor(events), [events])
   const [seedPromptForId, setSeedPromptForId] = useState(null)
+  const [copyProgress, setCopyProgress] = useState(null)
   const [toast, setToast] = useState(null)
   const [offer, setOffer] = useState(null)
   const [note, setNote] = useState(null)
@@ -369,9 +373,12 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
     setSeedPromptForId(null)
     let outcome
     try {
-      outcome = await copyCampTimeBlocks({ campId, specialDayId })
+      setCopyProgress({ phase: 'blocks', done: 0, total: 0 })
+      outcome = await copyCampTimeBlocks({ campId, specialDayId, onProgress: setCopyProgress })
     } catch (err) {
       outcome = { failure: describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)) }
+    } finally {
+      setCopyProgress(null)
     }
     await loadDays()
     if (outcome.failure) {
@@ -549,6 +556,10 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
           busy={busy}
           onSkip={() => setOffer(null)}
         />
+      )}
+
+      {copyProgress && (
+        <div role="status" style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '4px 0' }}>{LABELS.copying(copyProgress)}</div>
       )}
 
       {seedPromptForId && days.some((d) => d.id === seedPromptForId) && (

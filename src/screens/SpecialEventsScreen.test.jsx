@@ -408,6 +408,29 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     expect(note.closest('[role="alert"]')).toBeNull()
   })
 
+  // Packaged audit of #911: the prompt closed on click and the director moved on while ~250
+  // writes were still landing, so a schedule opened meanwhile looked empty. Show progress.
+  it('shows copy progress while the writes are still landing', async () => {
+    localClient.list.mockImplementation(byEntityLive({
+      ...emptyEntries,
+      time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
+    }))
+    let release
+    const gate = new Promise((r) => { release = r })
+    const ok = localClient.write.getMockImplementation()
+    localClient.write.mockImplementation(async (t, entity, ...rest) => {
+      if (entity === 'special_day_time_blocks') await gate
+      return ok(t, entity, ...rest)
+    })
+    render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    addViaInlineRow({ name: 'Color War', type: 'day' })
+    fireEvent.click(await screen.findByText(/Copy time blocks/))
+    expect(await screen.findByText(/Copying time blocks/)).toBeTruthy()
+    release()
+    await waitFor(() => expect(screen.queryByText(/Copying time blocks/)).toBeNull())
+  })
+
   it('closes the prompt and keeps a write failure on screen after Copy', async () => {
     localClient.list.mockImplementation(byEntityLive({
       ...emptyEntries,
