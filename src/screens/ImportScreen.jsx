@@ -26,7 +26,7 @@ import { settleAmbiguousFromCamp } from '../ingest/settleAmbiguousFromCamp'
 import { derivePinOnlyActivityNames } from '../ingest/pinOnlyActivityNames'
 import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
 import { detectTripsAndSpecialDays } from '../ingest/tripDetection.js'
-import { planTripEvents, planWholeCampDays, applyTripClaims, dropMultiBlockForTrips, tripItemKey } from '../ingest/tripEvents.js'
+import { planTripEvents, planWholeCampDays, wholeCampDayNotices, applyTripClaims, dropMultiBlockForTrips, tripItemKey } from '../ingest/tripEvents.js'
 import { findNameVariantCandidates } from '../ingest/nearDuplicateNames'
 import { findMovedPlacements } from '../ingest/movedPlacements'
 import { detectCompoundCellPatterns } from '../ingest/compoundCellPatterns'
@@ -221,6 +221,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
   const [tripWeeks, setTripWeeks] = useState({})
   const [tripTouched, setTripTouched] = useState({})
   const [wholeAnswers, setWholeAnswers] = useState({})
+  const [wholeTouched, setWholeTouched] = useState({})
   // The week trips bind to by default: the week open in the app; else the only week; else none, and
   // every item stays pending until one is picked (a trip is never written for all weeks).
   const defaultTripWeekId = weeks.some((w) => w.id === openWeekId)
@@ -401,6 +402,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
     setTripWeeks({})
     setTripTouched({})
     setWholeAnswers({})
+    setWholeTouched({})
     setCompoundCellCandidates([])
     setMovedPlacements([])
     setNameVariantCandidates([])
@@ -826,15 +828,18 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
       setTripWeeks({})
       setTripTouched({})
       const recalledTrips = {}
+      const recalledWhole = {}
       if (detections.length > 0) {
-        const others = detections.map((d) => ({ id: tripItemKey(d), qkind: 'trip', name: d.name, day: d.day }))
+        const others = detections.map((d) => ({ id: tripItemKey(d), qkind: d.kind === 'all-camp-day' ? 'special_day' : 'trip', name: d.name, day: d.day }))
         const recall = (await localClient.matchImportAnswers?.({ others }).catch(() => null)) ?? {}
         for (const o of others) {
           const v = recall?.[o.id]?.answer?.verdict
-          if (v === 'event' || v === 'activity') recalledTrips[o.id] = v
+          if (o.qkind === 'trip' && (v === 'event' || v === 'activity')) recalledTrips[o.id] = v
+          if (o.qkind === 'special_day' && (v === 'special_day' || v === 'events')) recalledWhole[o.id] = v
         }
       }
       setTripAnswers(recalledTrips)
+      setWholeAnswers(recalledWhole)
 
       // T144 — word-form variants the whitespace/case fold deliberately leaves
       // alone. Read from seenCounts (occurrences per spelling) because
@@ -1603,6 +1608,14 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
       const remembered = await localClient.rememberImportAnswers?.({ importId: crypto.randomUUID(), entries: tripEntries }).catch(() => null)
       if (!remembered) notices.push(`${tripEntries.length === 1 ? 'Your trip answer' : 'Your trip answers'} couldn't be saved and may be asked about again next time.`)
     }
+    notices.push(...wholeCampDayNotices(outcome))
+    const wholeEntries = wholePlan.items
+      .filter((i) => wholeTouched[i.key] && i.answer)
+      .map((i) => ({ other: { id: i.key, qkind: 'special_day', name: i.detection.name, day: i.detection.day }, answer: { verdict: i.answer } }))
+    if (wholeEntries.length > 0) {
+      const remembered = await localClient.rememberImportAnswers?.({ importId: crypto.randomUUID(), entries: wholeEntries }).catch(() => null)
+      if (!remembered) notices.push(`${wholeEntries.length === 1 ? 'Your special-day answer' : 'Your special-day answers'} couldn't be saved and may be asked about again next time.`)
+    }
     const versionNotice = unresolvedPlacementsNotice(version)
     if (versionNotice) notices.push(versionNotice)
     // T118 slice 4 (Red Hat review) — a compound-cell decision write failing
@@ -2338,8 +2351,8 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
                         {!item.weekId && <option value="">Choose a week</option>}
                         {weeks.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
                       </select>
-                      <button type="button" onClick={() => setWholeAnswers((a) => ({ ...a, [item.key]: 'special_day' }))} style={pill(item.answer === 'special_day')}>Special day</button>
-                      <button type="button" onClick={() => setWholeAnswers((a) => ({ ...a, [item.key]: 'events' }))} style={pill(item.answer === 'events')}>Events</button>
+                      <button type="button" onClick={() => { setWholeAnswers((a) => ({ ...a, [item.key]: 'special_day' })); setWholeTouched((t) => ({ ...t, [item.key]: true })) }} style={pill(item.answer === 'special_day')}>Special day</button>
+                      <button type="button" onClick={() => { setWholeAnswers((a) => ({ ...a, [item.key]: 'events' })); setWholeTouched((t) => ({ ...t, [item.key]: true })) }} style={pill(item.answer === 'events')}>Events</button>
                       <span style={{ flexBasis: '100%', fontSize: 11, color: 'var(--text-secondary)' }}>
                         {item.answer === 'special_day'
                           ? `Replaces the whole day for every group on ${d.day}${weekName ? `, ${weekName}` : ''}. Other cells that day are hidden, not deleted, and come back if you unplace it.`

@@ -246,3 +246,36 @@ describe('slice 3b: Replace import leaves no dangling placement', () => {
     expect(out.placementsDropped).toEqual([expect.objectContaining({ dayLabel: 'Friday', specialDayId: sd })])
   })
 })
+
+describe('slice 3b Red Hat: an accepted day survives a Replace re-import with a live grid', () => {
+  it('re-import in Replace mode leaves no special_day_slots row pointing at a deleted group', () => {
+    const answers = { wholeAnswers: { [wholeKey(S05())]: 'special_day' } }
+    importText(S05(), answers)
+    importText(S05(), { ...answers, mode: 'replace' })
+    const live = new Set(rows('SELECT id FROM groups').map((r) => r.id))
+    const slots = rows('SELECT group_id FROM special_day_slots')
+    const det = gamesDay(S05())
+    expect(slots.length).toBe(det.blocks.length * det.groupIds.length)
+    for (const s of slots) expect(live.has(s.group_id)).toBe(true)
+    expect(rows('SELECT id FROM special_days').length).toBe(1)
+    expect(counts().special_day_placements).toBe(1)
+  })
+
+  it('a hand-built special day with the same name is not bound: skipped and reported, nothing placed', () => {
+    d.prepare('INSERT INTO special_days (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campId, 'Games Day')
+    const imp = importText(S05(), { wholeAnswers: { [wholeKey(S05())]: 'special_day' } })
+    expect(counts().special_day_placements).toBe(0)
+    expect(imp.committed.wholeCampDays).toEqual([expect.objectContaining({ name: 'Games Day', placed: false, skipped: expect.stringContaining('already') })])
+  })
+
+  it('a detector item whose groups resolve to one group is skipped and reported; the rest of the import still commits', () => {
+    const out = commitIngest(d, {
+      camp_id: campId, cohort_id: null, author_user_id: userId, device_id: deviceId, mode: 'add',
+      approved: { groups: ['Red', 'Blue'], days_of_operation: ['Monday'], time_blocks: ['9:00-9:45'], activities: [] },
+      wholeCampDays: [{ name: 'Spirit Day', day: 'Monday', weekId: week1, blocks: ['9:00-9:45'], groups: ['Red', ' red '] }],
+    })
+    expect(rows('SELECT name FROM groups ORDER BY name').map((g) => g.name)).toEqual(['Blue', 'Red'])
+    expect(counts().special_days).toBe(0)
+    expect(out.wholeCampDays).toEqual([expect.objectContaining({ name: 'Spirit Day', placed: false, skipped: expect.stringContaining('same group') })])
+  })
+})

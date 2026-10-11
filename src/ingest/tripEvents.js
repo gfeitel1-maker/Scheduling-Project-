@@ -102,7 +102,7 @@ export function planWholeCampDays({ detections = [], answers = {}, weekId = null
     items.push({ key, detection: d, answer, weekId: week, pending: answer == null || !week, accepted })
     if (!week) continue
     if (accepted) {
-      wholeCampDays.push({ name: d.name, day: d.day, weekId: week, blocks: [...d.blocks], groups: [...d.groupIds], replace: false })
+      wholeCampDays.push({ name: d.name, day: d.day, weekId: week, blocks: [...d.blocks], groups: [...d.groupIds] })
     } else {
       fixedEvents.push({
         name: d.name,
@@ -214,4 +214,16 @@ export function dropMultiBlockForTrips(candidates = [], tripFixedEvents = []) {
     if (days.length > 0) out.push({ ...c, days })
   }
   return out
+}
+
+export function wholeCampDayNotices(outcome) {
+  const notices = []
+  for (const w of outcome?.wholeCampDays ?? []) {
+    if (w.keptExisting) notices.push(`${w.name} on ${w.day} was not made a special day: that day already has a special day in that week, and it was left as it was.`)
+    else if (w.skipped) notices.push(`${w.name} on ${w.day} was not made a special day: ${w.skipped}.`)
+  }
+  for (const p of outcome?.placementsDropped ?? []) {
+    notices.push(`A special day placed on ${p.dayLabel ?? 'a day'} was unplaced because that day no longer exists after Replace. The special day itself is kept.`)
+  }
+  return notices
 }

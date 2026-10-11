@@ -2860,7 +2860,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // commits here, in the one transaction: derived ids make a re-import converge on the same rows, any throw
     // rolls the whole day back, and `write` captures the creations for Undo. A same-named live day (derived
     // id or typed by hand) is left alone, never doubled.
-    const commitSpecialDay = (sd) => {
+    const commitSpecialDay = (sd, { repairGrid = false } = {}) => {
       if (!sd.ready) {
         throw new Error(`That special day is not ready to build (${(sd.blockedBy ?? []).join(', ') || 'no plan'}).`)
       }
@@ -2868,11 +2868,38 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const nameKey = normalizeName(sd.name)
       const takenRow = db.prepare('SELECT id, name FROM special_days WHERE camp_id = ?').all(camp_id)
         .find((r) => r.id === dayId || normalizeName(r.name) === nameKey)
-      if (takenRow) return { created: false, specialDayId: takenRow.id, periods: 0, cells: 0, activitiesCreated: 0 }
       const sdOp = (entity, entity_id, field, value) => write(db, {
         entity, entity_id, field, value, author_user_id: author_user_id ?? null, device_id,
         parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE,
       })
+      if (takenRow && !repairGrid) return { created: false, specialDayId: takenRow.id, periods: 0, cells: 0, activitiesCreated: 0 }
+      if (takenRow) {
+        // A Replace import re-mints groups, so an import-made day's cells can point at deleted groups. Drop those
+        // cells and write the missing ones for the live groups (derived ids: a day that is intact is untouched).
+        const groupLive = db.prepare('SELECT 1 FROM groups WHERE id = ? AND camp_id = ?')
+        const blockRows = db.prepare('SELECT id, sort_order FROM special_day_time_blocks WHERE special_day_id = ?').all(takenRow.id)
+        const blockBySort = new Map(blockRows.map((b) => [b.sort_order, b.id]))
+        let repaired = 0
+        for (const r of db.prepare('SELECT id, group_id FROM special_day_slots WHERE special_day_id = ?').all(takenRow.id)) {
+          if (!groupLive.get(r.group_id, camp_id)) { sdOp('special_day_slots', r.id, DELETE_FIELD, 1); repaired += 1 }
+        }
+        const activityKey = normalizeName(sd.activities?.[0]?.name ?? '')
+        const activityId = db.prepare('SELECT id, name FROM activities WHERE camp_id = ? ORDER BY id').all(camp_id).find((a) => normalizeName(a.name) === activityKey)?.id ?? null
+        for (const c of sd.columns ?? []) {
+          for (const b of sd.timeBlocks ?? []) {
+            const blockId = blockBySort.get(b.sort_order)
+            if (!c.groupId || !blockId) continue
+            const id = deriveSpecialDaySlotId(takenRow.id, c.groupId, blockId)
+            if (db.prepare('SELECT 1 FROM special_day_slots WHERE id = ?').get(id)) continue
+            sdOp('special_day_slots', id, 'special_day_id', takenRow.id)
+            sdOp('special_day_slots', id, 'group_id', c.groupId)
+            sdOp('special_day_slots', id, 'time_block_id', blockId)
+            if (activityId) sdOp('special_day_slots', id, 'activity_id', activityId)
+            repaired += 1
+          }
+        }
+        return { created: false, specialDayId: takenRow.id, periods: 0, cells: 0, activitiesCreated: 0, repaired }
+      }
       const groupIdByColumn = new Map((sd.columns ?? []).map((c) => [c.columnName, c.groupId]))
       const resolvedGroups = [...groupIdByColumn.values()].filter(Boolean)
       if (new Set(resolvedGroups).size !== resolvedGroups.length) {
@@ -2949,10 +2976,6 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // id or typed by hand) is left alone, never doubled.
     if (plan.specialDay) specialDayOutcome = commitSpecialDay(plan.specialDay)
 
-    // F3/F4 slice 3b: a whole-camp day the director explicitly accepted in a weekly import. It is built by the
-    // same commitSpecialDay (a one-activity grid over the printed run for every printed group) and bound to
-    // its (week, day). An occupied (week, day) is KEPT: no special day is created for it and nothing replaces
-    // the existing binding.
     // F3/F4 slice 3b (ADR "Slice 0 findings" 3): Replace re-mints days, and special_day_placements.day_id is a
     // soft reference, so a placement can point at a day that no longer exists and silently replace nothing.
     // Re-point it to the new day of the same label when there is one; otherwise drop the binding (the special
@@ -2972,6 +2995,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         placementsDropped.push({ dayLabel: p.dayLabel, weekId: p.week_id, specialDayId: p.special_day_id })
       }
     }
+    // F3/F4 slice 3b: a whole-camp day the director explicitly accepted in a weekly import. It is built by the
+    // same commitSpecialDay (a one-activity grid over the printed run for every printed group) and bound to
+    // its (week, day). An occupied (week, day) is KEPT, and a hand-built day of the same name is never bound.
+    // Every item that cannot be built or placed is reported on the outcome, never thrown (one bad item must
+    // not roll back the weekly import).
     const wholeWeekIds = new Set(db.prepare('SELECT id FROM schedule_weeks WHERE camp_id = ?').all(camp_id).map((x) => x.id))
     for (const w of plan.wholeCampDays ?? []) {
       const dayId = dayIdByName.get(normalizeName(w.day))
@@ -2980,13 +3008,16 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       if (!wholeWeekIds.has(w.weekId)) { skip('week not found'); continue }
       if (!dayId) { skip('day not created'); continue }
       if (groupIds.some((g) => !g)) { skip('groups not created'); continue }
+      if (new Set(groupIds).size !== groupIds.length) { skip('two printed groups mean the same group'); continue }
       const sdName = normalizeName(w.name)
+      const derivedDayId = deriveSpecialDayId(camp_id, w.name)
       const existingDay = db.prepare('SELECT id, name FROM special_days WHERE camp_id = ?').all(camp_id)
-        .find((r) => r.id === deriveSpecialDayId(camp_id, w.name) || normalizeName(r.name) === sdName)
-      const specialDayId = existingDay?.id ?? deriveSpecialDayId(camp_id, w.name)
+        .find((r) => r.id === derivedDayId || normalizeName(r.name) === sdName)
+      if (existingDay && existingDay.id !== derivedDayId) { skip('a special day with that name already exists'); continue }
+      const specialDayId = derivedDayId
       const placementId = deriveSpecialDayPlacementId(w.weekId, dayId)
       const holder = db.prepare('SELECT special_day_id FROM special_day_placements WHERE id = ?').get(placementId)
-      if (holder && holder.special_day_id !== specialDayId && !w.replace) {
+      if (holder && holder.special_day_id !== specialDayId) {
         wholeCampDaysOutcome.push({ name: w.name, day: w.day, weekId: w.weekId, created: false, placed: false, keptExisting: true })
         continue
       }
@@ -2999,18 +3030,15 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         activities: [{ name: w.name }],
         slots: (w.groups ?? []).flatMap((g) => (w.blocks ?? []).map((b) => ({ columnName: g, blockName: b, activityName: w.name }))),
       }
-      const built = commitSpecialDay(sd)
+      const built = commitSpecialDay(sd, { repairGrid: true })
       let placed = false
       if (!holder) {
         for (const [field, value] of [['week_id', w.weekId], ['day_id', dayId], ['special_day_id', specialDayId]]) {
           write(db, { entity: 'special_day_placements', entity_id: placementId, field, value, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
         }
         placed = true
-      } else if (holder.special_day_id !== specialDayId) {
-        write(db, { entity: 'special_day_placements', entity_id: placementId, field: 'special_day_id', value: specialDayId, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
-        placed = true
       }
-      wholeCampDaysOutcome.push({ name: w.name, day: w.day, weekId: w.weekId, created: built.created, placed })
+      wholeCampDaysOutcome.push({ name: w.name, day: w.day, weekId: w.weekId, created: built.created, placed, ...(built.repaired ? { repaired: built.repaired } : {}) })
     }
 
     // Persisted open reconciliation decisions (docs/adr/2026-08-28-persisted-
