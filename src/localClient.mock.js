@@ -56,7 +56,10 @@ import {
   deriveElectiveAssignmentId,
   deriveElectiveChoiceId,
   deriveElectivePreferenceId,
+  deriveElectiveSetId,
+  deriveSpecialDayActivityId,
 } from '../electron/ops/electiveDerivedIds.js'
+import { deriveElectiveImportId } from './ingest/electiveSetPopulate.js'
 
 const STORE_KEY = 'shoresh-mock-state'
 
@@ -1619,7 +1622,7 @@ export const mockShoresh = {
         if (!name) continue
         const key = normalizeName(name)
         if (state.elective_sets.some((r) => r.camp_id === campId && normalizeName(r.name) === key)) continue
-        const id = randomId()
+        const id = deriveElectiveSetId(campId, name)
         state.elective_sets.push({ id, camp_id: campId, name })
         let choiceCount = 0
         for (const raw of Array.isArray(candidate.choices) ? candidate.choices : []) {
@@ -1628,11 +1631,11 @@ export const mockShoresh = {
           const k = recognitionKey('activities', choiceName)
           let activity = state.activities.find((a) => a.camp_id === campId && recognitionKey('activities', a.name) === k)
           if (!activity) {
-            activity = { id: randomId(), camp_id: campId, name: choiceName }
+            activity = { id: deriveSpecialDayActivityId(campId, choiceName), camp_id: campId, name: choiceName }
             state.activities.push(activity)
           }
           if (state.elective_set_activities.some((r) => r.elective_set_id === id && r.activity_id === activity.id)) continue
-          state.elective_set_activities.push({ id: randomId(), elective_set_id: id, activity_id: activity.id, status: 'potential', capacity_mode: 'unlimited', min_mode: 'none' })
+          state.elective_set_activities.push({ id: deriveElectiveImportId(id, activity.id), elective_set_id: id, activity_id: activity.id, status: 'potential', capacity_mode: 'unlimited', min_mode: 'none' })
           choiceCount += 1
         }
         electiveSetsCreated.push({ id, name, choiceCount })

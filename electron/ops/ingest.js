@@ -32,7 +32,7 @@ import { deriveElectiveImportId } from '../../src/ingest/electiveSetPopulate.js'
 import { writeRouteSnapshot, campCatalog } from './deleteRecord.js'
 import { attachNames } from '../../src/utils/snapshotRemap.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
-import { deriveSpecialDayActivityId, deriveSpecialDayId, deriveSpecialDayTimeBlockId, deriveSpecialDaySlotId } from './electiveDerivedIds.js'
+import { deriveElectiveSetId, deriveSpecialDayActivityId, deriveSpecialDayId, deriveSpecialDayTimeBlockId, deriveSpecialDaySlotId } from './electiveDerivedIds.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
 import { replaceOpenDecisionsForCommit, removeOpenDecisionsForImport } from './openReconciliationDecisions.js'
 import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.js'
@@ -618,7 +618,7 @@ function writeElectiveChoices(db, { setId, setName, choices, camp_id, author_use
       runAtomic(db, () => {
         let activityId = reuseActivityId ?? activityIdByKey.get(k)
         if (!activityId) {
-          activityId = randomUUID()
+          activityId = deriveSpecialDayActivityId(camp_id, choiceName)
           op('activities', activityId, 'name', choiceName)
           op('activities', activityId, 'camp_id', camp_id)
           mine.push({ entity: 'activities', entity_id: activityId })
@@ -695,7 +695,7 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
     const key = normalizeName(name)
     if (liveNormalizedNames.has(key)) continue
     try {
-      const id = randomUUID()
+      const id = deriveElectiveSetId(camp_id, name)
       const commonOp = { entity: 'elective_sets', entity_id: id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, source: 'human' }
       const mine = [{ entity: 'elective_sets', entity_id: id }]
       runAtomic(db, () => {
