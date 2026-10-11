@@ -114,9 +114,22 @@ export function inferTextSpans(parsed, proposal = {}) {
       if (cell.names.length === 0) blankCount.set(k, (blankCount.get(k) ?? 0) + 1)
     }
   }
+  // A free period recurs; a span tail is blank only where the span is. So a
+  // block that is printed on any of the same group's other days is not free.
+  const printedDays = new Map() // [group, block] -> days it is printed
+  for (const seq of seqs) {
+    for (const cell of seq.cells) {
+      if (cell.names.length === 0) continue
+      const k = JSON.stringify([seq.groupName, cell.blockLabel])
+      if (!printedDays.has(k)) printedDays.set(k, new Set())
+      printedDays.get(k).add(seq.dayName)
+    }
+  }
+  const printedElsewhere = (seq, cell) =>
+    [...(printedDays.get(JSON.stringify([seq.groupName, cell.blockLabel])) ?? [])].some((d) => d !== seq.dayName)
   const structurallyFree = (seq, cell) => {
     const k = JSON.stringify([seq.dayName, cell.blockLabel])
-    return (blankCount.get(k) ?? 0) * 2 > cellCount.get(k)
+    return (blankCount.get(k) ?? 0) * 2 > cellCount.get(k) && !printedElsewhere(seq, cell)
   }
 
   const spans = new Map()

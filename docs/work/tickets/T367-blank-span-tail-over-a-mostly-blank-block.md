@@ -1,7 +1,7 @@
 ---
 title: T367-blank-span-tail-over-a-mostly-blank-block
 document_type: ticket
-status: open
+status: completed
 created: 2026-10-11
 task_class: architecture
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md]
@@ -54,3 +54,13 @@ is a span.
 
 `docs/work/evidence/2026-10-11-f5-followups.md`; harness `electron/syntheticCamps.harness.integration.test.js`
 (`spansDb` for s02, s08 and s12).
+
+## Resolution (2026-10-11)
+
+Option 2 shipped. In `src/ingest/textSpans.js` a block is `structurallyFree` only when it is blank for most
+(group, day) sequences AND the group does not print that block on any of its other days. A free period
+recurs on every day; a span tail is blank only where the span is. Red-first tests in
+`src/ingest/textSpans.f5.test.js` (all-camp shape as s02/s08, partial-group shape as s12; a block blank on
+every day after a shared activity stays not-a-span). Not covered: a genuine free period that is printed on
+some other day for that group (e.g. a Friday short day that otherwise fills the block) reads as a span tail
+if every occurrence of the name is followed by it; the all-or-nothing per-activity rule still applies.
