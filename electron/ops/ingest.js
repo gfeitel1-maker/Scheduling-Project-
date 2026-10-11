@@ -2923,8 +2923,11 @@ function deriveUndoClientWriteId(outerClientWriteId, entity, entity_id, field) {
 // so a field-update entry and a row-delete entry for the same
 // (entity, entity_id) under the same outer client_write_id can never collide
 // (entity_ids are UUIDs already, so this is belt-and-braces, not load-bearing).
+// The prefix is how Trash tells an undone import's removals from a director's own deletes (trash.js
+// listDeleted): undo is a deliberate reversal, not 165 deletions to review.
+export const UNDO_DELETE_PREFIX = 'undo-import:'
 function deriveUndoDeleteClientWriteId(outerClientWriteId, entity, entity_id) {
-  return createHash('sha256').update(`undo-delete|${outerClientWriteId}|${entity}|${entity_id}`).digest('hex')
+  return UNDO_DELETE_PREFIX + createHash('sha256').update(`undo-delete|${outerClientWriteId}|${entity}|${entity_id}`).digest('hex')
 }
 
 /**

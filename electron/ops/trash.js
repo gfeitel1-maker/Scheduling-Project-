@@ -3,6 +3,9 @@ import { isPinField } from './pinFields.js'
 import { RESTORABLE_ENTITIES, lastKnownFields, nameFieldFor } from './restore.js'
 import { PROJECTIONS } from './projections.js'
 
+// Mirrors UNDO_DELETE_PREFIX in ingest.js (not imported: ingest.js is far heavier than this module).
+const UNDO_DELETE_LIKE = 'undo-import:%'
+
 // What was deleted, by whom, and when — read straight out of the op log,
 // which has held all of it since the first delete and never showed a director
 // any of it.
@@ -18,6 +21,9 @@ import { PROJECTIONS } from './projections.js'
 // latest for this record", which is all this needs, because ops arrive in
 // broadcast order.
 //
+// Records removed by Undo import are deliberately absent: undo is the director's own reversal of an
+// import, and the way back is re-importing the file. See ingestUndo.
+//
 // Scoped to restorable entities deliberately: offering a director a row whose
 // Restore button the handler would refuse is worse than not listing it.
 export function listDeleted(db) {
@@ -32,9 +38,10 @@ export function listDeleted(db) {
          LEFT JOIN users u ON u.id = o.author_user_id
          LEFT JOIN devices d ON d.id = o.device_id
         WHERE o.field = ?
+          AND (o.client_write_id IS NULL OR o.client_write_id NOT LIKE ?)
         ORDER BY o.timestamp DESC`
     )
-    .all(DELETE_FIELD)
+    .all(DELETE_FIELD, UNDO_DELETE_LIKE)
 
   return rows
     .filter((row) => RESTORABLE_ENTITIES.has(row.entity))
