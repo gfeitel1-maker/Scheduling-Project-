@@ -98,7 +98,9 @@ const recordWord = (n) => (n === 1 ? 'record' : 'records')
 function receiptFor({ deleted = [], skipped = [], kept = [] } = {}) {
   const D = deleted.length
   const K = skipped.length
-  const R = kept.length
+  const keptWithDay = kept.filter((k) => k.reason === 'parent_kept')
+  const keptOwn = kept.filter((k) => k.reason !== 'parent_kept')
+  const R = keptOwn.length
 
   const keptParts = []
   if (K > 0) keptParts.push(`${K} changed since import`)
@@ -126,10 +128,26 @@ function receiptFor({ deleted = [], skipped = [], kept = [] } = {}) {
     detail.push(`Kept — changed since import: ${fields.join(', ')}`)
   }
   if (R > 0) {
-    const items = kept.map((k) => {
+    const items = keptOwn.map((k) => {
+      if (k.reason === 'used_in_saved_version') return `${k.name ?? 'record'} (in a saved schedule version)`
       const n = k.referencedByCount ?? 0
       return `${k.name ?? 'record'} (used by ${n} other ${recordWord(n)})`
     })
+    const byDay = new Map()
+    for (const k of keptWithDay) {
+      const g = byDay.get(k.parent_id) ?? { name: k.name, periods: 0, cells: 0, placements: 0 }
+      if (k.entity === 'special_day_time_blocks') g.periods++
+      else if (k.entity === 'special_day_slots') g.cells++
+      else g.placements++
+      byDay.set(k.parent_id, g)
+    }
+    for (const g of byDay.values()) {
+      const parts = []
+      if (g.periods) parts.push(`${g.periods} ${g.periods === 1 ? 'period' : 'periods'}`)
+      if (g.cells) parts.push(`${g.cells} ${g.cells === 1 ? 'cell' : 'cells'}`)
+      if (g.placements) parts.push(`${g.placements} ${g.placements === 1 ? 'placement' : 'placements'}`)
+      items.push(`${g.name ?? 'The day'}: its ${parts.join(' and ')} ${g.periods + g.cells + g.placements === 1 ? 'was' : 'were'} kept with it`)
+    }
     detail.push(`Kept — still in use: ${items.join('; ')}`)
   }
 

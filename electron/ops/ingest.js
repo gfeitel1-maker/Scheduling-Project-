@@ -3091,8 +3091,42 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // gate needs (undoReferences.schemaParity.test.js keeps this constant in
     // sync with the registry that gates the actual deletes).
     outcome.createdEntityIds = createdEntityIds.filter((e) => U2_DELETABLE_ENTITIES.has(e.entity))
+    if (!dryRunAborted) recordUndoableRun(db, evidenceRunId, outcome.invertibleOps, outcome.createdEntityIds)
   }
   return outcome
+}
+
+// T372: what each captureInverse commit created/changed, held in the main process. Undo reads this
+// instead of the renderer's copy, so a caller can name only a run, never a row or a field snapshot.
+// Lives for the process (the grace window is a same-session affordance), bounded per db.
+const UNDOABLE_RUNS_MAX = 20
+const undoableRuns = new WeakMap()
+function recordUndoableRun(db, runId, invertibleOps, createdEntityIds) {
+  if (!undoableRuns.has(db)) undoableRuns.set(db, new Map())
+  const runs = undoableRuns.get(db)
+  const prev = runs.get(runId)
+  runs.delete(runId)
+  runs.set(runId, structuredClone({
+    invertibleOps: [...(prev?.invertibleOps ?? []), ...invertibleOps],
+    createdEntityIds: [...(prev?.createdEntityIds ?? []), ...createdEntityIds],
+  }))
+  while (runs.size > UNDOABLE_RUNS_MAX) runs.delete(runs.keys().next().value)
+}
+
+/**
+ * Undo an import by run id alone. The rows and field snapshots come from what the run recorded
+ * server-side; nothing the caller sends can widen the set. An unknown run (never committed with
+ * captureInverse here, or the process restarted) undoes nothing and throws, so the caller keeps its undo affordance and shows an error.
+ */
+export function undoImportRun(db, { importRunId, author_user_id, device_id, client_write_id }) {
+  const rec = typeof importRunId === 'string' ? undoableRuns.get(db)?.get(importRunId) : null
+  if (!rec) throw new Error('This import cannot be undone from here: its record is no longer held (the app restarted or the project was switched).')
+  return ingestUndo(db, {
+    invertibleOps: structuredClone(rec.invertibleOps),
+    createdEntityIds: structuredClone(rec.createdEntityIds),
+    importRunId,
+    author_user_id, device_id, client_write_id,
+  })
 }
 
 // Deterministic per-row client_write_id for one entry of an ingestUndo call,
@@ -3138,7 +3172,7 @@ function deriveUndoDeleteClientWriteId(outerClientWriteId, entity, entity_id) {
  *
  * Returns `{ ok: true, reverted: [{entity, entity_id, field}], skipped:
  * [{entity, entity_id, field}], deleted: [{entity, entity_id}], kept:
- * [{entity, entity_id, name, reason: 'edited_since_import'|'still_referenced',
+ * [{entity, entity_id, name, reason: 'edited_since_import'|'still_referenced'|'used_in_saved_version'|'parent_kept',
  * referencedByCount?}] }`. A skipped FIELD entry means the field's current
  * latest op is no longer the one this commit wrote (a peer write landed after
  * import touched it, or this exact entry was already reverted by an earlier
@@ -3254,6 +3288,44 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRun
       candidateSet.set(`${entity}:${entity_id}`, { entity, entity_id })
     }
 
+    // A saved schedule version that names a row would restore with a blank cell; keep the row and say so.
+    const namedInSavedVersions = new Set()
+    for (const { slots } of db.prepare('SELECT slots FROM schedule_snapshots WHERE slots IS NOT NULL').all()) {
+      let parsed
+      try { parsed = JSON.parse(slots) } catch { continue }
+      for (const slot of Array.isArray(parsed) ? parsed : []) {
+        for (const v of Object.values(slot ?? {})) if (typeof v === 'string') namedInSavedVersions.add(v)
+      }
+    }
+
+    // A kept special day keeps its periods, cells and placements too, or the day survives hollow. The day's
+    // fate is decided here, before its children are processed, so it holds for every reason a day is kept.
+    const DAY_CHILDREN = ['special_day_time_blocks', 'special_day_slots', 'special_day_placements']
+    const dayChildKeys = new Set([...candidateSet.keys()].filter((k) => DAY_CHILDREN.includes(k.split(':')[0])))
+    for (const [key, { entity, entity_id }] of [...candidateSet]) {
+      if (entity !== 'special_days') continue
+      let reason = null
+      let blockerCount
+      if (namedInSavedVersions.has(entity_id)) reason = 'used_in_saved_version'
+      else {
+        const blockers = referencesInto(db, entity, entity_id, dayChildKeys)
+        if (blockers.length > 0) { reason = 'still_referenced'; blockerCount = blockers.length }
+      }
+      if (!reason) continue
+      candidateSet.delete(key)
+      kept.push({ entity, entity_id, name: nameOf(entity, entity_id), reason, ...(blockerCount ? { referencedByCount: blockerCount } : {}) })
+    }
+    const keptDayIds = new Set(kept.filter((k) => k.entity === 'special_days').map((k) => k.entity_id))
+    if (keptDayIds.size > 0) {
+      for (const [key, { entity, entity_id }] of [...candidateSet]) {
+        if (!DAY_CHILDREN.includes(entity)) continue
+        const parent = db.prepare(`SELECT special_day_id FROM ${entity} WHERE id = ?`).get(entity_id)?.special_day_id
+        if (!keptDayIds.has(parent)) continue
+        candidateSet.delete(key)
+        kept.push({ entity, entity_id, name: nameOf('special_days', parent), parent_id: parent, reason: 'parent_kept' })
+      }
+    }
+
     // Step 2 (Finding 3/4): live single-hop referential check, batch-aware,
     // walked in U2_DELETE_ORDER (children before parents) with excludeSet
     // built up INCREMENTALLY as each row is confirmed deletable — not the
@@ -3299,6 +3371,10 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRun
     const deleteSetByEntity = new Map() // entity -> [entity_id, ...]
     for (const entity of U2_DELETE_ORDER) {
       for (const entity_id of candidatesByEntity.get(entity) ?? []) {
+        if (namedInSavedVersions.has(entity_id)) {
+          kept.push({ entity, entity_id, name: nameOf(entity, entity_id), reason: 'used_in_saved_version' })
+          continue
+        }
         const blockers = referencesInto(db, entity, entity_id, excludeSet)
         if (blockers.length > 0) {
           kept.push({

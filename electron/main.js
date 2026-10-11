@@ -35,7 +35,7 @@ import { tierForField } from '../src/utils/ruleProvenance.js'
 import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from './ops/deleteRecord.js'
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
 import { listOpenReconciliationDecisions, dismissOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
-import { commitIngest, ingestUndo, listImportEvidence, listCompoundCellDecisions } from './ops/ingest.js'
+import { commitIngest, undoImportRun, listImportEvidence, listCompoundCellDecisions } from './ops/ingest.js'
 import { materializeImportedVersion, cleanSourceFileName } from './ops/materializeImportedVersion.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { mergeActivity, previewActivityMerge } from './ops/mergeActivity.js'
@@ -707,14 +707,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // field-update half of an import the director just committed. Same
   // authority as ingestCommit (an undo is itself a set of writes to the camp's
   // setup), on any trusted device (T351).
-  function ingestUndoHandler({ token, invertibleOps, createdEntityIds, importRunId, client_write_id } = {}) {
+  function ingestUndoHandler({ token, importRunId, client_write_id } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
     if (!isNonEmptyString(client_write_id)) throw new Error('client_write_id is required')
-    return ingestUndo(db, {
-      invertibleOps: Array.isArray(invertibleOps) ? invertibleOps : [],
-      createdEntityIds: Array.isArray(createdEntityIds) ? createdEntityIds : [],
-      importRunId: isNonEmptyString(importRunId) ? importRunId : null,
+    return undoImportRun(db, {
+      importRunId,
       author_user_id: session.userId,
       device_id: deviceId,
       client_write_id,
