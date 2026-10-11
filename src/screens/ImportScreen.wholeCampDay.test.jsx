@@ -49,8 +49,8 @@ beforeEach(() => {
   localClient.ingestCommit.mockResolvedValue(baseOutcome)
 })
 
-async function upload() {
-  render(<ImportScreen campId="camp-1" onNavigate={() => {}} weeks={weeks} />)
+async function upload(weeksProp = weeks) {
+  render(<ImportScreen campId="camp-1" onNavigate={() => {}} weeks={weeksProp} />)
   const input = document.querySelector('input[type="file"]')
   await userEvent.upload(input, new File(['x'], 'schedule.txt', { type: 'text/plain' }))
   await screen.findByText(/Color War, Monday, every group/)
@@ -110,6 +110,20 @@ describe('ImportScreen — whole-camp day (slice 3b)', () => {
     await waitFor(() => expect(localClient.rememberImportAnswers).toHaveBeenCalled())
     expect(localClient.rememberImportAnswers.mock.calls[0][0].entries).toEqual([
       expect.objectContaining({ other: expect.objectContaining({ qkind: 'special_day', name: 'Color War', day: 'Monday' }), answer: { verdict: 'special_day' } }),
+    ])
+  })
+
+  it('a fresh camp with no weeks is still offered the item, bound to the Week 1 the import will create', async () => {
+    await upload([])
+    expect(screen.queryByText(/Add a week on the Schedule screen/)).toBeNull()
+    const select = screen.getByLabelText('Week for Color War')
+    expect(select.value).toBe('schedule-week:camp-1:1')
+    expect([...select.options].map((o) => o.textContent)).toEqual(['Week 1 (new)'])
+    await userEvent.click(screen.getByText('Special day'))
+    expect(screen.getByText(/Replaces the whole day for every group on Monday, Week 1\./)).toBeTruthy()
+    await confirm()
+    expect(localClient.ingestCommit.mock.calls[0][0].wholeCampDays).toEqual([
+      expect.objectContaining({ name: 'Color War', day: 'Monday', weekId: 'schedule-week:camp-1:1' }),
     ])
   })
 })

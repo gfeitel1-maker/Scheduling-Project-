@@ -137,8 +137,15 @@ The new `schedule_week_id` write is added to the commit's fields object. It need
 2. If exactly one week exists, that is the default. If several exist and none is open, the picker has no default
    and the item is not pre-selected until one is chosen; confirm-all leaves it pending, and a pending item
    commits the cells as they commit today (ordinary activity), never as an all-weeks event.
-3. If the camp has no weeks, trip and special-day detections are not offered and a plain flag says why. Never
-   all-weeks.
+3. If the camp has no weeks (a fresh camp's first import), the import **creates Week 1** and binds to it. The
+   review offers a single "Week 1 (new)" and every item names it; `commitPlan` writes the week with the
+   deterministic id `schedule-week:<camp>:1` (`src/ingest/defaultWeek.js`, the same id and fields
+   `materializeImportedVersion` and the Schedule screen use) **before** the trip, whole-camp-day and one-day
+   placement writes, in the same transaction, and only when the camp has no week at all. `materializeImportedVersion`
+   then finds that row rather than adding a second. Undo removes the Week 1 the import created unless something
+   else still points at it (`schedule_weeks` is undo-deletable; every incoming reference blocks it and is
+   reported as kept). Never all-weeks. _Prior: "trip and special-day detections are not offered and a plain flag
+   says why", which left a fresh camp's trips and Games Day as ordinary activities._
 4. A weekly import that already imports into a specific week uses that week and says so.
 
 ### Weekly import
@@ -223,7 +230,12 @@ Recognition is unchanged. Resolution order: (a) a weekday printed in the file ti
 camp's `days_of_operation`; (b) the week open in the app for the week. If the weekday resolves, the placement is
 proposed pre-filled and named in the review with a week/day picker. **If no weekday resolves, the day lands
 unplaced with a flag; it never forces a picker (decided here) and never invents a weekday.** Placing it is the
-existing action in SpecialDayPlacements.
+existing action in SpecialDayPlacements. On a camp with no weeks the week is the Week 1 the import creates
+(Week resolution 3). When the weekday resolves but no week is open (several weeks), the day stays pre-filled and
+the week picker is empty with a "pick a week" flag. A weekday is matched as a word ("Mondayish" names none).
+Re-importing a day that already exists unplaced places it when the director's (week, day) now resolves (the
+placement is the only new row); an occupied (week, day) keeps its holder, judged against the day that is
+actually there, hand-built or derived.
 
 ### Interface contract check (org-interface-contracts)
 
@@ -336,7 +348,7 @@ Decided in this revision (owner may veto, none needs an answer to proceed):
   placement, which needs a schema ADR and re-shapes slices 2 and 3b.
 - **Q2, auto-accept:** never for the whole-camp item; everything else is pre-selected and confirm-all-able. No
   auto-accept without showing the item until a real camp file has run.
-- **Q3, week:** the open week, named in the item with a picker; never all-weeks; no weeks means not offered.
+- **Q3, week:** the open week, named in the item with a picker; never all-weeks; no weeks means the import creates Week 1 and binds to it.
 - **Q4, one-day file with no weekday:** lands unplaced with a flag; no forced picker.
 
 **Remaining owner question: Q1 only**, and only as a veto: do directors think of "Color War for just the

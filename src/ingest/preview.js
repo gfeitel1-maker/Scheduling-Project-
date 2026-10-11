@@ -24,6 +24,14 @@ export function whitespaceInsensitiveName(name) {
   return String(name ?? '').toLowerCase().replace(/\s+/g, '')
 }
 
+// The activity-name equivalence a one-day file is matched to the catalog by, on BOTH sides (the preview
+// plan and the commit): case, whitespace and punctuation are ignored, so "Tug-of-War", "tug_of_war" and
+// "Tug of War" are one name. Letters and digits of any script are kept ("Arts & Crafts" stays apart from
+// "Arts and Crafts"; "Lunch 2" stays apart from "Lunch 3"). Not used for derived ids.
+export function activityNameKey(name) {
+  return String(name ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
 // M4 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D3). The
 // recognition key every entity's identity is keyed by. `locations` is the ONE
 // deviation: its id (deriveLocationId) and its UNIQUE(camp_id, name) constraint

@@ -86,6 +86,17 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'special_day_slots', fromColumn: 'special_day_id', toEntity: 'special_days', kind: 'scalar', enforced: true },
   { fromTable: 'special_day_slots', fromColumn: 'time_block_id', toEntity: 'special_day_time_blocks', kind: 'scalar', enforced: false },
   { fromTable: 'special_day_placements', fromColumn: 'special_day_id', toEntity: 'special_days', kind: 'scalar', enforced: false },
+  // -- into schedule_weeks --
+  // A first import on a fresh camp creates Week 1 (deterministic id), so undo may delete it: every row that points at a
+  // schedule week blocks that delete. The SQL-declared ones are enforced; elective_assignment_runs is soft.
+  { fromTable: 'schedule_templates', fromColumn: 'week_id', toEntity: 'schedule_weeks', kind: 'scalar', enforced: true },
+  { fromTable: 'special_day_placements', fromColumn: 'week_id', toEntity: 'schedule_weeks', kind: 'scalar', enforced: true },
+  { fromTable: 'elective_assignment_runs', fromColumn: 'schedule_week_id', toEntity: 'schedule_weeks', kind: 'scalar', enforced: false },
+  { fromTable: 'week_activity_exclusions', fromColumn: 'week_id', toEntity: 'schedule_weeks', kind: 'scalar', enforced: true },
+  { fromTable: 'week_group_exclusions', fromColumn: 'week_id', toEntity: 'schedule_weeks', kind: 'scalar', enforced: true },
+  { fromTable: 'week_location_exclusions', fromColumn: 'week_id', toEntity: 'schedule_weeks', kind: 'scalar', enforced: true },
+  { fromTable: 'fixed_events', fromColumn: 'schedule_week_id', toEntity: 'schedule_weeks', kind: 'scalar', enforced: true },
+  { fromTable: 'elective_sets', fromColumn: 'schedule_week_id', toEntity: 'schedule_weeks', kind: 'scalar', enforced: true },
   // -- into time_blocks --
   { fromTable: 'fixed_events', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
   { fromTable: 'template_slots', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
@@ -184,7 +195,7 @@ export const U2_DELETABLE_ENTITIES = Object.freeze(
   new Set([
     'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities', 'fixed_events',
     'special_days', 'special_day_time_blocks', 'special_day_slots', 'special_day_placements',
-    'elective_sets', 'elective_set_activities',
+    'elective_sets', 'elective_set_activities', 'schedule_weeks',
   ])
 )
 

@@ -32,6 +32,7 @@ import { findMovedPlacements } from '../ingest/movedPlacements'
 import { detectCompoundCellPatterns } from '../ingest/compoundCellPatterns'
 import { inferActivityRules } from '../ingest/activityRules'
 import { normalizeName } from '../ingest/preview'
+import { weeksForImport } from '../ingest/defaultWeek'
 import { emitTwoRowSplit, pinActivityAsserted, DEFAULT_SPLIT_SUFFIX } from '../ingest/twoRowSplit'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
@@ -224,15 +225,18 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
   const [wholeTouched, setWholeTouched] = useState({})
   // The week trips bind to by default: the week open in the app; else the only week; else none, and
   // every item stays pending until one is picked (a trip is never written for all weeks).
-  const defaultTripWeekId = weeks.some((w) => w.id === openWeekId)
+  // A camp with no weeks yet is offered the Week 1 this import will create (the commit makes it, with this
+  // same deterministic id, before the week-bound writes), so trips and special days are offered, not withheld.
+  const importWeeks = weeksForImport(weeks, campId)
+  const defaultTripWeekId = importWeeks.some((w) => w.id === openWeekId)
     ? openWeekId
-    : (weeks.length === 1 ? weeks[0].id : null)
+    : (importWeeks.length === 1 ? importWeeks[0].id : null)
   const tripPlan = planTripEvents({
     detections: tripDetections,
     answers: tripAnswers,
     weekId: defaultTripWeekId,
     weekByKey: tripWeeks,
-    hasWeeks: weeks.length > 0,
+    hasWeeks: importWeeks.length > 0,
     allGroupNames: proposal?.entities?.groups ?? allGroupNamesRef.current,
   })
   // F3/F4 slice 3b — whole-camp days. Never pre-selected; only the director's own answer accepts one.
@@ -241,7 +245,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
     answers: wholeAnswers,
     weekId: defaultTripWeekId,
     weekByKey: tripWeeks,
-    hasWeeks: weeks.length > 0,
+    hasWeeks: importWeeks.length > 0,
   })
   const tripAndWholeClaims = new Map([...tripPlan.claims, ...wholePlan.claims])
   const tripAndWholeEvents = [...tripPlan.fixedEvents, ...wholePlan.fixedEvents]
@@ -571,19 +575,22 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
         // shown what this day would actually add before agreeing to any of it.
         // A read failure here degrades to a plan with nothing matched, which is
         // not-ready and therefore cannot commit — never to a silent build.
-        const [liveGroups, liveActivities, liveSpecialDays, liveDays] = await Promise.all([
+        const [liveGroups, liveActivities, liveSpecialDays, liveDays, reconciled] = await Promise.all([
           localClient.list('groups').catch(() => []),
           localClient.list('activities').catch(() => []),
           localClient.list('special_days').catch(() => []),
           localClient.list('days_of_operation').catch(() => []),
+          // The camp's confirmed aliases, so the preview matches names exactly as the commit will.
+          localClient.ingestReconcile({ approved: {}, links: {} }).catch(() => null),
         ])
         const resolved = resolveSpecialDayPlacement({
-          texts: files.length === 1 ? [files[0].name, specialDay.name] : [specialDay.name], days: liveDays ?? [], weeks, weekId: openWeekId,
+          texts: files.length === 1 ? [files[0].name, specialDay.name] : [specialDay.name], days: liveDays ?? [], weeks: importWeeks, weekId: openWeekId,
         })
         setSpecialDayDays(liveDays ?? [])
-        setSpecialDayPlacement({ weekId: resolved.placement?.weekId ?? '', dayId: resolved.placement?.dayId ?? '', flag: resolved.flag })
+        setSpecialDayPlacement({ weekId: resolved.placement?.weekId ?? '', dayId: resolved.dayId ?? '', flag: resolved.flag })
         setSpecialDayPlan(buildSpecialDayPlan(specialDay, {
           groups: liveGroups ?? [], activities: liveActivities ?? [], specialDays: liveSpecialDays ?? [],
+          aliases: new Map(reconciled?.activityAliases ?? []),
         }))
         return
       }
@@ -1175,8 +1182,16 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
       const { weekId, dayId } = specialDayPlacement
       const placement = weekId && dayId ? { weekId, dayId } : null
       const out = await localClient.ingestCommit({ approved: {}, links: {}, specialDay: placement ? { ...specialDayPlan, placement } : specialDayPlan })
-      if (out?.specialDay?.keptExisting) throw new Error(`That day already has a special day on it, so "${specialDayPlan.name}" was not built. Pick another day, or leave it unplaced.`)
-      if (!out?.specialDay?.created) throw new Error(`"${specialDayPlan.name}" already exists, so nothing was built.`)
+      // These two are the app's own plain-words answers, not write failures: describeWriteFailure would replace
+      // them with "the reason was not something the app recognised".
+      if (out?.specialDay?.keptExisting) {
+        setError(`That day already has a special day on it, so "${specialDayPlan.name}" was not built. Pick another day, or leave it unplaced.`)
+        return
+      }
+      if (!out?.specialDay?.created) {
+        setError(`"${specialDayPlan.name}" already exists, so nothing was built.`)
+        return
+      }
       setSpecialDayResult(out.specialDay)
       setSpecialDayPlan(null)
     } catch (err) {
@@ -1757,12 +1772,12 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
               A special day called &quot;{specialDayPlan.name}&quot; already exists — rename it, or rename this one in the file.
             </p>
           )}
-          {weeks.length > 0 && (
+          {importWeeks.length > 0 && (
             <p style={{ margin: '0 0 10px', fontSize: 13, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <span>{specialDayPlacement.weekId && specialDayPlacement.dayId ? 'Placed on' : 'Not placed.'}</span>
               <select aria-label="Special day week" value={specialDayPlacement.weekId} onChange={(e) => setSpecialDayPlacement((p) => ({ ...p, weekId: e.target.value }))}>
                 <option value="">No week</option>
-                {weeks.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                {importWeeks.map((w) => <option key={w.id} value={w.id}>{w.willCreate ? `${w.name} (new)` : w.name}</option>)}
               </select>
               <select aria-label="Special day weekday" value={specialDayPlacement.dayId} onChange={(e) => setSpecialDayPlacement((p) => ({ ...p, dayId: e.target.value }))}>
                 <option value="">No day</option>
@@ -1770,9 +1785,6 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
               </select>
               {specialDayPlacement.flag && <span style={{ color: 'var(--text-secondary)' }}>{specialDayPlacement.flag}</span>}
             </p>
-          )}
-          {weeks.length === 0 && specialDayPlacement.flag && (
-            <p style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--text-secondary)' }}>{specialDayPlacement.flag}</p>
           )}
           <button
             type="button"
@@ -2336,12 +2348,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
               un-pressed candidate is simply not sent. */}
           {/* F3/F4 slice 2 — Trips and Group Days. One line per detection, pre-selected from the
               detector's default; the week it lands in is named on the line and can be changed there.
-              Whole-camp days (slice 3b) are the first lines and are never pre-selected. A camp with no weeks gets one plain line saying why. */}
-          {tripDetections.length > 0 && weeks.length === 0 && (
-            <div style={{ marginBottom: 20, fontSize: 12, color: 'var(--text-secondary)' }}>
-              This file looks like it has field trips. Add a week on the Schedule screen to import them as trips; until then they import as ordinary activities.
-            </div>
-          )}
+              Whole-camp days (slice 3b) are the first lines and are never pre-selected. A camp with no weeks is offered the Week 1 the import will create. */}
           {(tripPlan.items.length > 0 || wholePlan.items.length > 0) && (
             <div style={{ marginBottom: 20 }}>
               <div style={{
@@ -2360,7 +2367,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
                     background: active ? `color-mix(in srgb, var(--primary) 12%, var(--surface))` : 'var(--bg)',
                     color: active ? 'var(--primary)' : 'var(--text-secondary)',
                   })
-                  const weekName = weeks.find((w) => w.id === item.weekId)?.name
+                  const weekName = importWeeks.find((w) => w.id === item.weekId)?.name
                   return (
                     <div key={item.key} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: 12, color: 'var(--text)' }}>
@@ -2377,7 +2384,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
                         style={{ fontSize: 11, padding: '2px 4px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit' }}
                       >
                         {!item.weekId && <option value="">Choose a week</option>}
-                        {weeks.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                        {importWeeks.map((w) => <option key={w.id} value={w.id}>{w.willCreate ? `${w.name} (new)` : w.name}</option>)}
                       </select>
                       <button type="button" onClick={() => { setWholeAnswers((a) => ({ ...a, [item.key]: 'special_day' })); setWholeTouched((t) => ({ ...t, [item.key]: true })) }} style={pill(item.answer === 'special_day')}>Special day</button>
                       <button type="button" onClick={() => { setWholeAnswers((a) => ({ ...a, [item.key]: 'events' })); setWholeTouched((t) => ({ ...t, [item.key]: true })) }} style={pill(item.answer === 'events')}>Events</button>
@@ -2423,7 +2430,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
                         style={{ fontSize: 11, padding: '2px 4px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit' }}
                       >
                         {!item.weekId && <option value="">Choose a week</option>}
-                        {weeks.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                        {importWeeks.map((w) => <option key={w.id} value={w.id}>{w.willCreate ? `${w.name} (new)` : w.name}</option>)}
                       </select>
                       <button type="button" onClick={() => answer('event')} style={pill(item.answer === 'event')}>Trip</button>
                       <button type="button" onClick={() => answer('activity')} style={pill(item.answer === 'activity')}>Activity</button>

@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto'
 import { normalizeName } from '../../src/ingest/preview.js'
 import { resolveImportedPlacements, describeUnresolved } from './resolveImportedPlacements.js'
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
+import { defaultWeekId, defaultWeekFields } from '../../src/ingest/defaultWeek.js'
 
 // The renderer supplies the file name; it becomes a stored version name, so it
 // is coerced to a bare, bounded string at the boundary.
@@ -75,8 +76,8 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     if (anyWeek) {
       return { created: false, snapshotId: null, allWeeksArchived: true, unresolvedCount: 0, unresolvedNames: [] }
     }
-    weekId = `schedule-week:${campId}:1`
-    await writeFields(syncClient, 'schedule_weeks', weekId, { camp_id: campId, name: 'Week 1', sort_order: '0', is_archived: '0' }, authorUserId)
+    weekId = defaultWeekId(campId)
+    await writeFields(syncClient, 'schedule_weeks', weekId, defaultWeekFields(campId), authorUserId)
   }
 
   const maps = {

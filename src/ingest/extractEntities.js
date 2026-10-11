@@ -115,7 +115,7 @@ export function canonicalDay(text) {
 // so fixed-event detection spells day names identically to the entity proposal
 // by sharing this code rather than re-deriving it (the name-identity invariant).
 export function dayNameFromTitle(title) {
-  const day = DAY_ORDER.find((d) => String(title ?? '').toLowerCase().includes(d))
+  const day = DAY_ORDER.find((d) => new RegExp(`\\b${d}\\b`).test(String(title ?? '').toLowerCase()))
   return day ? day[0].toUpperCase() + day.slice(1) : null
 }
 
