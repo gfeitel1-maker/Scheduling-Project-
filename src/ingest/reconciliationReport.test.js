@@ -1416,7 +1416,15 @@ describe('buildReconciliationReport — electiveCandidates (Slice 3a)', () => {
     const [d] = buildReconciliationReport({ planItems: [], readiness: [], electiveCandidates }).decisions
     expect(d.kind).toBe('elective_candidate')
     expect(d.evidence).toMatchObject({ detector: 'list_question', choices: ['Arts', 'Crafts'] })
-    expect(d.reason).toBe("Is 'Arts/Crafts' one activity or a choice of several?")
+    expect(d.reason).toBe("Is 'Arts/Crafts' one activity or a choice of Arts or Crafts?")
+  })
+
+  it('the ambiguous question names three parts as "A, B or C"', () => {
+    const electiveCandidates = [
+      { id: 'list_question::A/B/C', detector: 'list_question', band: 'inferred', sourceExcerpt: 'A/B/C', choices: ['Art', 'Boats', 'Chess'] },
+    ]
+    const [d] = buildReconciliationReport({ planItems: [], readiness: [], electiveCandidates }).decisions
+    expect(d.reason).toBe("Is 'A/B/C' one activity or a choice of Art, Boats or Chess?")
   })
 
   it('dedups by the candidate id across repeated entries', () => {

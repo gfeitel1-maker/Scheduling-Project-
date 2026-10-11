@@ -632,7 +632,7 @@ export function buildReconciliationReport(input) {
       reason: candidate.detector === 'header'
         ? `This period is labeled "${candidate.sourceExcerpt}" — it looks like electives.`
         : candidate.detector === 'list_question'
-          ? `Is '${candidate.sourceExcerpt}' one activity or a choice of several?`
+          ? `Is '${candidate.sourceExcerpt}' one activity or a choice of ${candidate.choices.slice(0, -1).join(', ')} or ${candidate.choices.at(-1)}?`
           : Array.isArray(candidate.choices)
             ? `Read as a choice of ${candidate.choices.length}: ${candidate.choices.join(', ')}.`
             : `This looks like an elective period — the cell doesn't match a known activity.`,

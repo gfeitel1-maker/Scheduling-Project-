@@ -39,8 +39,8 @@ describe('elective_candidate list cells', () => {
   const list = (detector, reason) => ({ ...decision, entityName: 'Arts/Crafts', evidence: { detector, choices: ['Arts', 'Crafts'] }, reason })
 
   it('the ambiguous question reads as the question and offers one activity or a choice of several', () => {
-    render(<DecisionCard decision={list('list_question', "Is 'Arts/Crafts' one activity or a choice of several?")} answer={undefined} onAnswer={() => {}} />)
-    expect(screen.getByText(/one activity or a choice of several\?/)).toBeTruthy()
+    render(<DecisionCard decision={list('list_question', "Is 'Arts/Crafts' one activity or a choice of Arts or Crafts?")} answer={undefined} onAnswer={() => {}} />)
+    expect(screen.getByText(/one activity or a choice of Arts or Crafts\?/)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'A choice of several' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'One activity' })).toBeTruthy()
   })
