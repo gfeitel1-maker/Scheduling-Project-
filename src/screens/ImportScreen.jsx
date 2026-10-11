@@ -18,7 +18,6 @@ import { findSuspectRecords } from '../ingest/suspectRecords'
 import { formatEligibility } from './importEligibility'
 import { fixedEventKey } from '../ingest/fixedEventKey'
 import { capturePlacements } from '../ingest/capturePlacements'
-import { inferTextSpans } from '../ingest/textSpans'
 import { inferDivisionEntities, divisionSupportByGroup } from '../ingest/inferDivisions'
 import { inferCoScheduleRules } from '../ingest/coScheduleRules'
 import { detectAllCampOverrides } from '../ingest/allCampOverrides'
@@ -830,8 +829,7 @@ export default function ImportScreen({ campId, onNavigate }) {
         proposal.seenCounts,
         proposal.entities.days_of_operation.length,
         proposal.entities.groups,
-        assertedNonDualUseNames,
-        inferTextSpans({ pages }, proposal).spans
+        assertedNonDualUseNames
       )
       setActivityRules(Object.fromEntries(rules))
     } catch (err) {
@@ -1360,7 +1358,6 @@ export default function ImportScreen({ campId, onNavigate }) {
         min_per_week: rule.min_per_week,
         max_per_week: rule.max_per_week,
         priority: rule.priority,
-        ...(rule.span_blocks ? { span_blocks: rule.span_blocks } : {}),
         // T114 follow-up — the co-schedule inference computed at parse time
         // above. Until this line existed, `coScheduleRef.current` was assigned
         // and never read by anything: every activity's observed capacity was
