@@ -22,7 +22,7 @@ related_tickets:
    (`latchEncryptionIfKeyPresent`, called in `electron/main.js` right after `app.whenReady()` and before
    key acquisition). The environment variable cannot turn it off. A stat error other than ENOENT also
    latches on: an unknown state never reads as safe to disable.
-3. No in-app, IPC or UI disable is offered in this slice. The only exits are out-of-band: restore from a
+3. No in-app, IPC or UI disable was offered in this slice (T345 later added the admin-only one). The only exits are out-of-band: restore from a
    paired device or a backup, or deliberately delete the key file and data.
 4. `'off'` remains a pre-activation and test escape (`vitest.setup.js` pins it for the suite).
 
@@ -34,7 +34,7 @@ needed to remove the ambient flip.
 
 ## Rejected
 
-- Director-gated disable IPC with decrypt-back migration: deferred to a follow-up ticket (T345).
+- Director-gated disable IPC with decrypt-back migration: deferred to a follow-up ticket (T345), since built; see the 2026-10-11 amendment in `docs/adr/2026-09-28-at-rest-encryption-disable-control.md`.
 - A persisted policy row in SQLite or the document: unreadable exactly when needed, since the DB is encrypted.
 - Removing the env var: roughly 270 tests and dev workflows need an off switch.
 

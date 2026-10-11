@@ -144,6 +144,80 @@ export function migratePlaintextToEncrypted(filePath, key, {
   return { migrated: true, backupPath }
 }
 
+// Row counts for every user table, for before/after equality when decrypting. `key` null opens the file
+// as plaintext. Throws if the file does not open under that key (a wrong key and a corrupt file look alike).
+export function readTableCounts(Database, filePath, key) {
+  const db = new Database(filePath)
+  try {
+    if (key) db.pragma(rawKeyPragma(key))
+    const names = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all()
+    const counts = {}
+    for (const { name } of names) counts[name] = db.prepare(`SELECT count(*) AS n FROM "${name}"`).get().n
+    return counts
+  } finally {
+    db.close()
+  }
+}
+
+// Put a known-good copy back over `filePath`, clearing stale -wal/-shm so they cannot be replayed onto it.
+export function restoreDbFromBackup(filePath, backupPath, { fsImpl = fs } = {}) {
+  for (const suffix of ['-wal', '-shm']) {
+    const p = `${filePath}${suffix}`
+    if (fsImpl.existsSync(p)) fsImpl.unlinkSync(p)
+  }
+  fsImpl.copyFileSync(backupPath, filePath)
+}
+
+// Decrypt an ENCRYPTED SQLite file at `filePath` to plaintext in place: the mirror of
+// migratePlaintextToEncrypted (docs/adr/2026-09-28-at-rest-encryption-disable-control.md section 4).
+// Backup first (fatal), `PRAGMA rekey = ''` (SQLite3MultipleCiphers removes encryption on an empty key),
+// then reopen WITHOUT a key and require the header to be plaintext and every table's row count to equal
+// `expectedCounts`. Any failure restores the encrypted file from the backup and throws. The backup is NOT
+// deleted here: the caller still needs it if a later step fails, and removes it once the whole disable
+// has succeeded.
+export function decryptEncryptedToPlaintext(filePath, key, { Database, writeBackup, expectedCounts, fsImpl = fs } = {}) {
+  if (!Database) throw new Error('decryptEncryptedToPlaintext: a Database constructor is required')
+  if (!writeBackup) throw new Error('decryptEncryptedToPlaintext: a writeBackup fn is required')
+  if (!expectedCounts) throw new Error('decryptEncryptedToPlaintext: expectedCounts is required')
+
+  let backupPath
+  try {
+    backupPath = writeBackup(filePath)
+  } catch (err) {
+    const e = new Error(`at-rest disable refused: backup failed (${err?.message ?? err}). Not proceeding.`)
+    e.code = 'backup_failed'
+    throw e
+  }
+
+  const fail = (code, what, err) => {
+    try { restoreDbFromBackup(filePath, backupPath, { fsImpl }) } catch { /* the backup still exists at backupPath */ }
+    const e = new Error(`at-rest disable aborted: ${what} (${err?.message ?? err}). The encrypted db was restored; a copy is also at ${backupPath}.`)
+    e.code = code
+    return e
+  }
+
+  try {
+    const db = new Database(filePath)
+    try {
+      db.pragma(rawKeyPragma(key))
+      db.pragma("rekey = ''")
+    } finally {
+      db.close()
+    }
+  } catch (err) {
+    throw fail('rekey_failed', 'decrypting the database (PRAGMA rekey) failed', err)
+  }
+
+  try {
+    if (!isPlaintextSqliteFile(filePath, { fsImpl })) throw new Error('the file is still not plaintext')
+    const after = readTableCounts(Database, filePath, null)
+    if (JSON.stringify(after) !== JSON.stringify(expectedCounts)) throw new Error('row counts differ from before the decrypt')
+  } catch (err) {
+    throw fail('verify_failed', 'the decrypted db failed verification', err)
+  }
+  return { backupPath }
+}
+
 // Crash recovery for migratePlaintextToEncrypted. If the process died between the in-place rekey and
 // the verify/shred, the db file is half-encrypted and a plaintext `.pre-migration-*.bak` remains.
 // A keyed open then fails opaquely. Detect that (file present, not plaintext, key does not open it)

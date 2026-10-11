@@ -2,8 +2,8 @@
 title: "At-rest encryption enable/disable control model — the director-gated disable guard"
 document_type: adr
 authority: normative
-status: proposed
-implementation_state: not-started
+status: accepted
+implementation_state: implemented
 date: 2026-09-28
 program: security-hardening
 related_adrs:
@@ -26,7 +26,7 @@ affects:
 
 ## Status
 
-Proposed, 2026-09-28, architect (routed by owner requirement recorded in
+Accepted 2026-10-11 (amended; see below). Originally proposed 2026-09-28, architect (routed by owner requirement recorded in
 `docs/work/tickets/T175-at-rest-encryption-activation.md`, 2026-09-28 section). This is a **flip
 precondition** folded into T175's `archive_when` — it does not change the current staged-OFF
 default and does not touch the keychain or a real device's DB. Implementation requires mandatory
@@ -331,3 +331,23 @@ refuse-entirely vs. guided-export, each with different UX/safety costs, decided 
    before Maker, or is the existing type-to-confirm pattern sufficient precedent to skip a design
    pass? This ADR states copy and mechanics but leaves the visual/screen-placement call to
    Governor.
+
+## Amendment 2026-10-11 (T345 as built)
+
+`docs/adr/2026-10-08-at-rest-encryption-sticky-no-ambient-disable.md` changed three facts this design assumed:
+encryption is now **default ON** (the env var is only a pre-activation/test escape, not a staged-OFF default),
+it is **latched on** once `db.key.enc` exists (`latchEncryptionIfKeyPresent`), and an unknown state latches ON.
+T345 is the deliberate exit that 2026-10-08 deferred. As built:
+
+- `security.disable_at_rest_encryption` is admin-only by default-deny; no `enable` action was built (a
+  non-goal: there is no re-enable control). `authorize()` now audits `security.*` allows as it does `users.*`.
+- `disableAtRestEncryption` (`electron/db/disableAtRestEncryption.js`) refuses on any unknown state (key stat
+  error, unsealable key, already-plaintext db while keyed, tampered document), backs up every keyed db and
+  document first, decrypts, verifies (row counts, document bytes), then writes the `encryption.disabled`
+  marker and renames, overwrites and unlinks the key. Any failure before the key move restores the backups.
+- Because default-on would re-encrypt a keyless plaintext device, the marker is the durable opt-out: with no
+  key file and the marker present the next launch opens plaintext; a key file always beats the marker.
+- Scope widened from one db to every db the key opened (recent projects), since one key locks them all.
+- Confirm is the typed phrase `DISABLE ENCRYPTION` on the Devices screen; the process then restarts. Older user
+  backups made while encrypted become unreadable and the confirm copy says so. Open question 2 (cooling-off) was
+  not added; question 3 (rekey form) was checked against the installed driver source.

@@ -115,6 +115,8 @@ contextBridge.exposeInMainWorld('shoresh', {
   // comes from; the real outcome surfaces via the next getSyncStatus poll /
   // shoresh:sync-status-changed push, never via this call's return value.
   retrySync: () => ipcRenderer.invoke('shoresh:retry-sync'),
+  // T345 — admin-only, confirm-phrase gated; decrypts this device and restarts it.
+  disableAtRestEncryption: (args) => ipcRenderer.invoke('shoresh:disable-at-rest-encryption', args),
   ingestCommit: (args) => ipcRenderer.invoke('shoresh:ingest-commit', args),
   ingestReconcile: (args) => ipcRenderer.invoke('shoresh:ingest-reconcile', args),
   ingestUndo: (args) => ipcRenderer.invoke('shoresh:ingest-undo', args),

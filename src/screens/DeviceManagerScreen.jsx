@@ -3,6 +3,7 @@ import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import { deriveDeviceRowState } from './deviceRowState'
 import ConnectedToolsPanel from '../components/ConnectedToolsPanel'
+import DisableEncryptionPanel from '../components/DisableEncryptionPanel'
 import PortMappingFlag from '../components/PortMappingFlag'
 import HostHandoffControl from '../components/HostHandoffControl'
 import { useHostHandoff } from '../hooks/useHostHandoff'
@@ -476,6 +477,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
       </section>
 
       {role === 'admin' && <ConnectedToolsPanel />}
+      {role === 'admin' && <DisableEncryptionPanel />}
     </div>
   )
 }

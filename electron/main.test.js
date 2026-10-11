@@ -4014,10 +4014,14 @@ describe('T175 sticky at-rest encryption wiring', () => {
     expect(acquire).toBeGreaterThan(latch)
   })
 
-  it('offers no IPC or preload surface to disable at-rest encryption', () => {
+  it('offers exactly one disable surface (T345), and it is the authorize()-gated handler', () => {
     const preload = fs.readFileSync(new URL('./preload.js', import.meta.url), 'utf8')
-    expect(preload).not.toMatch(/disable\w*Encrypt|setAtRestEncryption|encryption[-_]?(off|disable)/i)
-    expect(src).not.toMatch(/ipcMain\.handle\('shoresh:[^']*(disable|set)-?[^']*encrypt/i)
+    expect(preload).not.toMatch(/setAtRestEncryption|enableAtRestEncryption/i)
+    expect(preload.match(/disable\w*Encrypt/gi)).toEqual(['disableAtRestEncrypt'])
+    expect(src.match(/ipcMain\.handle\('shoresh:[^']*(disable|set|enable)-?[^']*encrypt[^']*'/gi)).toEqual([
+      "ipcMain.handle('shoresh:disable-at-rest-encryption'",
+    ])
+    expect(src).toMatch(/requireAuthorized\(db, \{ token, action: 'security\.disable_at_rest_encryption' \}\)/)
   })
 })
 

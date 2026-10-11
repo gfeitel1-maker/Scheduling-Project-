@@ -115,6 +115,7 @@ export const localClient = {
   getPortMappingStatus: () => (shoresh.getPortMappingStatus ? shoresh.getPortMappingStatus() : Promise.resolve(null)),
   // T275 — the sidebar's host-not-syncing retry affordance.
   retrySync: () => shoresh.retrySync(),
+  disableAtRestEncryption: (phrase) => shoresh.disableAtRestEncryption({ token: currentToken(), phrase }),
   // T16 — commit an approved import proposal. The preview is built in the
   // renderer; only the confirmed list crosses this boundary.
   // One options object rather than six positional arguments: `mode` (T61) is

@@ -5008,7 +5008,7 @@ export function migrationSpanFor(db) {
 // is never even required unless encryption is enabled. If it is enabled but the driver is missing or
 // unbuilt, we fail CLOSED with a clear error rather than silently opening plaintext.
 let _encryptingCtor = null
-function encryptingDatabaseCtor() {
+export function encryptingDatabaseCtor() {
   if (_encryptingCtor) return _encryptingCtor
   try {
     const ctor = _lazyRequire('better-sqlite3-multiple-ciphers')
