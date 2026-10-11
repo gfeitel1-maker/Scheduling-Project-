@@ -298,7 +298,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
       ...emptyEntries,
       time_blocks: campBlocks,
       groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A' }],
-      days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }],
+      days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }, { id: 'tue', camp_id: CAMP_ID, label: 'Tuesday' }],
       special_day_placements: [{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: 'new-id-0' }],
       fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
     }))
@@ -336,7 +336,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
       ...emptyEntries,
       time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
       groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A' }],
-      days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }],
+      days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }, { id: 'tue', camp_id: CAMP_ID, label: 'Tuesday' }],
       special_day_placements: [{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: 'new-id-0' }],
       fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
     }))
@@ -360,7 +360,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
         ...emptyEntries,
         time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
         groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A' }],
-        days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }],
+        days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }, { id: 'tue', camp_id: CAMP_ID, label: 'Tuesday' }],
         special_day_placements: [{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: 'new-id-0' }],
         fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
       })(entity)

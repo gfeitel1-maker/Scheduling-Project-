@@ -351,7 +351,7 @@ describe('SpecialDayGridEditor — Copy time blocks on an empty special schedule
     const slots = []
     localClient.list.mockImplementation((entity) => {
       if (entity === 'fixed_events') return Promise.resolve([{ id: 'f1', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb1', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }])
-      if (entity === 'days_of_operation') return Promise.resolve([{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }])
+      if (entity === 'days_of_operation') return Promise.resolve([{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }, { id: 'tue', camp_id: CAMP_ID, label: 'Tuesday' }])
       if (entity === 'special_day_placements') return Promise.resolve([{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: SD_ID }])
       if (entity === 'special_day_slots') return Promise.resolve(slots)
       return base(entity)
@@ -385,7 +385,7 @@ describe('SpecialDayGridEditor — Copy time blocks on an empty special schedule
     const slotWrites = []
     localClient.list.mockImplementation((entity) => {
       if (entity === 'fixed_events') return Promise.resolve([{ id: 'f1', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb1', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }])
-      if (entity === 'days_of_operation') return Promise.resolve([{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }])
+      if (entity === 'days_of_operation') return Promise.resolve([{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }, { id: 'tue', camp_id: CAMP_ID, label: 'Tuesday' }])
       if (entity === 'special_day_placements') return Promise.resolve([{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: SD_ID }])
       return base(entity)
     })

@@ -14,35 +14,41 @@ async function writeField(entity, id, field, value) {
 
 const isEveryDay = (ev) => ev.day_id == null || ev.day_id === ''
 
-// An event is "the same event" on different days when everything but its day matches.
-const sameEventKey = (ev) => JSON.stringify([
-  ev.kind, ev.name, ev.activity_id, ev.time_block_id, ev.span_blocks ?? 1, ev.location_id ?? null,
-  !!ev.is_all_groups, ev.unit_id ?? null, [...(ev.unit_ids || [])].sort(), [...(ev.group_ids || [])].sort(),
-])
+// The same event on different days: everything but its day and its group scope matches.
+const eventIdentity = (ev) => JSON.stringify([ev.kind, ev.name, ev.activity_id, ev.time_block_id, ev.span_blocks ?? 1, ev.location_id ?? null])
 
 // Which camp fixed events a special day takes. A week-scoped override is never
-// carried. A fixed event that runs every day comes across automatically, whether it is
-// stored as one every-day row or as one row per operating day (what an import writes).
-// A recurring or day-specific event is OFFERED, and only when the special day is
-// placed on exactly one weekday (a special day replaces that day), for events
-// that apply to that weekday.
-function splitFixedEvents(fixedEvents, placedDayId, operatingDayIds) {
+// carried. An event comes across for a GROUP when that group has it on every operating
+// day, whether as one every-day row or one row per day (what an import writes), so a
+// group-scoped lunch wave lands in its own groups' cells and nowhere else. Anything else
+// (a recurring or day-specific event) is OFFERED, and only when the special day is placed
+// on exactly one weekday (a special day replaces that day), for events that apply to it.
+function splitFixedEvents(fixedEvents, groups, placedDayId, operatingDayIds) {
   const live = fixedEvents.filter((ev) => ev.schedule_week_id == null && ev.activity_id != null)
-  const byEvent = new Map()
-  for (const ev of live.filter((e) => e.kind === 'fixed')) {
-    const key = sameEventKey(ev)
-    byEvent.set(key, [...(byEvent.get(key) || []), ev])
+  const byIdentity = new Map()
+  for (const ev of live) {
+    const key = eventIdentity(ev)
+    byIdentity.set(key, [...(byIdentity.get(key) || []), ev])
   }
   const carry = []
-  for (const rows of byEvent.values()) {
-    const everyDayRow = rows.find(isEveryDay)
-    const dayIds = new Set(rows.map((r) => r.day_id))
-    const onEveryOperatingDay = operatingDayIds.length > 0 && operatingDayIds.every((id) => dayIds.has(id))
-    if (!everyDayRow && !onEveryOperatingDay) continue
-    carry.push(everyDayRow ?? (placedDayId ? rows.find((r) => r.day_id === placedDayId) : rows[0]))
+  const carriedRows = new Set()
+  for (const rows of byIdentity.values()) {
+    const days = new Map()
+    for (const row of rows) {
+      for (const groupId of resolveFixedEventGroupIds(row, groups)) {
+        days.set(groupId, [...(days.get(groupId) || []), row.day_id])
+      }
+    }
+    const covered = [...days].filter(([, ids]) => ids.some((d) => d == null || d === '') || (operatingDayIds.length > 0 && operatingDayIds.every((id) => ids.includes(id)))).map(([id]) => id)
+    if (!covered.length) continue
+    carry.push({ ...rows[0], is_all_groups: 0, unit_id: null, unit_ids: [], group_ids: covered })
+    const coveredSet = new Set(covered)
+    for (const row of rows) {
+      if (resolveFixedEventGroupIds(row, groups).every((id) => coveredSet.has(id))) carriedRows.add(row)
+    }
   }
   const offered = placedDayId
-    ? live.filter((ev) => !carry.includes(ev) && !byEvent.get(sameEventKey(ev))?.some((r) => carry.includes(r)) && (ev.day_id === placedDayId || (ev.kind === 'recurring' && isEveryDay(ev))))
+    ? live.filter((ev) => !carriedRows.has(ev) && (ev.day_id === placedDayId || (ev.kind === 'recurring' && isEveryDay(ev))))
     : []
   return { carry, offered }
 }
@@ -178,7 +184,7 @@ export async function copyCampTimeBlocks({ campId, specialDayId }) {
     }
     const multiDay = placedDayIds.length > 1
     const placedDayId = placedDayIds.length === 1 ? placedDayIds[0] : null
-    const { carry, offered } = splitFixedEvents(fixedEvents, placedDayId, (days || []).filter((d) => d.camp_id === campId).map((d) => d.id))
+    const { carry, offered } = splitFixedEvents(fixedEvents, groups, placedDayId, (days || []).filter((d) => d.camp_id === campId).map((d) => d.id))
 
     const placedCarry = await placeCells(specialDayId, cellsFor(carry, groups, scoped, blockIdMap))
     const notices = [...placedCarry.skipped]
