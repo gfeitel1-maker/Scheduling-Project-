@@ -19,6 +19,7 @@ import { formatBlockTime12h } from '../../src/ingest/blockTimeText.js'
  *   blockIdByName: Map<string,string>,
  *   activityIdByName: Map<string,string>,
  *   fixedEventIdByName: Map<string,string>,
+ *   electiveSetIdByName?: Map<string,string>,
  * }} maps  keys are normalizeName(name)
  * @returns {{
  *   slots: Array<{group_id, day_id, time_block_id, activity_id, fixed_event_id, is_fixed_event, flags}>,
@@ -26,12 +27,12 @@ import { formatBlockTime12h } from '../../src/ingest/blockTimeText.js'
  * }}
  */
 export function resolveImportedPlacements(placements, maps) {
-  const { groupIdByName, dayIdByName, blockIdByName, activityIdByName, fixedEventIdByName } = maps
+  const { groupIdByName, dayIdByName, blockIdByName, activityIdByName, fixedEventIdByName, electiveSetIdByName = new Map() } = maps
   const slots = []
   const unresolved = []
 
   for (const placement of placements) {
-    const { groupName, dayName, blockLabel, activityName } = placement
+    const { groupName, dayName, blockLabel, activityName, electiveSetName } = placement
     const groupId = groupIdByName.get(normalizeName(groupName))
     if (!groupId) {
       unresolved.push({ ...placement, reason: 'group' })
@@ -45,6 +46,19 @@ export function resolveImportedPlacements(placements, maps) {
     const blockId = blockIdByName.get(normalizeName(blockLabel))
     if (!blockId) {
       unresolved.push({ ...placement, reason: 'block' })
+      continue
+    }
+
+    if (electiveSetName) {
+      const electiveSetId = electiveSetIdByName.get(normalizeName(electiveSetName))
+      if (!electiveSetId) {
+        unresolved.push({ ...placement, reason: 'elective_set' })
+        continue
+      }
+      slots.push({
+        group_id: groupId, day_id: dayId, time_block_id: blockId,
+        elective_set_id: electiveSetId, activity_id: null, fixed_event_id: null, is_fixed_event: false, flags: {},
+      })
       continue
     }
 
@@ -86,7 +100,7 @@ export function describeUnresolved(unresolved, timeBlocks = []) {
   return unresolved.map((u) => {
     const block = blockByName.get(normalizeName(u.blockLabel))
     return {
-      activityName: u.activityName,
+      activityName: u.activityName ?? u.electiveSetName,
       groupName: u.groupName,
       dayName: u.dayName,
       blockText: block ? timeBlockLabel(block) : formatBlockTime12h(u.blockLabel),
