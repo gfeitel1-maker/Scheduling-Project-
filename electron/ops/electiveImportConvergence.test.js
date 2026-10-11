@@ -27,7 +27,10 @@ function importInto(db, deviceId) {
 
 function replay(from, to) {
   for (const op of from.prepare('SELECT * FROM operations ORDER BY seq ASC').all()) {
-    try { applyProjection(to, op) } catch { /* a colliding op is dropped, as the merge path does */ }
+    try { applyProjection(to, op) } catch (err) {
+      // a UNIQUE collision is dropped, as the merge path does; anything else is a real failure
+      if (!/UNIQUE/i.test(String(err?.message))) throw err
+    }
   }
 }
 
@@ -53,13 +56,12 @@ describe('T371 two devices import the same electives', () => {
 describe('T371 names that share a derived id', () => {
   it('two names differing only in spacing make one set, and the first name is not overwritten', () => {
     const a = device('dev-a')
-    const out = commitIngest(a.db, {
+    commitIngest(a.db, {
       approved: {}, camp_id: CAMP, device_id: 'dev-a',
       confirmedElectiveSets: [{ name: 'Chug Im', choices: [] }, { name: 'ChugIm', choices: [] }],
     })
     expect(a.db.prepare('SELECT name FROM elective_sets').all().map((r) => r.name)).toEqual(['Chug Im'])
     expect(a.db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'elective_sets' AND field = 'name'").get().c).toBe(1)
-    expect(out).toBeTruthy()
     a.db.close(); if (fs.existsSync(a.file)) fs.unlinkSync(a.file)
   })
 })
@@ -79,7 +81,8 @@ describe('T371 a derived id that already has a row', () => {
     const a = device('dev-a')
     commitIngest(a.db, { approved: {}, camp_id: CAMP, device_id: 'dev-a', confirmedElectiveSets: [{ name: 'Chugim', choices: ['Tie Dye', 'TieDye'] }] })
     const names = a.db.prepare('SELECT name FROM activities ORDER BY name').all().map((r) => r.name)
-    expect(names).toContain('Tie Dye')
+    expect(names).toEqual(['Tie Dye'])
+    expect(a.db.prepare('SELECT COUNT(*) c FROM elective_set_activities').get().c).toBe(1)
     a.db.close(); if (fs.existsSync(a.file)) fs.unlinkSync(a.file)
   })
 })

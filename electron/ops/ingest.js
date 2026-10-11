@@ -617,9 +617,9 @@ function writeElectiveChoices(db, { setId, setName, choices, camp_id, author_use
     try {
       runAtomic(db, () => {
         let activityId = reuseActivityId ?? activityIdByKey.get(k)
-        if (!activityId) {
-          activityId = deriveSpecialDayActivityId(camp_id, choiceName)
-        }
+        // Shared with the special-day import on purpose: a choice and a
+        // special-day activity of one name converge on one activity id.
+        activityId ??= deriveSpecialDayActivityId(camp_id, choiceName)
         // A derived id can already have a row (a spacing variant earlier in
         // this file, or a renamed activity): reuse it, never rewrite its name.
         if (!db.prepare('SELECT 1 FROM activities WHERE id = ?').get(activityId)) {
