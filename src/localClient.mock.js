@@ -1662,6 +1662,7 @@ export const mockShoresh = {
           groupIdByName: nameMap('groups'),
           dayIdByName: nameMap('days_of_operation'),
           blockIdByName: nameMap('time_blocks'),
+          electiveSetIdByName: nameMap('elective_sets'),
         }
         const { slots, unresolved } = resolveImportedPlacements(placements, maps)
         const unresolvedItems = describeUnresolved(unresolved, (state.time_blocks ?? []).filter((b) => b.camp_id === campId))
@@ -1676,7 +1677,7 @@ export const mockShoresh = {
             created_at: new Date().toISOString(),
             slots: JSON.stringify(slots),
           })
-          version = { created: true, snapshotId, versionName, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
+          version = { created: true, snapshotId, versionName, electiveCellCount: slots.filter((slot) => slot.elective_set_id).length, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
         } else {
           version = { created: false, snapshotId: null, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
         }

@@ -305,6 +305,7 @@ describe('materializeImportedVersion', () => {
       const result = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements: [electiveCell('Bunk 1', 'Chugim')] })
 
       expect(result.unresolvedCount).toBe(0)
+      expect(result.electiveCellCount).toBe(1)
       const snap = db.prepare('SELECT slots FROM schedule_snapshots WHERE id = ?').get(result.snapshotId)
       expect(JSON.parse(snap.slots)).toEqual([
         { group_id: groupId, day_id: dayId, time_block_id: blockId, elective_set_id: setId, activity_id: null, fixed_event_id: null, is_fixed_event: false, flags: {} },
