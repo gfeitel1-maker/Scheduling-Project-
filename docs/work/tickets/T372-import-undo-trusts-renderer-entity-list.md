@@ -1,7 +1,7 @@
 ---
 title: T372-import-undo-trusts-renderer-entity-list
 document_type: ticket
-status: open
+status: closed
 created: 2026-10-11
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-10-11-import-electives-keep-their-shape.md]
@@ -15,3 +15,5 @@ archive_when: import undo deletes only rows the named import run actually create
 **Direction.** Record what each import run created in the main process (elective sets and join rows get no `import_evidence` today) and have undo accept only those ids. Decide whether a version slot that names an undone row blocks undo or is reported.
 
 Source: Red Hat re-review of the F6 electives undo change, 2026-10-11 (findings 2 and 6).
+
+**Closed 2026-10-11 by PR #932.** Undo derives its targets in main from the import run. Rows named by a saved schedule version are kept, with reason `used_in_saved_version`.
