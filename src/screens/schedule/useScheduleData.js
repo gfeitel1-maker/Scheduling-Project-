@@ -70,13 +70,23 @@ export function unfillableSlots(slotList, route) {
     && s.elective_set_id == null && s.event_id == null)
 }
 
+// The findings context for a route, shared by the load loop and ScheduleScreen's
+// edit recompute so the two can never disagree.
+export function findingsContext(route, all) {
+  return route === 'generated'
+    ? { groups: all.groups, activities: all.activities, days: all.days, timeBlocks: all.timeBlocks, replacedDayIds: all.replacedDayIds, fixedEvents: all.fixedEvents, weekId: all.weekId, activityExclusions: all.activityExclusions, groupExclusions: all.groupExclusions, locationExclusions: all.locationExclusions }
+    : { groups: all.groups, activities: all.activities, days: all.days, replacedDayIds: all.replacedDayIds, overlapFixedEvents: all.fixedEvents, weekId: all.weekId }
+}
+
 // Pure — no setState. `ctx` is exactly what computeFindings needs beyond the
 // slot list: the setup lists it cross-references.
 export function recalcFindings(slotList, ctx) {
+  // A route that leaves fixedEvents out leaves the key absent (Manual: no FIXED_EVENT_DUPLICATE).
   return computeFindings({
     slots: slotList, groups: ctx.groups, activities: ctx.activities, days: ctx.days,
     replacedDayIds: ctx.replacedDayIds,
-    fixedEvents: ctx.fixedEvents, timeBlocks: ctx.timeBlocks, weekId: ctx.weekId,
+    ...(ctx.fixedEvents !== undefined ? { fixedEvents: ctx.fixedEvents } : {}),
+    overlapFixedEvents: ctx.overlapFixedEvents, timeBlocks: ctx.timeBlocks, weekId: ctx.weekId,
     activityExclusions: ctx.activityExclusions, groupExclusions: ctx.groupExclusions, locationExclusions: ctx.locationExclusions,
   })
 }
@@ -390,20 +400,15 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
           // read failing, not this additive repair pass).
         }
         nextStats[r] = recalcStats(saved, replaced)
-        // FIXED_EVENT_DUPLICATE is meaningful only on the generated route — a
-        // manual fixed-event/regular clash already surfaces as OVERLAP at render,
-        // and "regenerate to clear it" is meaningless where there is no
-        // regenerate. Pass fixedEvents/weekId/exclusions only for that route;
-        // computeFindings' safe default (absent fixedEvents → no finding) keeps
-        // manual clean.
-        nextFindings[r] = r === 'generated'
-          ? recalcFindings(saved, {
-              groups: g, activities: a, days: d, timeBlocks: b, replacedDayIds: replaced, fixedEvents: anc, weekId: liveWeekId,
-              activityExclusions: weekExclusions.activityExclusions,
-              groupExclusions: weekExclusions.groupExclusions,
-              locationExclusions: weekExclusions.locationExclusions,
-            })
-          : recalcFindings(saved, { groups: g, activities: a, days: d, replacedDayIds: replaced })
+        // FIXED_EVENT_DUPLICATE is generated-only ("regenerate to clear it" means
+        // nothing where there is no regenerate); the double-booking check
+        // (FIXED_EVENT_OVERLAP) runs on both routes. findingsContext holds the gate.
+        nextFindings[r] = recalcFindings(saved, findingsContext(r, {
+          groups: g, activities: a, days: d, timeBlocks: b, replacedDayIds: replaced, fixedEvents: anc, weekId: liveWeekId,
+          activityExclusions: weekExclusions.activityExclusions,
+          groupExclusions: weekExclusions.groupExclusions,
+          locationExclusions: weekExclusions.locationExclusions,
+        }))
         nextSnaps[r] = (snapData || [])
           .filter(x => x.template_id === tid)
           .sort((x, y) => new Date(y.created_at) - new Date(x.created_at))

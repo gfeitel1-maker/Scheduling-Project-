@@ -309,13 +309,14 @@ describe('useGeneration', () => {
   // -> no finding, is what keeps manual clean). A future edit that starts
   // passing fixedEvents here would regress that silently — nothing else exercises
   // this call's arguments.
-  it('placeFixedEvents() calls computeFindings with no fixedEvents key at all (manual route never surfaces FIXED_EVENT_DUPLICATE)', async () => {
+  it('placeFixedEvents() calls computeFindings with no fixedEvents key (no FIXED_EVENT_DUPLICATE) but with overlapFixedEvents (double-booking check)', async () => {
     const { result } = setup()
     await act(async () => { await result.current.placeFixedEvents() })
 
     expect(computeFindings).toHaveBeenCalledTimes(1)
     const arg = computeFindings.mock.calls[0][0]
     expect(arg).not.toHaveProperty('fixedEvents')
+    expect(arg).toHaveProperty('overlapFixedEvents')
   })
 
   it('regenFromScratch() closes the confirm modal then regenerates', async () => {

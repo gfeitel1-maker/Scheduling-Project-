@@ -39,7 +39,7 @@ import DeleteWeekDialog from '../components/schedule/DeleteWeekDialog'
 import { useGeneration } from './schedule/useGeneration'
 import { useSlotMutations } from './schedule/useSlotMutations'
 import { ROUTES, useRouteState } from './schedule/useRouteState'
-import { useScheduleData, recalcStats as recalcStatsPure, recalcFindings as recalcFindingsPure, unfillableSlots as unfillableSlotsPure } from './schedule/useScheduleData'
+import { useScheduleData, recalcStats as recalcStatsPure, recalcFindings as recalcFindingsPure, findingsContext as findingsContextPure, unfillableSlots as unfillableSlotsPure } from './schedule/useScheduleData'
 import { findingDismissKey } from './schedule/findingKey'
 import { useFlagChangeAck } from './schedule/useFlagChangeAck'
 import { useContentRaceFlag } from './schedule/useContentRaceFlag'
@@ -576,11 +576,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
   }
 
   function recalcFindings(slotList) {
-    // FIXED_EVENT_DUPLICATE is generated-route only — see useScheduleData's route
-    // loop for the same gate and reasoning.
-    setFindings(recalcFindingsPure(slotList, route === 'generated'
-      ? { groups, activities, days, timeBlocks, replacedDayIds, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
-      : { groups, activities, days, replacedDayIds }))
+    // Same route gate as the load loop: findingsContext (useScheduleData).
+    setFindings(recalcFindingsPure(slotList, findingsContextPure(route, {
+      groups, activities, days, timeBlocks, replacedDayIds, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions,
+    })))
   }
 
   // The schedule_templates row for a route is created lazily, on first use.

@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { recalcStats, recalcFindings } from '../screens/schedule/useScheduleData.js'
+import { recalcStats, recalcFindings, findingsContext } from '../screens/schedule/useScheduleData.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const SCAN_DIRS = ['src', 'electron', 'scripts']
@@ -24,10 +24,10 @@ const EXPECTED = {
     'src/screens/schedule/useGeneration.js': 2,
     'scripts/mcp/tools.js': 1,
   },
+  // Every screen recompute goes through recalcFindings(…, findingsContext(route, …)),
+  // which carries replacedDayIds on both routes (asserted below).
   computeFindings: {
-    'src/screens/schedule/useGeneration.js': 1,
     'src/screens/schedule/useScheduleData.js': 1,
-    'src/screens/schedule/useSnapshots.js': 1,
   },
   recalcStatsPure: {
     // the stats wrapper, plus the export picker's "N of M placed" line (#835)
@@ -98,9 +98,10 @@ describe('every engine entry call site carries replacedDayIds', () => {
 
   it('the hand-built ctx sites in useScheduleData pass it on both routes', () => {
     const src = fs.readFileSync(path.join(root, 'src/screens/schedule/useScheduleData.js'), 'utf8')
-    const ctxCalls = src.match(/recalcFindings\(saved, \{[\s\S]*?\}\)/g) || []
-    expect(ctxCalls).toHaveLength(2)
-    for (const c of ctxCalls) expect(c).toMatch(/replacedDayIds/)
+    expect(src).toMatch(/recalcFindings\(saved, findingsContext\(r, \{[\s\S]*?replacedDayIds: replaced/)
+    for (const route of ['generated', 'manual']) {
+      expect(findingsContext(route, { replacedDayIds: ['d9'] }).replacedDayIds).toEqual(['d9'])
+    }
     expect(src).toMatch(/recalcStats\(saved, replaced\)/)
   })
 })

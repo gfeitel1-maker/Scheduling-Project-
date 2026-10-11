@@ -461,10 +461,9 @@ describe('useScheduleData', () => {
 })
 
 // T182 leftover (docs/work/tickets/T182-stale-anchor-duplicate-finding.md):
-// FIXED_EVENT_DUPLICATE is gated by CONVENTION at the useScheduleData.js call site
-// (the `r === 'generated' ? recalcFindings(saved, {..., fixedEvents: anc, ...}) :
-// recalcFindings(saved, {groups, activities, days})` branch), not by any type
-// distinction in computeFindings itself. A manual-route slot list identical
+// FIXED_EVENT_DUPLICATE is gated by CONVENTION in findingsContext (useScheduleData.js):
+// only the generated route passes `fixedEvents`; manual passes `overlapFixedEvents`,
+// which feeds the double-booking check alone. computeFindings itself has no route. A manual-route slot list identical
 // to a generated one must never surface the finding, because
 // "regenerate to clear it" is meaningless on a route with no regenerate.
 describe('FIXED_EVENT_DUPLICATE route gating (T182)', () => {
