@@ -2,6 +2,7 @@ import { assertIdListShape } from './assertIdListShape.js'
 import { resolveFixedEventActivityIds } from './fixedEventActivityLink.js'
 import { resolveFixedEventGroupIds, resolveFixedEventDayIds } from './fixedEventScope.js'
 import { isActivityEligibleForGroup } from './eligibility.js'
+import { createDayLedger, removeOwnPlaceEntry } from './placementLedger.js'
 import { isFreeChoiceActivity } from './freeChoiceActivities.js'
 import { resolveElectiveOfferingLocations } from './electiveOccupancy.js'
 import { findRouteConflicts } from './routeConflicts.js'
@@ -394,11 +395,11 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   // capacity ledger, one write path, per the design doc's explicit rejection
   // of a parallel mechanism. sourceLabel (the fixed event/elective offering/event
   // name) is optional and used only to enrich UNFILLABLE_reason in Pass 3.
-  function registerOverlayOccupancy(locId, groupId, dayId, blockId, tierId, sourceLabel) {
+  function registerOverlayOccupancy(locId, groupId, dayId, blockId, tierId, sourceLabel, activityId = null) {
     if (locId == null) return
     const lk = `${locId}|${dayId}|${blockId}`
     const list = placeUsage.get(lk) || []
-    list.push({ groupId, tierId, sourceLabel: sourceLabel ?? null })
+    list.push({ groupId, tierId, sourceLabel: sourceLabel ?? null, activityId })
     placeUsage.set(lk, list)
   }
 
@@ -491,7 +492,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   const assigned = new Map() // "groupId|dayId|blockId" → activityId
   const spanTails = new Set() // keys for tail blocks of multi-block placements
   const usageCount = new Map() // "groupId|activityId" → count
-  const dailyUsage = new Set() // "groupId|dayId|activityId" — per-day dedup guard
+  const dailyUsage = createDayLedger() // per-day dedup guard, counted (placementLedger.js)
   // Two independent occupancy ledgers, two independent constraints (ADR D2):
   //   placeUsage — how many groups are in a PLACE at once (declared above,
   //     before Pass 1, since overlay cells register into it during Pass 1).
@@ -508,11 +509,11 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   function incCount(groupId, actId, dayId) {
     const k = `${groupId}|${actId}`
     usageCount.set(k, (usageCount.get(k) || 0) + 1)
-    dailyUsage.add(`${groupId}|${dayId}|${actId}`)
+    dailyUsage.add(groupId, dayId, actId)
   }
 
   function placedTodayForGroup(groupId, dayId, actId) {
-    return dailyUsage.has(`${groupId}|${dayId}|${actId}`)
+    return dailyUsage.has(groupId, dayId, actId)
   }
 
   // Place capacity + same_tier_only at ONE block. Only constrains an activity
@@ -606,7 +607,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
 
   function occupyPlace(act, safeGroup, groupId, dayId, blockId) {
     const locId = act.location_id ?? null
-    registerOverlayOccupancy(locId, groupId, dayId, blockId, safeGroup.tier_id, null)
+    registerOverlayOccupancy(locId, groupId, dayId, blockId, safeGroup.tier_id, null, act.id)
     const ak = `${act.id}|${dayId}|${blockId}`
     activityUsage.set(ak, (activityUsage.get(ak) || 0) + 1)
   }
@@ -644,7 +645,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   function unplace(act, groupId, dayId, blockId) {
     const k = `${groupId}|${act.id}`
     usageCount.set(k, usageCount.get(k) - 1)
-    dailyUsage.delete(`${groupId}|${dayId}|${act.id}`)
+    dailyUsage.remove(groupId, dayId, act.id)
     const own = [blockId]
     const spanCount = act.span_blocks || 1
     if (spanCount > 1) {
@@ -659,11 +660,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
       const key = `${groupId}|${dayId}|${b}`
       assigned.delete(key)
       spanTails.delete(key)
-      if (locId != null) {
-        const list = placeUsage.get(`${locId}|${dayId}|${b}`)
-        const idx = list.findIndex(o => o.groupId === groupId && o.sourceLabel === null)
-        if (idx >= 0) list.splice(idx, 1)
-      }
+      if (locId != null) removeOwnPlaceEntry(placeUsage.get(`${locId}|${dayId}|${b}`), groupId, act.id)
       const ak = `${act.id}|${dayId}|${b}`
       activityUsage.set(ak, activityUsage.get(ak) - 1)
     }
