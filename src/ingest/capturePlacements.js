@@ -15,9 +15,10 @@
 // Multi-block spans flatten to per-block cells (the same activity in each block
 // it covered) — visually faithful, structurally not a span. A text-grid span
 // printed once with its later blocks blank (F5, textSpans.js) gets those blank
-// blocks filled with its name, so all N cells survive; events/elective-set
-// cells are not part of the main schedule import's grid. Both are accepted v1
-// limitations of the snapshot slot shape (activity_id/fixed_event_id only).
+// blocks filled with its name, so all N cells survive; events are not part of the main schedule
+// import's grid. Both are accepted v1 limitations of the snapshot slot shape (activity_id/fixed_event_id only).
+// Elective cells are emitted for the names passed in `electiveSets` (the
+// director-answered elective periods), via markElectivePlacements.
 
 import { isDayName } from './textGrid.js'
 import { activityNamesFromCell, canonicalDay, dayNameFromTitle, cleanTitle } from './extractEntities.js'
@@ -43,7 +44,7 @@ export function markElectivePlacements(placements, electiveSets = []) {
  * @returns {{ placements: Array<{ groupName, dayName, blockLabel, activityName }> }}
  *          one entry per activity occurrence in a recognized time-block row.
  */
-export function capturePlacements(parsed, proposal = {}) {
+export function capturePlacements(parsed, proposal = {}, { electiveSets = [] } = {}) {
   const pages = parsed?.pages ?? []
   const orientation = proposal?.orientation ?? {}
   const groupNameByTitle = proposal?.groupNameByTitle ?? {}
@@ -92,5 +93,5 @@ export function capturePlacements(parsed, proposal = {}) {
     }
   }
   placements.push(...inferTextSpans(parsed, proposal).continuations)
-  return { placements }
+  return { placements: markElectivePlacements(placements, electiveSets) }
 }
