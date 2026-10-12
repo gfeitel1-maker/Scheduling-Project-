@@ -932,32 +932,38 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
   // discoveryWaitMs/etc despite them being documented as test-only. They must
   // be inert outside Vitest.
   it('ignores knownHost/discoveryWaitMs/documentWaitMs outside Vitest (renderer-reachable seam must not be honored in production)', async () => {
-    const campId = 'camp-t274-d'
-    const { host, joinSecret, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-d', tag: 't274d' })
+    // Asserted at the boundary: what joinStart hands startJoinSession. This used to wait out mDNS
+    // discovery's own ~20s default to prove the seam was inert, which was slow and load-sensitive.
+    // No Host is needed: nothing here dials. A well-formed code is enough for joinStart to start.
+    const joinSecret = mintJoinSecret()
     const originalVitest = process.env.VITEST
+    const seam = { knownHost: '/ip4/127.0.0.1/tcp/1/p2p/12D3KooWD3eckifWpRn9wQpMG9R9hX3sD158z7EqHWmweQAJU5SA', peerDiscovery: [], discoveryWaitMs: 50, documentWaitMs: 50 }
+    const passed = () => startJoinSession.mock.calls.at(-1)[0]
+    // Only the arguments matter here, so no real node is started (that alone cost ~2s per call).
+    const fakeSession = { stop: async () => {}, node: null }
+    startJoinSession.mockImplementationOnce(async () => ({ status: 'started', session: fakeSession }))
+    startJoinSession.mockImplementationOnce(async () => ({ status: 'started', session: fakeSession }))
     try {
       delete process.env.VITEST
       const handlers = makeHandlers(db, deviceId, {})
-      const started = await handlers.joinStart({
-        code: joinSecret,
-        deviceName: 'Joiner',
-        knownHost: host.getMultiaddrs()[0],
-        discoveryWaitMs: 50,
-      })
+      const started = await handlers.joinStart({ code: joinSecret, deviceName: 'Joiner', ...seam })
       expect(started.status).toBe('started')
-      // With knownHost ignored, discovery falls back to mDNS, which this
-      // sandbox cannot use — findHost must time out rather than connect,
-      // proving the seam was NOT honored (a short discoveryWaitMs would
-      // otherwise make this assertion fast for the wrong reason: the value
-      // supplied is also ignored, so this uses the module's own bounded
-      // default rather than depending on that ms figure).
-      expect(await handlers.joinFindHost()).toEqual({ status: 'not_found' })
+      const opts = passed()
+      for (const key of Object.keys(seam)) expect(opts[key], key).toBeUndefined()
+      await handlers.joinCancel()
+
+      // Positive control: under Vitest the same args DO pass, so the check above can fail.
+      process.env.VITEST = 'true'
+      const again = makeHandlers(db, deviceId, {})
+      await again.joinStart({ code: joinSecret, deviceName: 'Joiner', ...seam })
+      expect(passed().discoveryWaitMs).toBe(50)
+      expect(passed().knownHost).toBe(seam.knownHost)
+      await again.joinCancel()
     } finally {
       if (originalVitest === undefined) delete process.env.VITEST
       else process.env.VITEST = originalVitest
-      await cleanup()
     }
-  }, 25000)
+  })
 
   // T274 round 3 (Red Hat, MEDIUM) — the same double-identity hazard fix 1
   // closed on joinAwaitData, on the joinCancel path: it used to null
