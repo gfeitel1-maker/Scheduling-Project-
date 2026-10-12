@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { S, useEnterTransition } from '../../styles/shared'
+import ModalCard from '../ModalCard'
 
 // Shared import overlay for the Roots setup screens. Previously each screen
 // hand-rolled this ~50-line block; here it also gains focus management the
@@ -30,23 +31,13 @@ export default function ImportModal({
   const primaryRef = useRef(null)
   const enterStyle = useEnterTransition('liftFade')
 
-  // Host screens pass an inline onCancel, so a new function identity arrives
-  // on every re-render (e.g. `importing` toggling during confirm). Reading it
-  // through a ref lets the effect below depend on [step] only — it must run
-  // once per open, not once per host render, or focus gets yanked back to the
-  // primary button mid-interaction.
-  const onCancelRef = useRef(onCancel)
-  useEffect(() => { onCancelRef.current = onCancel })
-
+  // Initial focus (the primary action), Escape and focus restore come from ModalCard (useModalA11y);
+  // it is keyed on `step`, so moving from preview to done refocuses that step's primary button.
+  // What stays here is the focus trap: Tab and Shift+Tab cycle within the dialog.
   useEffect(() => {
     if (!step) return
-    const prevFocus = document.activeElement
-    // Initial focus lands on the primary action.
-    primaryRef.current?.focus()
     function onKey(e) {
-      if (e.key === 'Escape') { onCancelRef.current(); return }
       if (e.key !== 'Tab') return
-      // Focus-trap: keep Tab within the dialog.
       const focusables = dialogRef.current?.querySelectorAll(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
       )
@@ -57,18 +48,16 @@ export default function ImportModal({
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
     }
     document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      prevFocus?.focus?.()
-    }
+    return () => document.removeEventListener('keydown', onKey)
   }, [step])
 
   if (!step) return null
 
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={title}
+      <ModalCard key={step} onCancel={onCancel} initialFocusRef={primaryRef} aria-label={title}
         style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width, maxHeight: '80vh', overflow: 'auto' }}>
+        <div ref={dialogRef}>
         {step === 'preview' && (
           <>
             <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>{title}</div>
@@ -122,7 +111,8 @@ export default function ImportModal({
             </div>
           </>
         )}
-      </div>
+        </div>
+      </ModalCard>
     </div>
   )
 }

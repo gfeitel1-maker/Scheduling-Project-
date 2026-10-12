@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { S, useEnterTransition } from '../styles/shared'
+import ModalCard from './ModalCard'
 
 // Shared presentational danger-confirmation modal for delete-all and other
 // destructive confirms that have no backend preview contract (unlike
@@ -21,14 +22,6 @@ export default function ConfirmDangerDialog({ title, body, recovery, confirmLabe
   const firedRef = useRef(false)
 
   useEffect(() => {
-    function onKeyDown(e) {
-      if (e.key === 'Escape' && !busy) onCancel()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [busy, onCancel])
-
-  useEffect(() => {
     if (!busy) firedRef.current = false
   }, [busy])
 
@@ -40,17 +33,17 @@ export default function ConfirmDangerDialog({ title, body, recovery, confirmLabe
 
   return (
     <div style={{ ...S.overlay, ...enterStyle }} onClick={() => !busy && onCancel()}>
-      <div style={panel} onClick={e => e.stopPropagation()}>
+      <ModalCard onCancel={busy ? undefined : onCancel} style={panel} onClick={e => e.stopPropagation()}>
         <div style={titleStyle}>{title}</div>
         {body && <p style={bodyStyle}>{body}</p>}
         {recovery && <div style={recoveryStyle}>{recovery}</div>}
         <div style={actions}>
-          <button className="press-97" onClick={onCancel} disabled={busy} style={S.btnSecondary}>Cancel</button>
+          <button data-autofocus className="press-97" onClick={onCancel} disabled={busy} style={S.btnSecondary}>Cancel</button>
           <button onClick={handleConfirm} disabled={busy} style={S.btnDanger}>
             {busy ? 'Working…' : confirmLabel}
           </button>
         </div>
-      </div>
+      </ModalCard>
     </div>
   )
 }

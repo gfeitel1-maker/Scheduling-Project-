@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
+import ModalCard from './ModalCard'
 
 // T306 — the answer to the question the Roots home already asks.
 //
@@ -59,7 +60,7 @@ export default function NameSubjectDialog({ subjectId, label, why, onCancel, onN
 
   return (
     <div style={S.overlay}>
-      <div style={{ ...panel, ...enterStyle }} role="dialog" aria-modal="true" aria-label="Name this camper">
+      <ModalCard onCancel={working ? undefined : onCancel} style={{ ...panel, ...enterStyle }} aria-label="Name this camper">
         <div style={title}>Whose sheet is this?</div>
 
         {/* The label the import kept — its filename — which is how a director
@@ -98,7 +99,7 @@ export default function NameSubjectDialog({ subjectId, label, why, onCancel, onN
             {working ? 'Saving…' : 'Save name'}
           </button>
         </div>
-      </div>
+      </ModalCard>
     </div>
   )
 }

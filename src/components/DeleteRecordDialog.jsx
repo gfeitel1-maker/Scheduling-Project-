@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
+import ModalCard from './ModalCard'
 import { deleteRefusalMessage } from '../utils/writeErrorMessage'
 
 // The confirmation for deleting a setup record a schedule uses.
@@ -174,7 +175,7 @@ export default function DeleteRecordDialog({ preview, onCancel, onDeleted }) {
 
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
-      <div style={panel}>
+      <ModalCard onCancel={working ? undefined : onCancel} style={panel}>
         <div style={title}>Delete “{preview.name || 'this record'}”?</div>
 
         <p style={body}>{whatChanges(preview)}</p>
@@ -183,14 +184,14 @@ export default function DeleteRecordDialog({ preview, onCancel, onDeleted }) {
         {error && <div style={{ ...S.errorBanner, marginTop: 14, marginBottom: 0 }}>{error}</div>}
 
         <div style={actions}>
-          <button className="press-97" onClick={onCancel} disabled={working} style={S.btnSecondary}>
+          <button data-autofocus className="press-97" onClick={onCancel} disabled={working} style={S.btnSecondary}>
             Cancel
           </button>
           <button onClick={confirm} disabled={working} style={S.btnDanger}>
             {working ? 'Working…' : confirmLabel}
           </button>
         </div>
-      </div>
+      </ModalCard>
     </div>
   )
 }
