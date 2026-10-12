@@ -91,4 +91,10 @@ export function isHumanOwned(db, entity, entityId, field) {
 export function isHumanDeleted(db, entity, entityId) {
   const latest = latestOpForEntity(db, entity, entityId)
   return !!latest && latest.field === DELETE_FIELD && latest.source === 'human'
+    // Undo of an import is "as if the import never happened", not the director rejecting a row:
+    // its deletes carry UNDO_DELETE_PREFIX, so a re-import of the same file brings them back.
+    && !String(latest.client_write_id ?? '').startsWith(UNDO_DELETE_PREFIX)
 }
+
+// Mirrors UNDO_DELETE_PREFIX in ingest.js (not imported: ingest.js imports this module).
+const UNDO_DELETE_PREFIX = 'undo-import:'

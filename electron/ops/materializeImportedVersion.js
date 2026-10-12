@@ -18,7 +18,7 @@ import { resolveImportedPlacements, describeUnresolved } from './resolveImported
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
 import { defaultWeekId, defaultWeekFields } from '../../src/ingest/defaultWeek.js'
 import { blocksThatContinue } from '../../src/engine/blockOverlap.js'
-import { latestOp, DELETE_FIELD } from './operations.js'
+import { isHumanDeleted } from './fieldProvenance.js'
 
 // The renderer supplies the file name; it becomes a stored version name, so it
 // is coerced to a bare, bounded string at the boundary.
@@ -105,9 +105,9 @@ async function writeSpanBundles(db, syncClient, slots, blockOrder, blockContinue
     LEFT JOIN activities a ON a.id = esa.activity_id WHERE esa.elective_set_id = ? ORDER BY esa.activity_id`)
   const exists = (table, id) => Boolean(db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id))
   // A bundle or period the director deleted keeps its delete in the op log under the same derived
-  // id: that is the tombstone, so a re-import of the same file never brings it back (undo of an
-  // import counts too, the way an undone fixed event is not resurrected).
-  const deleted = (table, id) => !exists(table, id) && Boolean(latestOp(db, table, id, DELETE_FIELD))
+  // id: that is the tombstone, so a re-import of the same file never brings it back. Undo's own
+  // deletes are not tombstones (isHumanDeleted, the rule fixed events use too).
+  const deleted = (table, id) => !exists(table, id) && isHumanDeleted(db, table, id)
   try {
     for (const { setId, dayId, blockIds } of spans) {
       const day = dayLabel.get(dayId)?.label ?? ''

@@ -3720,11 +3720,12 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], ownSnapsh
             device_id,
             parent_op_id: null,
             client_write_id: rowClientWriteId,
-            // Deliberate, per the ADR: a director-attributable delete, not an
-            // import teardown and not ambiguous NULL/legacy. On
-            // fixed_events this engages rejectedSlotKeys' reimport
-            // suppression — a reimport of the same source file will not
-            // silently resurrect what the director just undid.
+            // A director-attributable delete (Trash, history), not an import
+            // teardown and not ambiguous NULL/legacy. It is NOT a rejection:
+            // its UNDO_DELETE_PREFIX client_write_id keeps isHumanDeleted from
+            // reading it as one, so a re-import of the same file brings the
+            // rows back, as on a first import (keeper ruling 2026-10-11:
+            // undo is "as if the import never happened").
             source: 'human',
           })
           // import_evidence residual cleanup, same transaction, same row.

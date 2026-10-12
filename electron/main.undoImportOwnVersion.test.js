@@ -181,3 +181,42 @@ describe('undo after the director edited an imported bundle', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundle_periods WHERE bundle_id = ?').get(bundle.id).n).toBe(2)
   })
 })
+
+// Keeper ruling: undo means "as if the import never happened". Undo then a re-import of the same
+// file behaves like a first import; only a director's own delete is a tombstone.
+describe('undo, then re-import the same file', () => {
+  const doubleChug = () => handlers.ingestCommit({
+    token,
+    captureInverse: true,
+    approved: { groups: ['Otters 1'], tiers: [], days_of_operation: ['Monday'], time_blocks: ['9:00-10:00', '10:00-11:00', '11:00-11:30'], activities: [] },
+    links: {},
+    confirmedElectiveSets: [{ name: 'Chugim', choices: ['Pottery', 'Drama'] }],
+    fixedEvents: [{ name: 'Mifkad', time_block: '11:00-11:30', days: ['Monday'], scope: { is_all_groups: true, groups: [] } }],
+    placements: ['9:00-10:00', '10:00-11:00'].map((b) => ({ groupName: 'Otters 1', dayName: 'Monday', blockLabel: b, activityName: 'Chugim', electiveSetName: 'Chugim', choices: ['Pottery', 'Drama'] })),
+    sourceFileName: 'week.txt',
+  })
+
+  it('relinks the double period and brings the fixed event back', async () => {
+    // The camp's group, day and periods exist before this import, so undo leaves them and the
+    // re-import resolves to the SAME ids: the case where an undo delete could act as a tombstone.
+    await handlers.ingestCommit({
+      token,
+      approved: { groups: ['Otters 1'], tiers: [], days_of_operation: ['Monday'], time_blocks: ['9:00-10:00', '10:00-11:00', '11:00-11:30'], activities: [] },
+      links: {},
+    })
+    const first = await doubleChug()
+    // Positive control: the first import linked the span and created the event.
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(2)
+    expect(count('fixed_events')).toBe(1)
+    const res = await handlers.ingestUndo({ token, importRunId: first.importRunId, client_write_id: randomUUID(), invertibleOps: [], createdEntityIds: [] })
+    expect(res.kept).toEqual([])
+    expect(count('fixed_events')).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(0)
+
+    await doubleChug()
+
+    expect(count('fixed_events')).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(2)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundle_periods').get().n).toBe(4)
+  })
+})

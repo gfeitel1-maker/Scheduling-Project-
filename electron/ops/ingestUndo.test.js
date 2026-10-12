@@ -456,7 +456,9 @@ describe('U2d — anchor inclusion', () => {
     expect(swim).toBeTruthy()
   })
 
-  it('reimport of the same source file after an anchor undo does NOT recreate it (source:"human" engages rejectedSlotKeys)', () => {
+  // Keeper ruling 2026-10-11 (delegated owner authority): "undo deletes must NOT act as tombstones.
+  // Undo means 'as if the import never happened'". Only a director's own delete suppresses re-import.
+  it('reimport of the same source file after an anchor undo DOES recreate it (an undo delete is not a rejection)', () => {
     const res = commitPlan(
       db,
       basePlan({
@@ -468,11 +470,11 @@ describe('U2d — anchor inclusion', () => {
     const fixedEventId = res.fixedEvents.createdEntries[0].fixedEventId
 
     // Undo ONLY the anchor here (not the day/time_block it sits on) — this
-    // isolates rejectedSlotKeys' recognition, which is keyed by the LIVE
+    // isolates rejectedSlotKeys, which is keyed by the LIVE
     // day_id/time_block_id: if those were also undone, the reimport would
     // mint fresh ids and the rejected-slot key would never match, which
-    // would test the wrong thing (id churn, not the tombstone-suppression
-    // mechanism this test targets).
+    // would test the wrong thing (id churn, not whether undo's delete is
+    // read as a rejection).
     const anchorOnly = res.createdEntityIds.filter((e) => e.entity === 'fixed_events')
     const undoResult = ingestUndo(db, {
       invertibleOps: res.invertibleOps, createdEntityIds: anchorOnly,
@@ -481,19 +483,18 @@ describe('U2d — anchor inclusion', () => {
     expect(undoResult.deleted).toContainEqual({ entity: 'fixed_events', entity_id: fixedEventId })
     expect(db.prepare('SELECT id FROM fixed_events WHERE id = ?').get(fixedEventId)).toBeFalsy()
 
-    // Reimport of the SAME fixed event, same day/time block (still live —
-    // recognize-then-skip would normally no-op, but the tombstone here must
-    // suppress recreation, not just be silently masked by recognition).
+    // Reimport of the SAME fixed event, same day/time block (still live): undo
+    // left no tombstone, so it is created again exactly as on a first import.
     const reimport = commitPlan(
       db,
       basePlan({ fixedEvents: [{ name: 'Lunch', time_block: 'Swim', days: ['Monday'], scope: { is_all_groups: true }, confidence: 'high' }] }),
       { author_user_id: 'u1', device_id: deviceId }
     )
     expect(reimport.held).toBe(false)
-    expect(reimport.fixedEvents.created).toBe(0)
-    expect(reimport.fixedEvents.rejected).toHaveLength(1)
+    expect(reimport.fixedEvents.created).toBe(1)
+    expect(reimport.fixedEvents.rejected ?? []).toHaveLength(0)
     const liveAnchors = db.prepare('SELECT id FROM fixed_events WHERE camp_id = ?').all(campId)
-    expect(liveAnchors).toEqual([])
+    expect(liveAnchors).toHaveLength(1)
   })
 })
 
