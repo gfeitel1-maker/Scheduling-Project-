@@ -743,8 +743,10 @@ CREATE TABLE IF NOT EXISTS time_blocks (
 -- version-16 migration in localDb.js for existing dbs that already ran this
 -- file at an earlier version.
 -- schedule_week_id (v42, docs/work/specs/2026-08-23-unified-
--- schedule-overlay-slices.md Slice 1) is storage-only. schedule_week_id NULL
--- preserves today's implicit meaning exactly (all-weeks). Appended LAST —
+-- schedule-overlay-slices.md Slice 1): the one week an event runs in, set from
+-- the Weeks column on Fixed/Recurring Events. Generate and Manual placement keep
+-- an event only when it is NULL (every week) or the week being built; a special
+-- day's "Also bring" offers it only for a single-week placement (T377). Appended LAST —
 -- added by an ALTER TABLE in the v42 migration in localDb.js for existing
 -- dbs, so column order must match here for a fresh install to be
 -- byte-identical to a migrated one. (v42 also added `recurrence_level`,
