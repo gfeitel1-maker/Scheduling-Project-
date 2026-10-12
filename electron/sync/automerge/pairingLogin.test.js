@@ -388,7 +388,7 @@ describe('mutual authentication over libp2p (Stage 5d-2b production wiring)', ()
     await client.dial(host.getMultiaddrs()[0])
     await waitFor(() => client.getPeers().length > 0)
 
-    const reply = await client.authenticateWith(host.peerId, { type: 'authenticate', token: 'a-token-that-means-nothing', device_id: 'client-device' })
+    const reply = await client.authenticateWith(host.peerId, { type: 'authenticate', token: 'a-token-that-means-nothing', device_id: 'client-device' }) // security-gate:allow (a meaningless token: the stranger must be refused)
     expect(reply.type).toBe('auth_failed')
     expect(reply.reason).toBe('device_not_authorized')
     expect(host.isPeerAuthenticated(client.peerId)).toBe(false)
