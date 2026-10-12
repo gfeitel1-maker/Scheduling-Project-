@@ -361,6 +361,78 @@ export async function run(h) {
     if (signedIn || changed.length || !anyPlain || Object.values(h0).includes('plain')) throw new Error(note)
     return note
   })
+
+  // Like featureIn, for work that has a branch but no PR number yet: in the build iff a MERGED PR from
+  // that branch has its merge commit in the build. --force=<step> runs the step anyway (to check the
+  // harness against a build without the feature, where the step is expected to FAIL).
+  const featureInBranch = (branch, what, stepId) => {
+    if (h.FORCE.has(String(stepId))) return
+    const prs = JSON.parse(execFileSync('gh', ['pr', 'list', '--head', branch, '--state', 'merged', '--json', 'number,mergeCommit'], { cwd: h.REPO, encoding: 'utf8' }))
+    const e = new Error('skip')
+    if (!prs.length) { e.skip = `${what}: feature not in this build (no merged PR from ${branch})`; throw e }
+    featureIn(prs[0].number, what)
+  }
+
+  await step(13, 'Host off: two paired non-admin devices still sync (B edits, C sees it within 60s)', async () => {
+    featureInBranch('claude/shared-device-roster', 'Shared device roster (host-off sync)', 13)
+    // A (this instance) is the host. B and C join by camp code and are approved on A; a normally
+    // approved device is a plain member (admin standing comes only from the signed authority log).
+    const devicesScreen = async () => {
+      // The menu item reads "LAN & Devices  only this computer", so it is matched on its start.
+      const openDevices = `const b=[...document.querySelectorAll('button,[role=menuitem],a')].filter(__vis).find(b=>b.innerText.replace(/\\s+/g,' ').trim().startsWith('LAN & Devices')); if(!b) return false; b.click(); return true`
+      if (!await ev(openDevices)) { await click('Settings', true, 10000); await waitFor(openDevices, 10000, '"LAN & Devices"') }
+      await waitFor(`return /Add a device|Stop adding devices/.test(__main())`, 20000, 'Device Manager')
+    }
+    const pair = async (peer) => {
+      await devicesScreen()
+      if (!await ev(`return /Stop adding devices/.test(__main())`)) await click('Add a device', true, 10000)
+      const code = await waitFor(`const m=__main().match(/\\b([A-Z0-9]{4,6}-[A-Z0-9]{4,6})\\b/); return m && m[1]`, 30000, 'camp code')
+      await peer.waitFor(`return document.body.innerText.includes('Join with a camp code')`, 120000, `${peer.label}: mode-select`)
+      await peer.click('Join with a camp code', false)
+      await peer.waitFor(`const i=__inp('input[placeholder="K4P7-2MRQ"]'); if(!i) return false; __set(i, ${JSON.stringify(code)}); return true`, 15000, `${peer.label}: code field`)
+      await sleep(300); await peer.click('Continue', true, 10000)
+      await waitFor(`return [...document.querySelectorAll('button')].filter(__vis).some(b=>b.innerText.trim()==='Approve'&&!b.disabled)`, 90000, `${peer.label}'s pairing request on A`)
+      await ev(`[...document.querySelectorAll('button')].filter(__vis).find(b=>b.innerText.trim()==='Approve'&&!b.disabled).click(); return true`)
+      await peer.waitFor(`return !!__inp('#join-name')`, 90000, `${peer.label}: sign-in after approval`)
+      await peer.ev(`__set(__inp('#join-name'), ${JSON.stringify(h.ADMIN)}); __set(__inp('#join-pin'), ${JSON.stringify(h.PIN)}); return true`)
+      await sleep(300); await peer.click('Sign in', true, 10000)
+      // The join completes only once the camp document has arrived from A (the host must stay on until then).
+      await peer.waitFor(`return __click('Continue', true) || document.body.innerText.includes('Log out')`, 120000, `${peer.label}: camp arrived`)
+      await peer.waitFor(`return document.body.innerText.includes('Log out')`, 60000, `${peer.label}: signed in`)
+      return code
+    }
+    const B = await h.launchPeer('B', h.PORT + 10), C = await h.launchPeer('C', h.PORT + 20)
+    try {
+      const codeB = await pair(B), codeC = await pair(C)
+      await click('Stop adding devices', true, 5000).catch(() => {})
+      // B adds a location; seconds until C shows it (null if not within 60s). C re-opens the screen to re-read.
+      const editReaches = async (tag) => {
+        const name = `${tag} ${Date.now().toString(36)}`
+        await B.nav('Locations')
+        await B.waitFor(`const i=__inp('input[placeholder="Pool"]'); if(!i) return false; __set(i, ${JSON.stringify(name)}); return true`, 15000, 'B: Locations add row')
+        await sleep(200); await B.click('+ Add', true, 10000)
+        await B.waitFor(`return __main().includes(${JSON.stringify(name)})`, 15000, 'B: location added')
+        const t0 = Date.now()
+        await C.nav('Locations')
+        while (Date.now() - t0 < 60000) {
+          if (await C.ev(`return __main().includes(${JSON.stringify(name)})`).catch(() => false)) return { name, s: (Date.now() - t0) / 1000 }
+          await sleep(2000); await C.nav('Activities').catch(() => {}); await C.nav('Locations').catch(() => {})
+        }
+        return { name, s: null }
+      }
+      // Control, host ON: proves the detection path (B edits, C reads) before the host-off claim.
+      const on = await editReaches('Host On')
+      if (on.s == null) throw new Error(`control failed: with A on, C did not see B's "${on.name}" within 60s, so a host-off result would mean nothing`)
+      const quitMs = await h.quitMain()
+      const off = await editReaches('Host Off')
+      await B.shot('s13'); await C.shot('s13')
+      const note = `paired B (${codeB}) and C (${codeC}) on A; control with A on: C saw "${on.name}" after ${on.s.toFixed(1)}s; A quit in ${(quitMs / 1000).toFixed(1)}s; host off: C ${off.s != null ? `saw "${off.name}" after ${off.s.toFixed(1)}s` : `did NOT see "${off.name}" within 60s`} (24h token expiry: covered by the integration test, not here)`
+      if (off.s == null) throw new Error(note)
+      return note
+    } finally {
+      await B.stop(); await C.stop()
+    }
+  })
 }
 
 function listBackups(ud) {
