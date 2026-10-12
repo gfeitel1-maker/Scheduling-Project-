@@ -91,7 +91,8 @@ async function nav(label) { await click(label, true, 20000); await sleep(800) }
 
 const ONLY = arg('only', '') ? new Set(arg('only', '').split(',')) : null
 async function step(id, title, fn) {
-  if (ONLY && !ONLY.has(String(id).replace(/[a-z]$/, ''))) return true
+  // Launch (0) and the fresh camp (1a) are prerequisites of every step, so --only always runs them.
+  if (ONLY && !ONLY.has(String(id).replace(/[a-z]$/, '')) && !['0', '1a'].includes(String(id))) return true
   const t = Date.now(); let status = 'PASS', note = ''
   log(`STEP ${id} ${title}`)
   // A step throws { skip } when its feature is not in the build under test (featureIn).
@@ -107,8 +108,16 @@ async function signInIfAsked() {
   return ev(`if(__inp('#login-name')&&!window.__relogin){ window.__relogin=1; __set(__inp('#login-name'), ${JSON.stringify(ADMIN)}); __set(__inp('#login-pin'), ${JSON.stringify(PIN)}); setTimeout(()=>__click('Sign in', true),300) } return true`)
 }
 
+// Two drivers on one port drive the SAME app and read each other's state, so a port that is
+// already answering is refused rather than shared.
+async function portBusy(p) {
+  const net = await import('node:net')
+  return new Promise((res) => { const c = net.connect(p, '127.0.0.1'); c.once('connect', () => { c.destroy(); res(true) }); c.once('error', () => res(false)) })
+}
+
 async function main() {
   fs.writeFileSync(LOG, `run ${new Date().toISOString()} app=${APP}\n`)
+  for (const p of [PORT, PORT + 1]) if (await portBusy(p)) { log(`port ${p} is already in use (another driver or app?); refusing to start. Pass a free --port=.`); process.exit(2) }
   launch(); await attach()
   await step(0, 'Launch: reaches mode-select on an empty userData', async () => {
     await waitFor(`return document.body.innerText.includes('Start a new camp')`, 120000, 'mode-select')

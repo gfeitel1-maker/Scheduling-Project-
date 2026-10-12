@@ -26,8 +26,9 @@ export async function run(h) {
     await nav('Roots'); await click('Import last year', false, 20000)
     await setFile(file)
     await waitFor(`return !!__btn('Review ') || !!__btn('Replace with ')`, 60000, 'Review N records')
-    if (replace) { await click('○ Replace them', false, 10000); await sleep(500) }
-    await ev(`(__btn('Replace with ')||__btn('Review ')).click(); return true`)
+    // "Replace them" is offered only when something is already set up; on an empty camp Review is the only path.
+    if (replace && await ev(`return !!__btn('○ Replace them', false)`)) { await click('○ Replace them', false, 10000); await sleep(500) }
+    await waitFor(`const b=__btn('Replace with ')||__btn('Review '); if(!b||b.disabled) return false; b.click(); return true`, 15000, 'Replace with / Review button')
     const q = await waitFor(`const m=__main().match(/(\\d+) of (\\d+) questions? answered/); return m ? m[2] : ((__btn('Use what Shoresh understood',true)||__btn('Use this setup',true))? '0':false)`, 60000, 'reconciliation')
     // Zero answers: a card that blocks the commit ("Skip this field" / "Skip … for now") is skipped.
     const skipped = await ev(`let n=0; for(let i=0;i<200;i++){ const b=__btn('Skip this field',true)||[...document.querySelectorAll('button')].filter(__vis).find(b=>/^Skip .* for now/.test(b.innerText.trim())); if(!b) break; b.click(); n++; await new Promise(r=>setTimeout(r,60)) } return n`, 60000)
@@ -222,7 +223,9 @@ export async function run(h) {
     return waitFor(`const r=(()=>{${STATS}})(); return r && r.placed>0 && r`, 30000, 'restored stats')
   }
   // Visible grid cells naming `word`, with the number of rows each spans.
-  const cellsNaming = (word) => ev(`return [...document.querySelectorAll('[data-cell-key], [style*="grid-row"]')].filter(__vis).filter(e=>(e.innerText||'').includes(${JSON.stringify(word)})&&(e.innerText||'').length<200).map(e=>{const m=String(e.style.gridRow||getComputedStyle(e).gridRow||'').match(/span\\s*(\\d+)/); return m?+m[1]:1}).filter((v,i,a)=>true)`)
+  // Only the schedule grid: anything left of the BLOCK column header (the activities palette, which
+  // also names the elective) is not a cell. Innermost matches only, so a cell is counted once.
+  const cellsNaming = (word) => ev(`const vis=[...document.querySelectorAll('*')].filter(__vis); const hdr=vis.find(e=>e.children.length===0&&(e.innerText||'').trim()==='BLOCK'); if(!hdr) return []; const x0=hdr.getBoundingClientRect().right; const labels=vis.filter(e=>{const r=e.getBoundingClientRect(); return r.right<=x0+2&&r.left>=hdr.getBoundingClientRect().left-2&&/^\\d{1,2}:\\d{2}/.test((e.innerText||'').trim())&&![...e.children].some(c=>/^\\d{1,2}:\\d{2}/.test((c.innerText||'').trim()))}).map(e=>e.getBoundingClientRect().top).sort((a,b)=>a-b); const pitch=labels.length>1?labels[1]-labels[0]:0; const hits=vis.filter(e=>{const r=e.getBoundingClientRect(); return r.left>=x0&&(e.innerText||'').trim()===${JSON.stringify(word)}}); const cells=hits.map(e=>{let c=e; while(c.parentElement&&c.parentElement.innerText.trim()===e.innerText.trim()) c=c.parentElement; return c}); return [...new Set(cells)].map(c=>pitch?Math.max(1,Math.round((c.getBoundingClientRect().height+pitch*0.25)/pitch)):0)`)
 
   await step(9, 'Locations round-trip: Download worksheet, edit a capacity in the xlsx, Import from Excel, the location updates', async () => {
     featureIn(959, 'Locations sheet round-trip')
@@ -262,7 +265,8 @@ export async function run(h) {
     await nav('Locations')
     const cap = await ev(`const r=[...document.querySelectorAll('tr')].filter(__vis).find(r=>[...r.querySelectorAll('td')].some(td=>td.innerText.trim()===${JSON.stringify(String(target.name))})); return r ? [...r.querySelectorAll('td')].map(td=>td.innerText.trim()) : null`)
     const note = `"${target.name}" capacity ${from} -> ${to} in the xlsx; import said "${result}"; row now ${JSON.stringify(cap)}`
-    if (!cap || !cap.includes(String(to))) throw new Error(note)
+    // The capacity cell reads "<n> groups".
+    if (!cap || !cap.some((c) => new RegExp(`^${to}( group|$)`).test(c))) throw new Error(note)
     return note
   })
 
@@ -284,24 +288,32 @@ export async function run(h) {
     const undoLeft = diff(base, afterUndo), reimport = diff(ref, again)
     const note = `undo "${undone}": ${undoLeft.length ? `NOT back to the pre-import state in ${undoLeft}` : 'back to the pre-import state'}; re-import ${reimport.length ? `DIFFERS from the reference in ${reimport}: ref=${JSON.stringify(reimport.map((k) => ref[k]))} got=${JSON.stringify(reimport.map((k) => again[k]))}` : `matches the reference (${ref.fixed.length} fixed, ${ref.recurring.length} recurring)`}`
     if (undoLeft.length || reimport.length || ref.fixed.length === 0) throw new Error(note)
-    // The elective bundles (#961): undo a Keep import of the double-period file, re-import it, and
+    // The elective bundles (#961), on campB (which has no electives, so the file's bundle is new): undo a Keep import of the double-period file, re-import it, and
     // the Electives screen must read exactly as it did after the first import.
     const R9 = SYN('repro/r9-double-period-elective.txt')
     try { featureIn(961, 'Elective bundles relink') } catch (e) { if (e.skip) return `${note}; bundles: ${e.skip}`; throw e }
     if (!fs.existsSync(R9)) throw new Error(`${note}; ${R9} missing from this checkout (pull main)`)
-    const electives = async () => { await nav('Electives'); await sleep(800); return ev(`return __main().replace(/\\s+/g,' ').trim()`) }
-    await importFile(S07, { replace: true }); await done()
+    const electives = async () => { await nav('Electives'); await sleep(800); return ev(`const t=__main(); const m=t.match(/(\\d+) ELECTIVE SETS?/i); return { n: m ? +m[1] : 0, text: t.replace(/\\s+/g,' ').trim() }`) }
+    await importFile(CAMPB, { replace: true }); await done()
     await importFile(R9); await done()
     const e0 = await electives()
-    await importFile(S07, { replace: true }); await done()
+    await importFile(CAMPB, { replace: true }); await done()
+    // An earlier import (s07) leaves a same-named "Indoor Elective" that a Replace does not clear, and the
+    // r9 bundle would match it rather than appear; start the bundle check from no elective sets.
+    await nav('Electives')
+    for (let i = 0; i < 20 && await ev(`return [...document.querySelectorAll('tr')].filter(__vis).some(r=>[...r.querySelectorAll('button')].some(b=>b.innerText.trim()==='Delete'))`); i++) {
+      await ev(`[...document.querySelectorAll('tr')].filter(__vis).flatMap(r=>[...r.querySelectorAll('button')]).find(b=>b.innerText.trim()==='Delete').click(); return true`)
+      await click('Delete Elective Set', true, 10000); await sleep(800)
+    }
+    const eb = await electives()
     await importFile(R9)
     await click('Undo this import', true, 15000)
     await waitFor(`return /Undo complete/.test(__main())`, 60000, 'undo result'); await done()
     const eu = await electives()
     await importFile(R9); await done()
     const e1 = await electives()
-    const bnote = `${note}; bundles: first import ${/Pottery/.test(e0) ? 'shows' : 'does NOT show'} Pottery, after undo ${/Pottery/.test(eu) ? 'STILL shows' : 'gone'}, re-import ${e0 === e1 ? 'reads the same' : `DIFFERS: "${e0.slice(0, 300)}" vs "${e1.slice(0, 300)}"`}`
-    if (!/Pottery/.test(e0) || /Pottery/.test(eu) || e0 !== e1) throw new Error(bnote)
+    const bnote = `${note}; bundles: before import "${eb.text.slice(0, 160)}"; elective sets ${eb.n} before import, ${e0.n} after import, ${eu.n} after undo ${eu.text === eb.text ? '(screen as before the import)' : `(screen DIFFERS from before the import: "${eu.text.slice(0, 200)}")`}, ${e1.n} after re-import; re-import ${e0.text === e1.text ? 'reads the same' : `DIFFERS: "${e0.text.slice(0, 300)}" vs "${e1.text.slice(0, 300)}"`}`
+    if (e0.n <= eb.n || eu.text !== eb.text || e0.text !== e1.text) throw new Error(bnote)
     return bnote
   })
 
@@ -311,12 +323,12 @@ export async function run(h) {
     if (!fs.existsSync(R9)) throw new Error(`${R9} missing from this checkout (pull main)`)
     await importFile(R9, { replace: true }); await done()
     const manual = await restoreImported('Imported from r9-double-period-elective.txt')
-    const mCells = await cellsNaming('Pottery')
+    const mCells = await cellsNaming('Pottery / Drama'); await h.shot('s11-manual')
     await nav('Generated Schedule')
     if (await ev(`return !!__btn('Generate a schedule', true)`)) await click('Generate a schedule', true)
     else await click('Rebuild', true)
     const gen = await waitFor(STATS, 120000, 'Generate stats')
-    const gCells = await cellsNaming('Pottery')
+    const gCells = await cellsNaming('Pottery / Drama')
     const ok = (c) => c.length > 0 && c.every((n) => n >= 2)
     const note = `Manual (restored ${manual.placed}/${manual.total}): Pottery cells spans=${JSON.stringify(mCells)}; Generated (${gen.placed}/${gen.total}, ${gen.still} still needed): spans=${JSON.stringify(gCells)}`
     if (!ok(mCells) || !ok(gCells)) throw new Error(note)
