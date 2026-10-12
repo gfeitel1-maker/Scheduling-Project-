@@ -1,7 +1,7 @@
 ---
 title: "Slice E — DCUtR hole-punch (relay-coordinated, capped)"
 document_type: ticket
-status: parked
+status: closed
 task_class: architecture
 date: 2026-09-27
 created: 2026-09-27
@@ -14,3 +14,7 @@ archive_when: "DCUtR hole-punching connects full/restricted/port-restricted-cone
 # T290 (Slice E) — DCUtR hole-punch — OWNER-GATED (Tier-4)
 
 PARKED behind `INTERNET_TRANSPORT_SIGNOFF`. Adds `@libp2p/dcutr` + `@libp2p/circuit-relay-v2` (NOT installed today — verify caps against the actual installed source at build; the cited 2min/128KiB caps came from a different install). Coordination-only (already allowed by 2026-09-17 Decision 3). Design: docs/adr/2026-09-27-wan-connectivity-hardening-ladder.md (ladder, rung 3).
+
+## Closed as superseded (2026-10-11)
+
+Superseded by T336 (#737, dcutr hole-punch) and T337 (#736, camp-peer relay coordination), per `docs/adr/2026-10-02-wan-discovery-transport-ladder.md`.

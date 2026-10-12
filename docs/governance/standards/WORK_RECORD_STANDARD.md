@@ -286,8 +286,15 @@ whose work merged get flipped?"* Two structural reasons, both verified:
   that diff. A commit that lands a ticket's code without the keyword never enters the gate's field
   of view.
 
-**Therefore board-truth is not gated.** A ticket's `status` reaching `completed` when its work ships
-is a discipline, not something a check enforces:
+**A second, main-side check now backs the discipline (T283).** `checkMergedTicketStatus` reads
+`git log origin/main` and flags a `T<n>:` commit on main whose ticket is not terminal when nothing
+has edited that ticket: not the merge, not a later main commit, not the branch being pushed.
+Editing the ticket counts as a status decision, so a parked ticket or a recorded partial slice
+passes. It needs `origin/main`, so it runs in the local pre-push `check:governance`, not in the
+shallow CI checkout.
+
+The rules below are still the discipline. The check catches only a merge that never touched its
+ticket:
 
 - **Flip the ticket's `status` as part of the work** — in the branch that lands it, so the board is
   current at merge. Do not rely on the drift gate to remind you; for a `T<n>:`-style merge it will
