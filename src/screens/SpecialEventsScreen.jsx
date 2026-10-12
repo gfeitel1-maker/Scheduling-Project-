@@ -34,7 +34,7 @@ const TYPE_OPTIONS = [
 ]
 
 const LABELS = {
-  emptyMessage: 'No special events yet.',
+  emptyMessage: 'No special events yet',
   namePlaceholder: 'Color War',
   seedPrompt: 'Start from your time blocks?',
   varyNote: 'Lunch waves differ by weekday \u2014 place this day to bring them',
@@ -533,6 +533,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
               {rows.length === 0 ? (
                 <tr><td colSpan={3} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>{LABELS.emptyMessage}</div>
+                  <div style={S.emptyStateBody}>Add a trip or a special day.</div>
                 </td></tr>
               ) : (
                 rows.map((r) => (

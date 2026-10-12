@@ -299,7 +299,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
     <div data-testid="roots-screen" style={{ maxWidth: 1180, margin: '0 auto', ...enterStyle }}>
       <h1 style={styles.title}>Roots</h1>
 
-      <ScheduleDoor label="Schedule" onClick={() => onNavigate('schedule')} />
+      <ScheduleDoor label="Build or generate the schedule" onClick={() => onNavigate('schedule')} />
 
       <div style={{ ...styles.rootsLayout, flexDirection: narrow ? 'column' : 'row' }}>
         <div style={{ ...styles.rootsMain, order: narrow ? 1 : 0 }}>
@@ -613,7 +613,7 @@ const styles = {
     borderRadius: 'var(--radius-pill)',
     fontSize: 11,
     background: 'color-mix(in srgb, var(--accent) 14%, var(--surface))',
-    color: 'color-mix(in srgb, var(--accent) 70%, var(--text))',
+    color: 'color-mix(in srgb, var(--accent) 45%, var(--text))',
     whiteSpace: 'nowrap',
   },
   dismissButton: {

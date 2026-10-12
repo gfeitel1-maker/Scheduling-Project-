@@ -877,12 +877,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
 
   const ROUTE_COPY = {
     manual: {
-      label: 'Manual',
+      label: 'Manual Build',
       offerTitle: 'Build it myself',
       offerAction: 'Start a blank week',
     },
     generated: {
-      label: 'Generated',
+      label: 'Generated Schedule',
       offerTitle: 'Let the app propose one',
       offerAction: 'Generate a schedule',
     },
@@ -1050,7 +1050,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
                 is gone from here: it was never a view, it was a route. */}
             <div style={{ display: 'flex', gap: 2, background: 'var(--border)', borderRadius: 8, padding: 3 }}>
               {[['day','Daily View'],['group','Group View'],['activity','Activity View']].map(([v, label]) => (
-                <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', borderBottom: view === v ? '2px solid var(--primary)' : '2px solid transparent', cursor: 'pointer', fontSize: 12, fontWeight: view === v ? 700 : 600, fontFamily: 'var(--font-sans)', background: view === v ? 'var(--surface)' : 'none', color: view === v ? 'var(--primary)' : 'var(--text-secondary)', boxShadow: view === v ? '0 1px 4px rgba(0,0,0,0.12)' : 'none', transition: 'color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)' }}>{label}</button>
+                <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', borderBottom: view === v ? '2px solid var(--primary)' : '2px solid transparent', cursor: 'pointer', fontSize: 12, fontWeight: view === v ? 700 : 600, fontFamily: 'var(--font-sans)', background: view === v ? 'var(--surface)' : 'none', color: view === v ? 'var(--primary)' : 'var(--text)', boxShadow: view === v ? '0 1px 4px rgba(0,0,0,0.12)' : 'none', transition: 'color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)' }}>{label}</button>
               ))}
             </div>
 

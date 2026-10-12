@@ -434,8 +434,11 @@ export default function Sidebar({
           <div
             title={`Build: ${buildLabel}`}
             style={{
-              fontSize: 10, marginBottom: 6, cursor: 'default',
-              color: 'var(--text-secondary)', opacity: 0.75,
+              // A rule under the build line keeps Backup and Restore below it reading as
+              // controls, not as more build information (UX audit A14).
+              fontSize: 10, marginBottom: 6, paddingBottom: 6, cursor: 'default',
+              borderBottom: '1px solid var(--border)',
+              color: 'var(--text-secondary)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}
           >

@@ -10,7 +10,11 @@ function DraggablePaletteItem({ activity, scheduledCount, target, cap, atMax, dr
     disabled: atMax || !draggable,
   })
 
-  const range = target > 0 ? `${target}\u2013${cap ?? '\u221e'}` : `${cap ?? '\u221e'}`
+  // Plain words, not "14 / 6–∞ wk" (copy audit A8): "14 placed (needs 6+)", "2 placed (needs 3–5)",
+  // "4 placed (up to 5)".
+  const needs = target > 0
+    ? (cap == null ? `needs ${target}+` : `needs ${target}\u2013${cap}`)
+    : (cap == null ? null : `up to ${cap}`)
 
   return (
     <div
@@ -53,11 +57,11 @@ function DraggablePaletteItem({ activity, scheduledCount, target, cap, atMax, dr
       </span>
       <span data-testid={`palette-count-${activity.id}`} style={{
         fontFamily: 'var(--font-mono)',
-        fontSize: 10,
-        color: atMax ? 'var(--danger)' : 'var(--text-secondary)',
+        fontSize: 11,
+        color: atMax ? 'var(--danger)' : 'var(--text)',
         flexShrink: 0,
       }}>
-        {scheduledCount} / {range} wk
+        {scheduledCount} placed{needs ? ` (${needs})` : ''}
       </span>
     </div>
   )
@@ -106,10 +110,10 @@ function DraggableElectiveItem({ set, count, draggable }) {
       }}>{set.name}</span>
       <span data-testid={`palette-elective-count-${set.id}`} style={{
         fontFamily: 'var(--font-mono)',
-        fontSize: 10,
-        color: 'var(--text-secondary)',
+        fontSize: 11,
+        color: 'var(--text)',
         flexShrink: 0,
-      }}>{count} wk</span>
+      }}>{count} placed</span>
     </div>
   )
 }

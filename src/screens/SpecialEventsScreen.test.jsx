@@ -87,7 +87,7 @@ describe('SpecialEventsScreen — empty state', () => {
     localClient.list.mockImplementation(byEntity(emptyEntries))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
 
-    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
     // The blank inline-add row is present even at zero items.
     expect(screen.getByPlaceholderText('Color War')).toBeTruthy()
     expect(screen.getByText('+ Add')).toBeTruthy()
@@ -98,7 +98,7 @@ describe('SpecialEventsScreen — create', () => {
   it('creates an event via the inline row (type = Event)', async () => {
     localClient.list.mockImplementation(byEntity(emptyEntries))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
-    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
 
     addViaInlineRow({ name: 'Color War', type: 'event' })
 
@@ -112,7 +112,7 @@ describe('SpecialEventsScreen — create', () => {
   it('creates a special day via the inline row (type = Special Day) AND shows the seed prompt', async () => {
     localClient.list.mockImplementation(byEntity(emptyEntries))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
-    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
 
     addViaInlineRow({ name: 'Visiting Day', type: 'day' })
 
@@ -271,7 +271,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     ]
     localClient.list.mockImplementation(byEntity({ ...emptyEntries, time_blocks: campBlocks }))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
-    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
 
     addViaInlineRow({ name: 'Color War', type: 'day' })
     await waitFor(() => expect(screen.queryByText(/Copy time blocks/)).not.toBeNull())
@@ -302,7 +302,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
       fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
     }))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
-    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
     addViaInlineRow({ name: 'Color War', type: 'day' })
     await waitFor(() => expect(screen.queryByText(/Copy time blocks/)).not.toBeNull())
     fireEvent.click(screen.getByText(/Copy time blocks/))
@@ -322,7 +322,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
       fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'fixed', name: 'Carpool', day_id: null, time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
     }))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
-    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
     addViaInlineRow({ name: 'Color War', type: 'day' })
     const writesBefore = localClient.write.mock.calls.length
     fireEvent.click(await screen.findByRole('button', { name: 'Empty' }))
@@ -342,7 +342,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
       fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
     }))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
-    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
     addViaInlineRow({ name: 'Color War', type: 'day' })
     fireEvent.click(await screen.findByText(/Copy time blocks/))
     await screen.findByText('Also bring 1 recurring event from Monday?')
@@ -369,7 +369,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
       return { ok: true, blocksWritten: blocks.length, cellsWritten: cells.length, skipped: [] }
     })
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
-    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
     addViaInlineRow({ name: 'Color War', type: 'day' })
     const copy = await screen.findByText(/Copy time blocks/)
     fireEvent.click(copy)
@@ -397,7 +397,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
       ],
     }))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
-    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
     localClient.copySpecialDayBlocks.mockResolvedValue({ ok: true, blocksWritten: 1, cellsWritten: 1, skipped: ['Carpool kept in Bunk A Morning — Drop-off not added there'] })
     addViaInlineRow({ name: 'Color War', type: 'day' })
     fireEvent.click(await screen.findByText(/Copy time blocks/))
@@ -419,7 +419,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
       return { ok: true, blocksWritten: blocks.length, cellsWritten: cells.length, skipped: [] }
     })
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
-    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
     addViaInlineRow({ name: 'Color War', type: 'day' })
     fireEvent.click(await screen.findByText(/Copy time blocks/))
     expect((await screen.findByText(/Copying time blocks/)).textContent).toBe('Copying time blocks\u2026')
@@ -434,7 +434,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     }))
     localClient.copySpecialDayBlocks.mockRejectedValue(new Error('write timed out after 8000ms (copySpecialDayBlocks)'))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
-    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
     addViaInlineRow({ name: 'Color War', type: 'day' })
     fireEvent.click(await screen.findByText(/Copy time blocks/))
     expect(await screen.findByText("Couldn't confirm the copy finished \u2014 check the schedule before copying again.")).toBeTruthy()
@@ -448,7 +448,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     }))
     localClient.copySpecialDayBlocks.mockResolvedValue({ ok: true, blocksWritten: 1, cellsWritten: 0, skipped: [], docWarning: true })
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
-    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
     addViaInlineRow({ name: 'Color War', type: 'day' })
     fireEvent.click(await screen.findByText(/Copy time blocks/))
     expect(await screen.findByText('Copied here, but syncing to other devices may be incomplete.')).toBeTruthy()
@@ -461,7 +461,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     }))
     localClient.copySpecialDayBlocks.mockResolvedValue({ ok: false, reason: 'failed' })
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
-    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
     addViaInlineRow({ name: 'Color War', type: 'day' })
     fireEvent.click(await screen.findByText(/Copy time blocks/))
     await waitFor(() => expect(screen.queryByText(/Start from your time blocks/)).toBeNull())

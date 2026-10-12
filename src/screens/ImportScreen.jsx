@@ -2852,7 +2852,7 @@ function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
 
   const eligibilitySummary = formatEligibility(groupNames, allGroups)
   const frequencySummary = rule?.min_per_week != null && rule?.max_per_week != null
-    ? `${rule.min_per_week}–${rule.max_per_week}×/wk`
+    ? `${rule.min_per_week}–${rule.max_per_week} times a week`
     : 'Not set'
   const prioritySummary = PRIORITY_LABEL[rule?.priority ?? 'low']
 
@@ -2936,7 +2936,7 @@ function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
           onChange={(e) => onChange({ max_per_week: Math.max(1, Number(e.target.value) || 1) })}
           style={{ width: 40, padding: '3px 5px', fontSize: 12, borderRadius: 5, border: '1px solid var(--border)', color: textColor, background: 'var(--surface)' }}
         />
-        <span style={{ color: textColor }}>×/wk</span>
+        <span style={{ color: textColor }}>times a week</span>
 
         <select
           value={rule?.priority ?? 'low'}

@@ -255,8 +255,9 @@ describe('Sidebar: System items live behind the Settings gear', () => {
   it('reveals them from the Settings gear', () => {
     renderSidebar()
     fireEvent.click(screen.getByTitle('Settings'))
-    // The gear adds the Camp screen beside the Camp section title.
-    expect(screen.queryAllByText('Camp')).toHaveLength(2)
+    // The gear's item is "Camp name", so it never reads as a second Camp section.
+    expect(screen.getByText('Camp name')).toBeTruthy()
+    expect(screen.queryAllByText('Camp')).toHaveLength(1)
     expect(screen.getByText('Conflicts')).toBeTruthy()
     expect(screen.getByText('Trash')).toBeTruthy()
     expect(screen.getByText('Devices')).toBeTruthy()
@@ -279,7 +280,7 @@ describe('Sidebar: System items live behind the Settings gear', () => {
   it('hides Devices from a non-admin role', () => {
     renderSidebar({ role: 'staff' })
     fireEvent.click(screen.getByTitle('Settings'))
-    expect(screen.queryAllByText('Camp')).toHaveLength(2)
+    expect(screen.getByText('Camp name')).toBeTruthy()
     expect(screen.queryByText('Devices')).toBeNull()
   })
 

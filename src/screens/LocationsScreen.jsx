@@ -843,6 +843,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                   <tr><td colSpan={weekId ? 6 : 5} style={S.emptyState}>
                     <div style={enter}>
                       <div style={S.emptyStateTitle}>No locations yet</div>
+                      <div style={S.emptyStateBody}>Add the places activities happen.</div>
                     </div>
                   </td></tr>
                 ) : locations.map((location) => (

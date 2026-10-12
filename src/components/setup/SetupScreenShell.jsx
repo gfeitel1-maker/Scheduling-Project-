@@ -39,8 +39,8 @@ export default function SetupScreenShell({
   const { onDownloadTemplate, onImport, onDeleteAll, deleteAllDisabled = false } = actions
   const deleteBlocked = deleteAllDisabled || role !== 'admin'
   const deleteStyle = deleteBlocked
-    ? { ...S.btnUtility, color: 'var(--text-secondary)', ...S.buttonDisabled }
-    : { ...S.btnUtility, color: 'var(--danger)' }
+    ? { ...S.btnDanger, color: 'var(--text-secondary)', borderColor: 'var(--border)', ...S.buttonDisabled }
+    : S.btnDanger
 
   const hasUtilities = Boolean(onDownloadTemplate || onImport || onDeleteAll)
 
@@ -72,7 +72,7 @@ export default function SetupScreenShell({
           {onDeleteAll && (
             <>
               <span aria-hidden="true" style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 8px' }} />
-              <button onClick={onDeleteAll} disabled={deleteBlocked}
+              <button className="press-97" onClick={onDeleteAll} disabled={deleteBlocked}
                 title={role !== 'admin' ? 'Admin only' : undefined}
                 style={deleteStyle}>Delete All</button>
             </>

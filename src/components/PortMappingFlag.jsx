@@ -28,8 +28,8 @@ const COPY = {
     why: () => 'Another program on this computer is using the spot Shoresh wants for direct connections. Closing other copies of Shoresh and reopening it may free it. Devices on the same Wi-Fi are not affected.',
   },
   error: {
-    line: "Couldn't check the router",
-    why: () => 'Something went wrong while Shoresh was talking to the router. Devices on the same Wi-Fi are not affected.',
+    line: "Couldn't reach your router",
+    why: () => 'Camp devices on other networks may not be able to connect to this computer until Shoresh can reach the router. Devices on the same Wi-Fi are not affected.',
   },
 }
 

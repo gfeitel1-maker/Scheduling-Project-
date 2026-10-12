@@ -326,6 +326,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
                   {days.length === 0 && (
                     <tr><td colSpan={3} style={S.emptyState}>
                       <div style={S.emptyStateTitle}>No days yet</div>
+                      <div style={S.emptyStateBody}>Add your first day, or import last year's schedule.</div>
                     </td></tr>
                   )}
                   {days.map(day => (

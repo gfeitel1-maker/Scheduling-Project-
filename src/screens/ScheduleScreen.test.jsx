@@ -943,7 +943,7 @@ describe('separate manual and generated routes', () => {
     // Nothing of either week is on screen until the director picks.
     expect(screen.queryAllByText('Swim').some(el => el.closest(CELL_SELECTOR))).toBe(false)
 
-    fireEvent.click(screen.getByText('Manual'))
+    fireEvent.click(screen.getByText('Manual Build'))
     await waitFor(() => expect(screen.getByText('Block')).toBeTruthy())
     expect(navigated).toContain('schedule:manual')
   })
@@ -1724,7 +1724,7 @@ describe('a day replaced by a special day is excluded from every count (A8)', ()
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
     await waitFor(() => expect(document.querySelector('[data-replaced]')).toBeTruthy())
-    expect(screen.getByTestId('palette-count-act-1').textContent).toMatch(/^1 \//)
+    expect(screen.getByTestId('palette-count-act-1').textContent).toMatch(/^1 placed/)
     const unfillableBox = screen.getAllByText(/Unfillable/).map(el => el.closest('button')).find(Boolean)
     expect(unfillableBox.textContent).toContain('0')
   })
