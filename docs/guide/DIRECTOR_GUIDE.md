@@ -113,15 +113,15 @@ Sometimes a file lists activities without saying how important they are, or how 
 - **Low is fine** — the activities you keep count as low priority.
 - **Leave as is** — the activities you keep are scheduled once a week.
 
-Each flag counts the activities it covers. Your answer is remembered (see [What Shoresh has learned](#what-shoresh-has-learned)).
+Each flag counts the activities it covers.
 
 <!-- shot: reconcile/unknown-field-flags -->
 
 ### Undo this import
 
-Right after the import finishes, **Undo this import** appears next to **Continue**, with a countdown in the last minute. You have five minutes, and only while you stay on that screen. Leave the screen, close Shoresh or reload it, and the button is gone for good. The import itself stays.
+After an import that keeps your existing records (**Keep them**), **Undo this import** appears next to **Continue** once it finishes, with a countdown in the last minute. You have five minutes, and only while you stay on that screen. Leave the screen, close Shoresh or reload it, and the button is gone for good. The import itself stays. After a **Replace them** import there is no **Undo this import**; the version saved as **Before replace** is how you go back.
 
-Undo removes what the import added: its records, the elective sets it made, and the versions it saved (the ones named **Imported from** and your file's name). The result tells you what happened, for example "Removed 12 records the import created." Some things are kept on purpose:
+Undo removes what the import added: its records, the elective sets it made (and their double-period links), and the versions it saved (the ones named **Imported from** and your file's name). The result tells you what happened, for example "Removed 12 records the import created." Some things are kept on purpose:
 
 - **changed since import** — something you or another device edited after the import. Undo won't throw your edits away.
 - **still in use** — a record something else still points to, including one a saved schedule version uses.
@@ -583,7 +583,7 @@ What each line means:
 
 You can also take your camp's setup out to Excel, change it, and bring it back.
 
-1. Click **Download worksheet**. It's on the home screen, and on the import screen under **Drop schedule here**.
+1. Click **Download worksheet**. It's on the home screen, and on the import screen below **Drop schedule here**.
 2. Open the file in Excel. It has a sheet each for Programs, Age Divisions, Groups, Days, Time Blocks, Activities, Fixed Events and Locations. The first column, **shoresh_id**, is how Shoresh recognises each row. Leave it alone. **Status** on the last column is only information.
 3. Edit the cells you want. A blank cell leaves the current value as it is. To empty a value on purpose, type `<clear>` in the cell.
 4. To import it, drop the file onto **Drop schedule here**. Shoresh reads it as a worksheet it made and shows what changed. Fixed Events and Locations are brought back in on their own screens.
