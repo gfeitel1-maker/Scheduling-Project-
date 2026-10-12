@@ -243,12 +243,12 @@ describe('Sidebar: Plants is pinned — its schedule rows can never be hidden (W
 })
 
 describe('Sidebar: System items live behind the Settings gear', () => {
-  it('does not show Camp/Conflicts/Trash/LAN & Devices in the main nav', () => {
+  it('does not show Camp/Conflicts/Trash/Devices in the main nav', () => {
     renderSidebar()
     expect(screen.queryByText('Camp')).toBeNull()
     expect(screen.queryByText('Conflicts')).toBeNull()
     expect(screen.queryByText('Trash')).toBeNull()
-    expect(screen.queryByText('LAN & Devices')).toBeNull()
+    expect(screen.queryByText('Devices')).toBeNull()
   })
 
   it('reveals them from the Settings gear', () => {
@@ -257,7 +257,7 @@ describe('Sidebar: System items live behind the Settings gear', () => {
     expect(screen.getByText('Camp')).toBeTruthy()
     expect(screen.getByText('Conflicts')).toBeTruthy()
     expect(screen.getByText('Trash')).toBeTruthy()
-    expect(screen.getByText('LAN & Devices')).toBeTruthy()
+    expect(screen.getByText('Devices')).toBeTruthy()
   })
 
   it('lists Re-import last year in the Settings gear (Slice C: import recedes here once a camp has data)', () => {
@@ -274,11 +274,11 @@ describe('Sidebar: System items live behind the Settings gear', () => {
     expect(onNavigate).toHaveBeenCalledWith('import')
   })
 
-  it('hides LAN & Devices from a non-admin role', () => {
+  it('hides Devices from a non-admin role', () => {
     renderSidebar({ role: 'staff' })
     fireEvent.click(screen.getByTitle('Settings'))
     expect(screen.getByText('Camp')).toBeTruthy()
-    expect(screen.queryByText('LAN & Devices')).toBeNull()
+    expect(screen.queryByText('Devices')).toBeNull()
   })
 
   it('keeps the conflicts badge visible on the gear so nothing time-sensitive hides', () => {
@@ -485,14 +485,14 @@ describe('Sidebar: host-not-syncing retry affordance (T275)', () => {
 
 // T336 Precondition 3 — the relay-reservation-refused signal must reach a director-VISIBLE
 // element, not merely fire an event (the "Assert the Row, Not the Call" discipline). Reuses the
-// existing LAN & Devices gear-menu label slot (same host as T160's lowDisk/T176's
+// existing Devices gear-menu label slot (same host as T160's lowDisk/T176's
 // otherDeviceCount warnings) rather than a new toast/banner.
 describe('Sidebar: relay-reservation-refused signal is director-visible (T336)', () => {
   function openGear() {
     fireEvent.click(screen.getByTitle('Settings'))
   }
 
-  it('renders "relay full" in the LAN & Devices row when the status reports a refused reservation', () => {
+  it('renders "relay full" in the Devices row when the status reports a refused reservation', () => {
     renderSidebar({
       syncStatus: {
         mode: 'client', connected: true, state: 'client-connected',
@@ -648,7 +648,7 @@ describe('Sidebar: packaged audit #32/#33/#34', () => {
     }
   })
 
-  it('#34 the "only this computer" row opens LAN & Devices', () => {
+  it('#34 the "only this computer" row opens Devices', () => {
     const onNavigate = vi.fn()
     renderSidebar({ onNavigate, syncStatus: { state: 'standalone', otherDeviceCount: 0 } })
     fireEvent.click(screen.getByTitle('Settings'))

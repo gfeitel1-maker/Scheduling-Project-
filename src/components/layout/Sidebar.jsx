@@ -340,7 +340,7 @@ export default function Sidebar({
         })}
       </nav>
 
-      {/* Roots-as-Hub Slice B — Camp, Conflicts, Trash and (admin-only) LAN
+      {/* Roots-as-Hub Slice B — Camp, Conflicts, Trash and (admin-only) Devices
           & Devices live here instead of an always-open third nav section, so
           the day-to-day sidebar is just Roots + Schedule. Pinned at the
           bottom: it's the one row a director reaches for rarely, not the one

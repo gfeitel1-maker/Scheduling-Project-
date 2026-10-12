@@ -47,7 +47,7 @@ describe('sectionRollup', () => {
   })
 
   // Roots-as-Hub Slice B: 'system' is no longer a foldable nav section —
-  // Camp/Conflicts/Trash/LAN & Devices live in the Settings gear instead,
+  // Camp/Conflicts/Trash/Devices live in the Settings gear instead,
   // which is a popup with no persisted rollup of its own (the gear button
   // itself carries the conflicts badge — see Sidebar.jsx). Roots itself is
   // a fixed row with no fold state at all (ADR Decision 3).

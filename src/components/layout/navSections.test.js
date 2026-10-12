@@ -110,7 +110,7 @@ describe('Settings-gear item lists', () => {
     expect(reimport.label).toBe('Re-import last year')
   })
 
-  it('gates LAN & Devices to admin-only items', () => {
+  it('gates Devices to admin-only items', () => {
     expect(ADMIN_ONLY_MENU_ITEMS.map(i => i.key)).toEqual(['devices'])
   })
 })
