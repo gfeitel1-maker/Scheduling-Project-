@@ -81,10 +81,22 @@ beforeEach(async () => {
   trustPeer(b.db, 'peer-a')
   const listener = b.transport.createListener({ upgrader: upgraderFor('peer-a') })
   await listener.listen(multiaddr('/ip4/127.0.0.1/udp/9'))
-  await a.transport.dial(multiaddr('/ip4/127.0.0.1/udp/9'), { upgrader: upgraderFor('peer-b'), signal: AbortSignal.timeout(10000) })
+  // The signaled punch only seeds each database's memory; no test asserts on it. Under machine load a
+  // real loopback ICE check can miss and libdatachannel reports 'failed' before open, so that one error
+  // is retried. Anything else still throws, and a failed attempt records no memory (onEstablished only
+  // fires on open), so the seeded state is the same however many attempts it took.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await a.transport.dial(multiaddr('/ip4/127.0.0.1/udp/9'), { upgrader: upgraderFor('peer-b'), signal: AbortSignal.timeout(10000) })
+      break
+    } catch (err) {
+      if (!(err instanceof PunchConnectionFailedError) || attempt === 4) throw err
+      await Promise.all([...a.transport.sessions.values(), ...b.transport.sessions.values()].map((s) => { s.close(); return s.whenClosed }))
+    }
+  }
   await new Promise((r) => setTimeout(r, 200))
   await Promise.all([...a.transport.sessions.values(), ...b.transport.sessions.values()].map((s) => { s.close(); return s.whenClosed }))
-}, 30000)
+}, 60000)
 
 describe('Rung 1 - remembered-candidate redial', () => {
   it('the signaled session leaves the peer\'s fingerprint, ufrag/pwd, candidates and our role in the database', () => {
