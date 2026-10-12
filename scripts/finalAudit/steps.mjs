@@ -293,27 +293,43 @@ export async function run(h) {
     const R9 = SYN('repro/r9-double-period-elective.txt')
     try { featureIn(961, 'Elective bundles relink') } catch (e) { if (e.skip) return `${note}; bundles: ${e.skip}`; throw e }
     if (!fs.existsSync(R9)) throw new Error(`${note}; ${R9} missing from this checkout (pull main)`)
-    const electives = async () => { await nav('Electives'); await sleep(800); return ev(`const t=__main(); const m=t.match(/(\\d+) ELECTIVE SETS?/i); return { n: m ? +m[1] : 0, text: t.replace(/\\s+/g,' ').trim() }`) }
-    await importFile(CAMPB, { replace: true }); await done()
-    await importFile(R9); await done()
-    const e0 = await electives()
-    await importFile(CAMPB, { replace: true }); await done()
-    // An earlier import (s07) leaves a same-named "Indoor Elective" that a Replace does not clear, and the
-    // r9 bundle would match it rather than appear; start the bundle check from no elective sets.
-    await nav('Electives')
-    for (let i = 0; i < 20 && await ev(`return [...document.querySelectorAll('tr')].filter(__vis).some(r=>[...r.querySelectorAll('button')].some(b=>b.innerText.trim()==='Delete'))`); i++) {
-      await ev(`[...document.querySelectorAll('tr')].filter(__vis).flatMap(r=>[...r.querySelectorAll('button')]).find(b=>b.innerText.trim()==='Delete').click(); return true`)
-      await click('Delete Elective Set', true, 10000); await sleep(800)
+    // What the double-period file links: an elective set, or (an unconfirmed import, #973) an activity
+    // span. Both screens are read so either form is compared.
+    const linked = async () => {
+      await nav('Electives'); await sleep(800)
+      const el = await ev(`const t=__main(); const m=t.match(/(\\d+) ELECTIVE SETS?/i); return { n: m ? +m[1] : 0, text: t.replace(/\\s+/g,' ').trim() }`)
+      await nav('Activities'); await sleep(800)
+      const act = await ev(`return __main().replace(/\\s+/g,' ').trim()`)
+      return { n: el.n, text: `${el.text} || ${act}` }
     }
-    const eb = await electives()
+    // Start from campB with no elective sets: a Replace does not clear sets, and an earlier import (s07)
+    // leaves a same-named "Indoor Elective" the r9 bundle would match rather than create.
+    const clean = async () => {
+      await importFile(CAMPB, { replace: true }); await done()
+      await nav('Electives')
+      for (let i = 0; i < 20 && await ev(`return [...document.querySelectorAll('tr')].filter(__vis).some(r=>[...r.querySelectorAll('button')].some(b=>b.innerText.trim()==='Delete'))`); i++) {
+        await ev(`[...document.querySelectorAll('tr')].filter(__vis).flatMap(r=>[...r.querySelectorAll('button')]).find(b=>b.innerText.trim()==='Delete').click(); return true`)
+        await click('Delete Elective Set', true, 10000); await sleep(800)
+      }
+    }
+    // Reference: clean, then one r9 import with no undo.
+    await clean()
+    const eb = await linked()
+    await importFile(R9); await done()
+    const e0 = await linked()
+    // Test: clean, r9 import, Undo, re-import. Undo must return to eb; the re-import must read as e0.
+    await clean()
     await importFile(R9)
     await click('Undo this import', true, 15000)
     await waitFor(`return /Undo complete/.test(__main())`, 60000, 'undo result'); await done()
-    const eu = await electives()
+    const eu = await linked()
     await importFile(R9); await done()
-    const e1 = await electives()
-    const bnote = `${note}; bundles: before import "${eb.text.slice(0, 160)}"; elective sets ${eb.n} before import, ${e0.n} after import, ${eu.n} after undo ${eu.text === eb.text ? '(screen as before the import)' : `(screen DIFFERS from before the import: "${eu.text.slice(0, 200)}")`}, ${e1.n} after re-import; re-import ${e0.text === e1.text ? 'reads the same' : `DIFFERS: "${e0.text.slice(0, 300)}" vs "${e1.text.slice(0, 300)}"`}`
-    if (e0.n <= eb.n || eu.text !== eb.text || e0.text !== e1.text) throw new Error(bnote)
+    const e1 = await linked()
+    const cut = (t) => `"${t.slice(0, 300)}"`
+    const bnote = `${note}; bundles: elective sets ${eb.n} clean, ${e0.n} after the reference import, ${eu.n} after undo ${eu.text === eb.text ? '(as clean)' : `(DIFFERS from clean: ${cut(eu.text)} vs ${cut(eb.text)})`}, ${e1.n} after re-import ${e1.text === e0.text ? '(matches the reference)' : `(DIFFERS from the reference: ${cut(e1.text)} vs ${cut(e0.text)})`}`
+    // Non-vacuity: the reference import must change what these screens show.
+    if (e0.text === eb.text) throw new Error(`${bnote}; the r9 import changed neither the Electives nor the Activities screen, so nothing was compared`)
+    if (eu.text !== eb.text || e1.text !== e0.text) throw new Error(bnote)
     return bnote
   })
 
