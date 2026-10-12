@@ -6,7 +6,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
+import { openLocalDb, encryptingDatabaseCtor, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
 import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, isHostDevice, issueDeviceToken } from './auth/localAuth.js'
 import { promoteToAdmin } from './ops/promoteToAdmin.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
@@ -76,7 +76,7 @@ import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/authorityLog.js'
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
-import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc } from './sync/automerge/liveDoc.js'
+import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc, suspendDocSaves as suspendAutomergeDocSaves } from './sync/automerge/liveDoc.js'
 import { runRendezvousRotation } from './sync/automerge/rendezvousRotation.js'
 import { createPeerReachabilityTracker } from './sync/automerge/peerReachability.js'
 import { projectEntity } from './automerge/projector.js'
@@ -84,6 +84,9 @@ import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './
 import * as Automerge from '@automerge/automerge'
 import { validateBackupPair, restoreFromBackup, RestoreRefusal } from './db/backupRestore.js'
 import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
+import { disableAtRestEncryption, DISABLE_PHRASE } from './db/disableAtRestEncryption.js'
+import { recoverInterruptedDisable } from './db/disableRecovery.js'
+import { createAtRestDisableRunner, boundedSyncStop } from './atRestDisableRunner.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled, latchEncryptionIfKeyPresent } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
@@ -155,6 +158,13 @@ function isNonEmptyString(v) {
 // once by makeHandlers so this module-level function still doesn't need its
 // own getMainWindow parameter threaded through ~35 call sites.
 let currentMainWindowGetter = () => null
+
+// T345 — set once by main bootstrap: quiesces the live db/document/sync, runs disableAtRestEncryption,
+// and schedules the restart. A module-level seam (like currentMainWindowGetter) so the handler stays
+// testable without Electron. Null means nothing is wired, which the handler reports, never hides.
+let atRestDisableRunner = null
+let atRestDisableInFlight = false
+export function setAtRestDisableRunner(fn) { atRestDisableRunner = fn }
 
 // The exact authorize() denial reasons that mean this session/device can no
 // longer act at all — identity or trust is gone, not just this one call.
@@ -2381,6 +2391,19 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
+  // T345 (docs/adr/2026-09-28-at-rest-encryption-disable-control.md): admin-only via authorize()'s
+  // default-deny (no staff grant for this action), exact confirmation phrase, then the verified
+  // decrypt-back. Returns { ok:false } for a refusal or failed disable (encryption is still on).
+  async function disableAtRestEncryptionHandler({ token, phrase } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'security.disable_at_rest_encryption' })
+    if (phrase !== DISABLE_PHRASE) return { ok: false, error: 'confirmation_mismatch' }
+    if (!atRestDisableRunner) return { ok: false, error: 'unavailable' }
+    if (atRestDisableInFlight) return { ok: false, error: 'in_progress' }
+    atRestDisableInFlight = true
+    try { return await atRestDisableRunner() } finally { atRestDisableInFlight = false }
+  }
+
   function deleteWeekHandler({ token, weekId } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // ADMIN-ONLY, deliberately '.delete' not '.write': deleteWeek() is a
@@ -3284,6 +3307,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     dismissOpenReconciliationDecisions: dismissOpenReconciliationDecisionsHandler,
     duplicateWeek: duplicateWeekHandler,
     deleteWeek: deleteWeekHandler,
+    disableAtRestEncryption: disableAtRestEncryptionHandler,
     attributeSubject: attributeSubjectHandler,
     deleteElectiveSet: deleteElectiveSetHandler,
     deleteElectiveRun: deleteElectiveRunHandler,
@@ -3502,6 +3526,16 @@ if (isElectronEntryPoint()) {
   // place an Electron app opens its resources anyway.
   await app.whenReady()
 
+  // T345: finish or undo a disable that was killed part-way, BEFORE the key is read or any db is opened,
+  // so the device is fully encrypted or fully plain by the time anything depends on it.
+  {
+    const recovered = recoverInterruptedDisable({ userDataDir: userDataPath, Database: encryptingDatabaseCtor() })
+    if (recovered.message) {
+      console.error(recovered.message)
+      dialog.showMessageBox({ type: 'info', message: 'Encryption', detail: recovered.message, buttons: ['OK'] }).catch(() => {})
+    }
+  }
+
   const envOff = process.env.SHORESH_AT_REST_ENCRYPTION === 'off'
   if (latchEncryptionIfKeyPresent(userDataPath) && envOff) {
     console.warn('SHORESH_AT_REST_ENCRYPTION=off ignored: this device is encrypted.')
@@ -3515,8 +3549,9 @@ if (isElectronEntryPoint()) {
   let docCipher = null
   let dbKey = null
   let dbPath = getCurrentProjectPath(userDataPath, defaultDbPath)
+  const dataPathsForKey = () => [...new Set([dbPath, ...readRecentProjects(userDataPath).map((e) => e.path)])]
   const keyGuard = {
-    dataPaths: [...new Set([dbPath, ...readRecentProjects(userDataPath).map((e) => e.path)])],
+    dataPaths: dataPathsForKey(),
     docPaths: () => {
       const dir = path.join(userDataPath, 'automerge')
       try { return fs.readdirSync(dir).filter((n) => n.endsWith('.automerge')).map((n) => path.join(dir, n)) } catch (err) {
@@ -3582,6 +3617,7 @@ if (isElectronEntryPoint()) {
     'shoresh:get-sync-status',
     'shoresh:get-port-mapping-status',
     'shoresh:retry-sync',
+    'shoresh:disable-at-rest-encryption',
     'shoresh:ingest-commit',
     'shoresh:ingest-reconcile',
     'shoresh:ingest-undo',
@@ -3673,6 +3709,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:get-sync-status', () => handlers.getSyncStatus())
     ipcMain.handle('shoresh:get-port-mapping-status', () => handlers.getPortMappingStatus())
     ipcMain.handle('shoresh:retry-sync', () => handlers.retrySync())
+    ipcMain.handle('shoresh:disable-at-rest-encryption', (_event, args) => handlers.disableAtRestEncryption(args))
     ipcMain.handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
     ipcMain.handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))
     ipcMain.handle('shoresh:ingest-undo', (_event, args) => handlers.ingestUndo(args))
@@ -4127,6 +4164,17 @@ if (isElectronEntryPoint()) {
     },
   }))
   const startAutomergeSyncNodeIfEnabled = () => syncStarterHolder.start()
+  setAtRestDisableRunner(createAtRestDisableRunner({
+    flushDoc: flushAutomergeDoc,
+    // close(), not shutdown(): it settles a start still in flight and refuses any later one, and the
+    // race bounds a node that will not stop, so the screen can never stick on "working".
+    shutdownSync: () => boundedSyncStop(() => syncStarterHolder.close(), 10000),
+    suspendDocSaves: suspendAutomergeDocSaves,
+    closeDb: () => db.close(),
+    listDbPaths: () => dataPathsForKey().filter((p) => fs.existsSync(p)),
+    disable: ({ dbPaths }) => disableAtRestEncryption({ userDataDir: userDataPath, dbPaths, safeStorage, Database: encryptingDatabaseCtor() }),
+    restart: (ms) => setTimeout(() => { app.relaunch(); app.exit(0) }, ms),
+  }))
   const initialHandlers = makeHandlers(db, deviceId, {
     getMainWindow: () => mainWindow,
     dbPath,

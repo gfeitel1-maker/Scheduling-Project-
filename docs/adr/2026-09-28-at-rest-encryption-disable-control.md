@@ -2,8 +2,8 @@
 title: "At-rest encryption enable/disable control model — the director-gated disable guard"
 document_type: adr
 authority: normative
-status: proposed
-implementation_state: not-started
+status: accepted
+implementation_state: implemented
 date: 2026-09-28
 program: security-hardening
 related_adrs:
@@ -26,7 +26,7 @@ affects:
 
 ## Status
 
-Proposed, 2026-09-28, architect (routed by owner requirement recorded in
+Accepted 2026-10-11 (amended; see below). Originally proposed 2026-09-28, architect (routed by owner requirement recorded in
 `docs/work/tickets/T175-at-rest-encryption-activation.md`, 2026-09-28 section). This is a **flip
 precondition** folded into T175's `archive_when` — it does not change the current staged-OFF
 default and does not touch the keychain or a real device's DB. Implementation requires mandatory
@@ -331,3 +331,136 @@ refuse-entirely vs. guided-export, each with different UX/safety costs, decided 
    before Maker, or is the existing type-to-confirm pattern sufficient precedent to skip a design
    pass? This ADR states copy and mechanics but leaves the visual/screen-placement call to
    Governor.
+
+## Amendment 2026-10-11 (T345 as built)
+
+`docs/adr/2026-10-08-at-rest-encryption-sticky-no-ambient-disable.md` changed three facts this design assumed:
+encryption is now **default ON** (the env var is only a pre-activation/test escape, not a staged-OFF default),
+it is **latched on** once `db.key.enc` exists (`latchEncryptionIfKeyPresent`), and an unknown state latches ON.
+T345 is the deliberate exit that 2026-10-08 deferred. As built:
+
+- `security.disable_at_rest_encryption` is admin-only by default-deny; no `enable` action was built (a
+  non-goal: there is no re-enable control). `authorize()` now audits `security.*` allows as it does `users.*`.
+- `disableAtRestEncryption` (`electron/db/disableAtRestEncryption.js`) refuses on any unknown state (key stat
+  error, unsealable key, already-plaintext db while keyed, tampered document), backs up every keyed db and
+  document first, decrypts, verifies (row counts, document bytes), then writes the `encryption.disabled`
+  marker and renames, overwrites and unlinks the key. Any failure before the key move restores the backups.
+- Because default-on would re-encrypt a keyless plaintext device, the marker is the durable opt-out: with no
+  key file and the marker present the next launch opens plaintext; a key file always beats the marker.
+- Scope widened from one db to every db the key opened (recent projects), since one key locks them all.
+- Confirm is the typed phrase `DISABLE ENCRYPTION` on the Devices screen; the process then restarts. Older user
+  backups made while encrypted become unreadable and the confirm copy says so. Open question 2 (cooling-off) was
+  not added; question 3 (rekey form) was checked against the installed driver source.
+
+### Amendment 2026-10-11 (b): crash safety (T345 v1 pull-in)
+
+The first build edited each database in place (`PRAGMA rekey = ''`) and rolled back from backups only when the
+process was alive to do it. A kill, power loss or OS crash part-way through left no design for what the next
+boot should do. The rule now is: **after any kill, the next boot lands in a KNOWN state, fully encrypted or fully
+plain, never half, and no camp data is lost.**
+
+**Sequence (`electron/db/disableAtRestEncryption.js`, recovery in `electron/db/disableRecovery.js`).** No live
+file is edited in place.
+
+1. Preflight, read-only: unseal the key, decrypt every document in memory, open every db with the key and record
+   row counts. Any surprise refuses with nothing touched.
+2. Write the **journal** `encryption.disable-journal` (temp file then rename, so it is never torn) with
+   `state: "staging"` and the list of `{kind, path}` it will change. It is the first mutation of the whole run.
+3. Copy each target to `<file>.pre-disable-<stamp>.bak` (encrypted copies).
+3b. Record the content expectations IN THE JOURNAL (content facts, never key material): per db the row count of
+   every table, per document its SHA-256 and byte length. They are what the check in step 6 compares against.
+4. Build **plaintext copies beside the originals**, `<file>.disable-staged`: documents are written decrypted;
+   each db is copied, keyed, taken out of WAL (`journal_mode = DELETE`, because SQLite3MultipleCiphers refuses to
+   rekey a WAL-mode db: "Rekeying is not supported in WAL journal mode"), `PRAGMA rekey = ''` (an empty key
+   removes encryption), then reopened keyless and checked for a plaintext header and equal row counts. The
+   originals stay encrypted and readable throughout.
+5. Rewrite the journal as `state: "committing"`. **From here the boot rule is roll forward.**
+6. Swap each staged copy over its original (`rename`, atomic per file; a db's `-wal`/`-shm` are removed first),
+   then the **full content check** (`verifyPlainContent`): each plaintext db is reopened keyless through the
+   driver, must pass `integrity_check`, and its per-table row counts must equal the journal's; each plaintext
+   document must LOAD as Automerge and match the journal's length and hash. A header-only check never gates a
+   deletion. A failure here (key still in place) rolls the whole disable back.
+7. Write the `encryption.disabled` marker (temp file then rename).
+8. Rename `db.key.enc` to `db.key.enc.disabling` (the point where the device stops being decryptable).
+9. Overwrite the sealed key with zeros and unlink it, unlink the backups, unlink the journal LAST.
+
+**Boot recovery (`recoverInterruptedDisable`, called in `electron/main.js` right after `app.whenReady()`, before
+the latch reads the key and before any db is opened).** It reads the journal and acts on its state only:
+
+- no journal: nothing to do (a leftover journal temp file is removed);
+- `staging`: roll **back**: delete staged copies, backups, marker and journal. Key and originals were never touched;
+- `committing`: roll **forward**: finish the swap (a staged copy still present is renamed in, a missing one means
+  it already was), require every target to be plaintext, then run the full content check of step 6, and only then
+  steps 7-9 (each is idempotent). If a target is not plaintext, or the content check fails, while the key is still
+  at its own path it rolls **back** (restore from the encrypted backups, drop the marker). If the check fails
+  after the key has gone it **fails closed**: outcome `unverified_plain`, every backup and the journal are kept
+  (nothing is deleted), the opt-out marker is written so the next boot does not mint a new key over suspect data,
+  and the plain message says the backups were kept. The next boot repeats the check, so a repaired file finishes
+  the job;
+- anything it cannot classify (**fails closed**): unparseable journal, unknown version or state, a stamp or file
+  kind it does not recognise, a path that is not absolute. It deletes no data, moves the journal aside to
+  `encryption.disable-journal.unreadable` so the message shows once, removes only `*.disable-staged` copies and
+  only while the key is present, and returns the plain message "Encryption is still on and nothing was changed".
+  The staged and backup paths are always **derived** from `{path, stamp}`, never read from the journal, so a
+  damaged journal cannot aim a delete at a path of its choosing;
+- a state neither direction can verify (for example one db already plain with no backup while another is still
+  encrypted) throws `disable_recovery_failed` with a plain message; the app refuses to start rather than guess,
+  and every file and backup is still on disk.
+
+Whatever it did, `main.js` logs the message and shows it in a dialog (no banner), so an interrupted disable is
+never silent.
+
+**Crash-point table.** "Killed before step N" means the process died after step N-1 finished and N did not.
+`electron/db/disableAtRestEncryption.crash.test.js` kills the run before **every** numbered mutation (and
+again with the interrupted write torn in half), runs recovery on the same directory, and asserts the end state
+and that a second recovery changes nothing. It also kills recovery itself at every one of its steps.
+
+| Killed before | State on disk | Journal | Next boot does | Ends |
+|---|---|---|---|---|
+| 1 (journal temp write) | nothing changed | none | nothing | encrypted |
+| 2 (journal rename) | journal temp file only | none | removes the temp file | encrypted |
+| 3-5 (backups) | some `.bak` copies | staging | roll back: delete copies and journal | encrypted |
+| 6 (doc staged write, also torn) | partial `.disable-staged` doc | staging | roll back | encrypted |
+| 7, 9 (db copy, also torn) | partial staged db | staging | roll back | encrypted |
+| 8, 10 (rekey of the staged copy, also half-written) | garbage staged db | staging | roll back | encrypted |
+| 11 (journal temp write for `committing`) | all staged copies verified | staging (old) | roll back | encrypted |
+| 12 (journal rename to `committing`) | same, temp file present | staging (old) | roll back, removes temp | encrypted |
+| 13-15 (swap, 0 to 2 files done) | mix of encrypted and plain originals, staged copies for the rest | committing | roll forward: finish swap, marker, key shred | plain |
+| 16-17 (marker write) | all plain, key present, no marker | committing | roll forward | plain |
+| 18 (key rename) | all plain, marker present, key present | committing | roll forward | plain |
+| 19-20 (key overwrite, unlink; also torn) | all plain, marker present, key renamed or half-zeroed | committing | roll forward: shred again, clean up | plain |
+| 21-23 (backup unlinks) | key gone, some backups left | committing | roll forward: remove them (content check passed first) | plain |
+| 13-24 with a torn or wrong plaintext db or document, key still present | plaintext header but unparseable or mismatched content | committing | content check fails: roll back to the encrypted backups | encrypted |
+| 19-24 with a torn or wrong plaintext db or document, key gone | same, key renamed or shredded | committing | content check fails: keep every backup and the journal, write the marker, `unverified_plain`, delete nothing | unverified (backups kept) |
+| 24 (journal unlink) | complete except the journal | committing | roll forward (all no-ops), removes journal | plain |
+| after 24 | complete | none | nothing | plain |
+| garbled / unknown journal | unknown | unreadable | quarantine journal, delete nothing, plain message | encrypted (key present) |
+| committing but unverifiable both ways | partly swapped, no usable backup | committing | throw `disable_recovery_failed`, app does not start, no file deleted | unchanged |
+
+The invariants the test asserts after recovery: key present implies no marker, db and document still encrypted,
+readable and identical; key absent implies marker present, db and document plaintext, readable and identical;
+never a leftover `.bak`, `.tmp`, `.disable-staged`, `.disabling` or journal.
+
+**Why roll forward after `committing` and not always back.** Once the staged copies are verified and the journal
+says so, completing is the director's own request, and it is the only direction that needs no restore of a
+possibly half-swapped set. Roll back remains available (and is the fallback) while the key is still present.
+
+**Real-driver proof.** `electron/db/sqliteCipher.integration.test.js` runs `decryptEncryptedToPlaintext` and the
+whole `disableAtRestEncryption` (plus the document round trip) through `better-sqlite3-multiple-ciphers` 12.11.1
+with 800 to 1500 rows in WAL mode, reopens keyless and compares rows and `integrity_check`. On CI (`CI=true`) the
+suite is never skipped: a driver that fails to load makes the tests fail with the driver's own load error.
+The driver source (`deps/sqlite3/sqlite3.c`, `sqlite3_rekey_v2`) confirms the two facts the design depends on: an
+empty key decrypts, and a WAL-mode db is refused, hence the `journal_mode = DELETE` step.
+
+**Quiesce order (runner).** `electron/atRestDisableRunner.js` fixes the order flush, stop sync, flush, block
+saves, close db, disable, and `electron/atRestDisableRunner.test.js` pins it.
+
+**The save gate is where the bytes are written.** `docStore.saveDoc` refuses (`doc_saves_suspended`) while saves
+are suspended, so the purge support command, which saves through docStore directly, is covered as well as
+liveDoc's debounced path.
+
+**The window after a failed disable (5 s before the restart).** Doc saves stay blocked until the restart (the
+runner no longer re-enables them: the files may be mid-swap), and the db is already closed once the quiesce
+reached it, so no write path can succeed. The key is never shredded on a failure path: every throw out of
+`disableAtRestEncryption` leaves the key at its own path (the shred tail only collects warnings), pinned by the
+"throws at any step" test in the crash suite. The sync stop is bounded by `boundedSyncStop` (close() against 10 s).

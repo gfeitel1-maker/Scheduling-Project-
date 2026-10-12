@@ -2,7 +2,7 @@
 ticket: T345
 document_type: ticket
 title: Director-gated at-rest encryption disable with verified decrypt-back
-status: parked
+status: open
 created: 2026-10-08
 archive_when: "a director/host can disable at-rest encryption on a device through authorize() with a consequence-stating confirm, a verified decrypt-back of the document and SQLite, and key shred, with the guard test-covered"
 task_class: security-auth
@@ -19,10 +19,19 @@ ticket designs the deliberate disable: an `authorize()`-gated IPC, a consequence
 verified backup, document decrypt plus `PRAGMA rekey=''`, and key-file shred, failing closed on any
 unknown state. See docs/adr/2026-09-28-at-rest-encryption-disable-control.md.
 
-## Parked 2026-10-11: post-v1 (keeper ruling)
+## Pulled into v1 2026-10-11 (owner)
 
-v1 keeps the sticky no-disable posture of docs/adr/2026-10-08-at-rest-encryption-sticky-no-ambient-disable.md, which is safe and has an out-of-band exit. The built work is on branch `claude/t345-encryption-disable` (commits 13b0d43e and b1726979, pushed for reference, no PR). The Grader blocked it on three open items:
+The 2026-10-11 park is withdrawn; the work is on branch `claude/t345-encryption-disable-v1`. The Grader's three blockers and where each is closed:
 
-1. **Real-driver proof of `PRAGMA rekey = ''`.** `electron/db/sqliteCipher.integration.test.js` skips where the encrypting driver will not load. It must run for real, on CI Linux or a machine with the driver.
-2. **Security and Red Hat re-review of b1726979.** That commit suspends doc saves before the key shred, closing the HIGH where a late save re-encrypts the document after the key is gone. It has not been reviewed.
-3. **Recovery when the app is killed mid-rekey.** There is no design for a kill partway through the rekey. Every in-sequence failure rolls back.
+1. **Real-driver proof of `PRAGMA rekey = ''`.** `electron/db/sqliteCipher.integration.test.js` now runs the decrypt and the whole disable through the real driver, and never skips on CI (`CI=true` turns a missing driver into a failure with the load error). Also confirmed against the driver source and by hand under the Electron ABI. Found and fixed on the way: the driver refuses to rekey a WAL-mode db, so the disable now switches the copy to `journal_mode = DELETE` first.
+2. **Re-review of the quiesce fix.** The order flush, stop sync, flush, block saves, close db, disable is now its own module (`electron/atRestDisableRunner.js`) with a runner-level order test.
+3. **Kill mid-rekey.** Redesigned so no live file is edited in place: journal, staged plaintext copies, atomic swap, marker, then key removal, with boot-time recovery. Crash-point table in docs/adr/2026-09-28-at-rest-encryption-disable-control.md ("Amendment 2026-10-11 (b)"); `electron/db/disableAtRestEncryption.crash.test.js` kills the run before every step.
+
+Closure is the Grader's call.
+
+## Keeper merge conditions (2026-10-11)
+
+- (A) Full content check before any backup is deleted, live and in boot recovery: `verifyPlainContent` (db reopened keyless, `integrity_check`, per-table row counts; document loaded as Automerge, length and SHA-256), expectations stored in the journal. Fails closed with backups kept after the key is gone (`unverified_plain`), rolls back before. `electron/db/disableContentCheck.test.js`.
+- (B) The suspend gate moved into `docStore.saveDoc`, covering the purge path. `electron/sync/automerge/docStore.suspend.test.js`.
+- (C) Post-failure window: doc saves stay blocked, the db is closed, and the key is never shredded on a failure path. Crash suite and runner tests.
+- (D) `boundedSyncStop` extracted and tested (timeout path); in-flight start settling and refusal of a later start were already pinned in `electron/sync/automerge/syncStarterHolder.test.js`.

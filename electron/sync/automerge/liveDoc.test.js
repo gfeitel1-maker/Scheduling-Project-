@@ -29,6 +29,7 @@ import {
   getDocIfLoaded,
   flushPendingWrites,
   discardLiveDoc,
+  suspendDocSaves,
   DOC_CHANGE_CHUNK,
 } from './liveDoc.js'
 import { listDocumentWriteFailures } from '../../ops/documentWriteFailures.js'
@@ -61,6 +62,33 @@ afterEach(() => {
   db.close()
   if (tmpFile && fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
   fs.rmSync(userDataDir, { recursive: true, force: true })
+})
+
+describe('suspendDocSaves (T345 quiesce before the device key is shredded)', () => {
+  it('a save armed before the suspend never reaches disk while suspended, and lands after resume', () => {
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A' })
+    flushPendingWrites()
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk B' })
+    suspendDocSaves(true)
+    flushPendingWrites()
+    expect(readRecord(loadDoc(userDataDir, 'camp-1'), 'groups', 'g1')).toEqual({ name: 'Bunk A' })
+    suspendDocSaves(false)
+    flushPendingWrites()
+    expect(readRecord(loadDoc(userDataDir, 'camp-1'), 'groups', 'g1')).toEqual({ name: 'Bunk B' })
+  })
+})
+
+describe('suspendDocSaves also blocks the synchronous seed saves', () => {
+  it('the first write of a camp while suspended writes no document file', () => {
+    suspendDocSaves(true)
+    try {
+      recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A' })
+      flushPendingWrites()
+      expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(false)
+    } finally {
+      suspendDocSaves(false)
+    }
+  })
 })
 
 describe('recordLocalWrite', () => {
