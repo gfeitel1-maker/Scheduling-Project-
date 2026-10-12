@@ -27,10 +27,20 @@ daily lineup was five identical rows (25 and 37 rows on the audited camp).
 - Editing the grouped row (its name, time, location, divisions or notes) writes the same values to every
   day's row. The days themselves are shown, not edited, in that form.
 - The row expands to show each day, and a day is edited alone from there.
-- When the days differ, the row says so: "times vary", "varies" for divisions, "Varies by day" for weeks.
+- When the days differ, the row says so: "times vary", "varies" for divisions, "Varies" for weeks. Each day keeps its own week: the edit-all form never writes it, and the grouped Weeks select changes every day only when the director picks a week.
   In the edit-all form a varying time block starts unpicked, so one pick sets every day.
 - Delete on the grouped row asks whether to delete every day or one day.
 - An event on a single day keeps its plain row.
+
+## Weeks (keeper question, 2026-10-12)
+
+An event can be set to one week (its Weeks column). That is honoured everywhere it matters:
+- Generate and Manual's fixed-event placement pass the week to the engine, which keeps an event only when
+  it is every-week or that week. Pinned by `src/engine/buildSchedule.test.js` ("a fixed event set to one
+  week only"); a plant that drops the engine's week filter fails both tests.
+- A special day's "Also bring" offered every-week events only. It now also offers a week-only event when
+  every placement of the special day is in that week, and still not when the placements span weeks (the
+  special day's grid is shared by all its weeks). Red first in `copyCampTimeBlocks.test.js`.
 
 ## Not changed
 

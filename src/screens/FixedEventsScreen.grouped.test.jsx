@@ -99,6 +99,19 @@ describe('Fixed/Recurring Events grouped by name (T377)', () => {
     expect(writesFor('day_id')).toEqual([])
   })
 
+  // Keeper: the grouping must respect each row's week. Edit-all never writes schedule_week_id, so a day
+  // set to one week keeps it.
+  it('edit-all leaves each day\'s week as it was', async () => {
+    setup([ev('e1', 'd1'), ev('e2', 'd2', { schedule_week_id: 'w2' })])
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Lineup' })).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Lineup' }))
+    await waitFor(() => expect(screen.queryByText('Save Changes')).not.toBeNull())
+    pickBlock('block-2')
+    fireEvent.click(screen.getByText('Save Changes'))
+    await waitFor(() => expect(writesFor('time_block_id')).toHaveLength(2))
+    expect(writesFor('schedule_week_id')).toEqual([])
+  })
+
   it('edit-one: an expanded day is edited alone', async () => {
     setup()
     await waitFor(() => expect(screen.queryByText('Mon–Wed')).not.toBeNull())

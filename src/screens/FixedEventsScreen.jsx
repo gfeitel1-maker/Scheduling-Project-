@@ -1076,7 +1076,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
             aria-label={`Weeks for ${group.name}`}
             style={{ ...S.input, padding: '5px 8px', fontSize: 12, width: 'auto' }}
           >
-            {group.weeksVary && <option value="__varies" disabled>Varies by day</option>}
+            {group.weeksVary && <option value="__varies" disabled>Varies</option>}
             <option value="">All weeks</option>
             {weeks.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
