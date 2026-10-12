@@ -222,7 +222,7 @@ export default function SpecialDayPlacements({ campId, specialDayId, specialDayN
       {panelOpen && (
         <div style={styles.panel}>
           {gridWeeks.length === 0 ? (
-            <div style={S.emptyState}><div style={S.emptyStateTitle}>No weeks yet.</div></div>
+            <div style={S.emptyState}><div style={S.emptyStateTitle}>No weeks yet</div><div style={S.emptyStateBody}>Add a week on the schedule first.</div></div>
           ) : (
             <div
               ref={gridRef}

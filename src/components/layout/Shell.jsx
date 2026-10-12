@@ -10,7 +10,8 @@ export default function Shell({ children, currentScreen, onNavigate, campId, rol
       <Sidebar current={currentScreen} onNavigate={onNavigate} campId={campId} role={role} badges={sidebarBadges} {...sidebarData} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <TopBar screen={currentScreen} onNavigate={onNavigate} onLogout={onLogout} />
-        <main style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+        {/* Focusable so a keyboard user can scroll a screen with no controls in view (UX audit: About). */}
+        <main tabIndex={0} style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
           {children}
         </main>
       </div>

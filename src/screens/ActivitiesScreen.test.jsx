@@ -954,7 +954,7 @@ describe('ActivitiesScreen — rule provenance (Slice D)', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
-    expect(screen.queryByRole('button', { name: /Provenance:/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /details guessed from your file|All details confirmed/ })).toBeNull()
   })
 
   it('shows no dot when every imported field is observed or confirmed — only "needs a look" is marked (K5)', async () => {
@@ -969,7 +969,7 @@ describe('ActivitiesScreen — rule provenance (Slice D)', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
-    expect(screen.queryByRole('button', { name: /Provenance:/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /details guessed from your file|All details confirmed/ })).toBeNull()
   })
 
   it('shows the bronze dot when any field is inferred, and the review count derives from RULE_FIELDS', async () => {
@@ -987,7 +987,7 @@ describe('ActivitiesScreen — rule provenance (Slice D)', () => {
     // Denominator is RULE_FIELDS.length, not a literal (it was once a stale 3).
     // No source for max_groups_per_slot reads as a human write -> confirmed.
     expect(RULE_FIELDS).toHaveLength(4)
-    const dot = screen.getByRole('button', { name: new RegExp(`Provenance: inferred, 1 of ${RULE_FIELDS.length} fields need review`) })
+    const dot = screen.getByRole('button', { name: new RegExp(`1 of ${RULE_FIELDS.length} details guessed from your file\\. Check them\\.`) })
     expect(dot.style.background).toBe('var(--accent)')
   })
 
@@ -1004,9 +1004,9 @@ describe('ActivitiesScreen — rule provenance (Slice D)', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
-    fireEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+    fireEvent.click(screen.getByRole('button', { name: /details guessed from your file|All details confirmed/ }))
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).queryByText('Min–Max/Wk')).not.toBeNull()
+    expect(within(dialog).queryByText('Times per week')).not.toBeNull()
     expect(within(dialog).queryByText('Eligible groups')).not.toBeNull()
     expect(within(dialog).queryByText('Location')).not.toBeNull()
 
@@ -1044,7 +1044,7 @@ describe('ActivitiesScreen — rule provenance (Slice D)', () => {
       flagged()
       render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
       await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
-      fireEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+      fireEvent.click(screen.getByRole('button', { name: /details guessed from your file|All details confirmed/ }))
       const dialog = await screen.findByRole('dialog')
       fireEvent.click(within(dialog).getByRole('button', { name: 'Looks right' }))
       await waitFor(() => expect(written()).toEqual(expect.arrayContaining(['min_per_week', 'max_per_week', 'eligible_group_ids', 'location_id'])))
@@ -1060,14 +1060,14 @@ describe('ActivitiesScreen — rule provenance (Slice D)', () => {
       })
       render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
       await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
-      expect(screen.queryByRole('button', { name: /Provenance:/ })).toBeNull()
+      expect(screen.queryByRole('button', { name: /details guessed from your file|All details confirmed/ })).toBeNull()
     })
 
     it('saving the activity from Change writes every flagged field, even ones left unchanged', async () => {
       flagged()
       render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
       await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
-      fireEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+      fireEvent.click(screen.getByRole('button', { name: /details guessed from your file|All details confirmed/ }))
       const dialog = await screen.findByRole('dialog')
       fireEvent.click(within(dialog).getAllByRole('button', { name: 'Change' })[0])
       fireEvent.click(screen.getByText('Save Changes'))
@@ -1087,7 +1087,7 @@ describe('ActivitiesScreen — rule provenance (Slice D)', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
-    fireEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+    fireEvent.click(screen.getByRole('button', { name: /details guessed from your file|All details confirmed/ }))
     const dialog = await screen.findByRole('dialog')
     fireEvent.click(within(dialog).getAllByRole('button', { name: 'Change' })[0])
 
@@ -1109,7 +1109,7 @@ describe('ActivitiesScreen — rule provenance (Slice D)', () => {
       render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
       await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
-      fireEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+      fireEvent.click(screen.getByRole('button', { name: /details guessed from your file|All details confirmed/ }))
       const dialog = await screen.findByRole('dialog')
       expect(dialog.style.transform).toBe('')
       await act(async () => { await new Promise(r => requestAnimationFrame(r)) })
@@ -1150,7 +1150,7 @@ describe('ActivitiesScreen — motion + depth pass (Slice E)', () => {
       expect(row.style.background).toBe('transparent')
 
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      await user.click(screen.getByRole('button', { name: /Provenance:/ }))
+      await user.click(screen.getByRole('button', { name: /details guessed from your file|All details confirmed/ }))
       const dialog = await screen.findByRole('dialog')
       await user.click(within(dialog).getByRole('button', { name: 'Confirm' }))
 
@@ -1181,7 +1181,7 @@ describe('ActivitiesScreen — motion + depth pass (Slice E)', () => {
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
     const row = screen.getByText('Archery').closest('tr')
-    await userEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+    await userEvent.click(screen.getByRole('button', { name: /details guessed from your file|All details confirmed/ }))
     const dialog = await screen.findByRole('dialog')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
     await waitFor(() => expect(row.style.background).toBe('color-mix(in srgb, var(--secondary) 10%, transparent)'))
@@ -1232,12 +1232,12 @@ describe('ActivitiesScreen — motion + depth pass (Slice E)', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
-    fireEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+    fireEvent.click(screen.getByRole('button', { name: /details guessed from your file|All details confirmed/ }))
     const dialog = await screen.findByRole('dialog')
 
     const tierDots = Array.from(dialog.querySelectorAll('span')).filter(d => d.style.width === '6px' && d.style.height === '6px')
     expect(tierDots).toHaveLength(1)
-    expect(tierDots[0].nextSibling.textContent).toBe('Min–Max/Wk')
+    expect(tierDots[0].nextSibling.textContent).toBe('Times per week')
     expect(tierDots[0].style.background).toBe('var(--accent)')
     expect(tierDots[0].style.boxShadow).toBe('none')
   })
@@ -1254,7 +1254,7 @@ describe('ActivitiesScreen — motion + depth pass (Slice E)', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
-    const dot = screen.getByRole('button', { name: /Provenance:/ })
+    const dot = screen.getByRole('button', { name: /details guessed from your file|All details confirmed/ })
     expect(dot.style.boxShadow).not.toContain('color-mix(in srgb, var(--text) 10%, transparent)')
 
     fireEvent.mouseEnter(dot)

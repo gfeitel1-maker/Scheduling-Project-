@@ -116,19 +116,19 @@ describe('ActivityPalette — weekly counter', () => {
 
   it('counts the selected group across the whole week, not one day', () => {
     render(<ActivityPalette activities={swim} slots={week} groupId="g1" groups={twoGroups} />)
-    expect(counter()).toBe('5 / 3–5 wk')
+    expect(counter()).toBe('5 placed (needs 3–5)')
   })
 
   it('counts the whole camp against the camp-wide range with no group', () => {
     render(<ActivityPalette activities={swim} slots={week} groupId={null} groups={twoGroups} />)
-    expect(counter()).toBe('10 / 6–10 wk')
+    expect(counter()).toBe('10 placed (needs 6–10)')
   })
 
   it('scales the camp-wide range by the groups ELIGIBLE for the activity', () => {
     const eight = Array.from({ length: 8 }, (_, i) => ({ id: `g${i}`, tier_id: 't1' }))
     const narrow = [{ ...swim[0], eligible_group_ids: ['g1', 'g2'] }]
     render(<ActivityPalette activities={narrow} slots={week} groupId={null} groups={eight} />)
-    expect(counter()).toBe('10 / 6–10 wk')
+    expect(counter()).toBe('10 placed (needs 6–10)')
   })
 
   it('counts a double block once — span heads only', () => {
@@ -137,7 +137,7 @@ describe('ActivityPalette — weekly counter', () => {
       { group_id: 'g1', day_id: 'd1', activity_id: 'a1', is_fixed_event: 0, is_span_head: 0 },
     ]
     render(<ActivityPalette activities={swim} slots={double} groupId="g1" groups={twoGroups} />)
-    expect(counter()).toBe('1 / 3–5 wk')
+    expect(counter()).toBe('1 placed (needs 3–5)')
   })
 
   it('one counter, no second target line', () => {
@@ -163,7 +163,7 @@ describe('ActivityPalette — Elective sets section (audit-2 A9)', () => {
 
   it('counts how many cells of the week each set holds', () => {
     renderPalette({ electiveSets, slots: [...slots, { elective_set_id: 'es-1', is_fixed_event: false }, { elective_set_id: 'es-1', is_fixed_event: false }] })
-    expect(screen.getByTestId('palette-elective-count-es-1').textContent).toBe('2 wk')
+    expect(screen.getByTestId('palette-elective-count-es-1').textContent).toBe('2 placed')
   })
 
   // Audit E3 (2026-10-10) — with 18 activities the sets sat below the fold of a
@@ -190,11 +190,11 @@ describe('ActivityPalette — Elective sets section (audit-2 A9)', () => {
       { group_id: 'g1', day_id: 'd2', activity_id: 'a2', is_fixed_event: 1, fixed_event_id: 'fe1' },
     ]
     renderPalette({ slots: fixedCells })
-    expect(screen.getByTestId('palette-count-a2').textContent).toMatch(/^2 \//)
+    expect(screen.getByTestId('palette-count-a2').textContent).toMatch(/^2 placed/)
   })
 
   it('does not count a recurring-event cell that links to no activity', () => {
     renderPalette({ slots: [{ group_id: 'g1', day_id: 'd1', activity_id: null, is_fixed_event: 1, fixed_event_id: 'fe9' }] })
-    expect(screen.getByTestId('palette-count-a2').textContent).toMatch(/^0 \//)
+    expect(screen.getByTestId('palette-count-a2').textContent).toMatch(/^0 placed/)
   })
 })

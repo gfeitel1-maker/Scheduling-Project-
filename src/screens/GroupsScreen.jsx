@@ -576,6 +576,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
               {groups.length === 0 ? (
                 <tr><td colSpan={weekId ? 5 : 4} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>No groups yet</div>
+                  <div style={S.emptyStateBody}>Add your first group, or import last year's schedule.</div>
                 </td></tr>
               ) : (
                 <>

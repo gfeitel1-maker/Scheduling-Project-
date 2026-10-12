@@ -450,6 +450,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
                 <tr><td colSpan={3} style={S.emptyState}>
                   <div style={emptyEnter}>
                     <div style={S.emptyStateTitle}>No age divisions yet</div>
+                    <div style={S.emptyStateBody}>Add your first age division.</div>
                   </div>
                 </td></tr>
               ) : tiers.map(tier => (

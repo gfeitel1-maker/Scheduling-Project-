@@ -136,7 +136,7 @@ export const NAV_SECTIONS = [
 export const ADMIN_MENU_ITEMS = [
   // Not a setup pathway — one setting, which had nowhere else to live once
   // the Camp Setup screen was retired.
-  { key: 'camp',      label: 'Camp' },
+  { key: 'camp',      label: 'Camp name' },
   // Slice C: import is a single state-aware entry point. Empty camps see it
   // as the prominent SeedScreen action; once a camp has data, it recedes
   // here so it stays reachable without competing for space every session.

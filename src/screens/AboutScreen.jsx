@@ -145,7 +145,6 @@ const styles = {
   meta: {
     fontSize: 12,
     color: 'var(--text-secondary)',
-    opacity: 0.8,
     margin: '8px 0 0',
     fontFamily: 'var(--font-mono)',
   },

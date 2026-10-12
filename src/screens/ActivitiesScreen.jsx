@@ -226,8 +226,8 @@ function RuleProvenanceDot({ activity, evidenceByField, fieldSources, onConfirmF
   // test that should have caught it stayed green — because the fixture encoded
   // the same stale 3.
   const ariaLabel = needsReview > 0
-    ? `Provenance: ${worst}, ${needsReview} of ${rows.length} fields need review`
-    : 'Provenance: all confirmed'
+    ? `${needsReview} of ${rows.length} details guessed from your file. Check them.`
+    : 'All details confirmed'
   const shape = NEEDS_LOOK_DOT_STYLE
 
   return (
@@ -1247,6 +1247,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         <div style={{ ...S.emptyState, padding: '40px 24px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
           <div style={emptyEnter}>
             <div style={S.emptyStateTitle}>No activities yet</div>
+            <div style={S.emptyStateBody}>Add your first activity, or import last year's schedule.</div>
           </div>
         </div>
       ) : (
@@ -1257,9 +1258,9 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                 <th style={S.th}>Name</th>
                 <th style={S.th}>Location</th>
                 <th style={S.th}>Outdoor</th>
-                <th style={S.th}>Co-schedule</th>
-                <th style={S.th}>Min–Max/Wk</th>
-                <th style={S.th}>Alt</th>
+                <th style={S.th}>Groups at once</th>
+                <th style={S.th}>Times per week</th>
+                <th style={S.th}>Rain plan</th>
                 {weekId && <th style={{ ...S.th, textAlign: 'center' }}>{currentWeek?.name ?? 'Week'}</th>}
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>

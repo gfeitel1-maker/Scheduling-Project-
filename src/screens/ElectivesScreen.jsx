@@ -193,6 +193,7 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
               {sets.length === 0 ? (
                 <tr><td colSpan={2} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>No elective sets yet</div>
+                  <div style={S.emptyStateBody}>Add your first elective set.</div>
                 </td></tr>
               ) : sets.map((set) => (
                 <ElectiveSetRow

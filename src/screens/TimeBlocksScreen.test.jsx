@@ -134,7 +134,7 @@ describe('TimeBlocksScreen — cohort-scoped load', () => {
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
-    await waitFor(() => expect(screen.queryByText('2 blocks')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('2 time blocks')).not.toBeNull())
     expect(screen.queryByText('Wrong Cohort')).toBeNull()
     expect(screen.queryByText('Wrong Camp')).toBeNull()
     const rows = screen.getAllByRole('row').slice(1)
@@ -382,7 +382,7 @@ describe('TimeBlocksScreen — deleteAll', () => {
       return Promise.resolve([])
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('1 block')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('1 time block')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
     await waitFor(() => expect(screen.queryByText('Delete all time blocks?')).not.toBeNull())

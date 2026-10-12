@@ -83,12 +83,12 @@ describe('RootsHomeScreen', () => {
     // The arrow renders in its own <span> (WS4 polish — only the arrow nudges
     // on hover), so the accessible name is checked via role rather than exact
     // text, which doesn't match across sibling elements.
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Schedule →' })).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Build or generate the schedule →' })).not.toBeNull())
 
     expect(screen.queryByText(/STANDING/i)).toBeNull()
     expect(screen.queryByText(/Ready to build a week/i)).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Schedule →' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Build or generate the schedule →' }))
     expect(onNavigate).toHaveBeenCalledWith('schedule')
   })
 
@@ -231,9 +231,9 @@ describe('RootsHomeScreen', () => {
     localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
 
     render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Schedule →' })).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Build or generate the schedule →' })).not.toBeNull())
 
-    const scheduleBar = screen.getByRole('button', { name: 'Schedule →' })
+    const scheduleBar = screen.getByRole('button', { name: 'Build or generate the schedule →' })
     const style = scheduleBar.getAttribute('style')
     expect(style).toContain('color-mix(in srgb, var(--primary)')
     expect(style).not.toBe(null)
@@ -249,7 +249,7 @@ describe('RootsHomeScreen', () => {
     localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
 
     render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Schedule →' })).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Build or generate the schedule →' })).not.toBeNull())
 
     const arrow = screen.getByText('→')
     expect(arrow.style.color).toBe('var(--primary)')

@@ -450,7 +450,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   return (
     <>
     <SetupScreenShell
-      countLabel={`${blocks.length} block${blocks.length !== 1 ? 's' : ''}`}
+      countLabel={`${blocks.length} time block${blocks.length !== 1 ? 's' : ''}`}
       role={role}
       actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll, deleteAllDisabled: !activeCohort }}
       fileInputRef={fileRef}
@@ -484,6 +484,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
                 <tr><td colSpan={5} style={S.emptyState}>
                   <div style={emptyEnter}>
                     <div style={S.emptyStateTitle}>No time blocks yet</div>
+                    <div style={S.emptyStateBody}>Add your first time block, or import last year's schedule.</div>
                   </div>
                 </td></tr>
               ) : blocks.map(b => (

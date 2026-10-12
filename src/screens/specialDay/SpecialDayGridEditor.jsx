@@ -468,7 +468,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
         </div>
       ) : groups.length === 0 ? (
         <div style={S.emptyState}>
-          <div style={S.emptyStateTitle}>No groups yet.</div>
+          <div style={S.emptyStateTitle}>No groups yet</div>
           <div style={S.emptyStateBody}>Add groups first.</div>
         </div>
       ) : null}
