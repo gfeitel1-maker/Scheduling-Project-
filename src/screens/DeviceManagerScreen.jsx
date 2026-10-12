@@ -70,6 +70,7 @@ const ERASURE_COPY = {
 }
 
 const DENIED_LOCAL_COPY = 'Denied on this device only — other devices are not told.'
+const REVOKED_LOCAL_COPY = 'Removed on this computer only. Other computers will keep syncing with it until it is removed from a computer that was made an admin.'
 const JOINER_GONE_COPY = 'The device disconnected before approval — ask it to request again'
 
 export default function DeviceManagerScreen({ campId, role, deviceMode }) {
@@ -86,6 +87,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
   // Server-side, approve/deny need devices.approve (admin-only); hide the controls from staff on any device.
   const canDecide = role === 'admin'
   const [deniedNote, setDeniedNote] = useState(false)
+  const [revokedLocalNote, setRevokedLocalNote] = useState(false)
   const [pending, setPending] = useState([])
   const [allDevices, setAllDevices] = useState([])
   // T322 S3b — per-peer erasure state for the purge-tombstone badge. Read-only,
@@ -196,7 +198,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
     setBusy((b) => ({ ...b, [deviceId]: true }))
     try {
       const result = await localClient.revokeDevice(deviceId)
-      if (result?.fleetWide === false) setError('Removed on this computer only. Other computers will keep syncing with it until it is removed from a computer that was made an admin.')
+      setRevokedLocalNote(result?.fleetWide === false)
       load()
     } catch (err) {
       setError(err?.message || 'Failed to revoke device')
@@ -373,6 +375,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
 
       <section style={styles.section}>
         <h2 style={styles.sectionTitle}>All Devices</h2>
+        {revokedLocalNote && <div><span style={styles.flagMuted}>{REVOKED_LOCAL_COPY}</span></div>}
         {allDevices.length === 0 ? (
           <div style={styles.empty}>No other devices have paired yet.</div>
         ) : (
