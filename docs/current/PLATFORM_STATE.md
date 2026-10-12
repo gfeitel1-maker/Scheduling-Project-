@@ -178,7 +178,7 @@ below for the paragraph this supersedes, and **D14 of
 correction style (D4, D9): the superseded text is struck and marked rather than deleted, so a later
 reader sees that a premise was checked and failed. D14 keeps OBSERVED separate from INFERRED — the
 camp artifacts are the observation; that per-occurrence decomposition therefore does not hold is
-written as the inference it is. **T195 is now offering-grid import only** — no campers, no ranks, no
+written as the inference it is. _Prior (removed 2026-10-11, T219): the offering-grid functions described in the rest of this paragraph (`parseGridScheduleMenu`, `populateElectiveGrid`, `deriveElectiveSetImportId`) had no production caller and were deleted. Spanning electives now come from the live schedule import (T219). `populateElectiveSet` and v68's `status` remain._ **T195 is now offering-grid import only** — no campers, no ranks, no
 identity, no assignment. `src/ingest/parseGridSchedule.js` gains `parseGridScheduleMenu(pages,
 { cellSplitter })`, reusing the existing orientation/time/canonicalization logic unchanged; only the
 per-cell step changes from one name to a MENU of names sharing one timeIndex/groupIndex.
