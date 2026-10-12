@@ -233,6 +233,8 @@ class PunchSession {
     this.closed = false
     this.dc = null
     this.maConn = null
+    this.disconnectTimer = null
+    this.disconnectedAt = 0
     this.queuedCandidates = []
     this.remoteDescriptionSet = false
     this.opened = Promise.withResolvers()
@@ -295,6 +297,9 @@ class PunchSession {
     this.dc = dc
     dc.onOpen(() => {
       if (this.closed) return
+      // Open settles the attempt; a pending pre-open disconnect grace no longer applies (T369).
+      clearTimeout(this.disconnectTimer)
+      this.disconnectTimer = null
       this.maConn = new PunchMultiaddrConnection({
         session: this,
         dc,

@@ -28,7 +28,7 @@ function fakeNdc() {
     createDataChannel() { return this.dc }
     setLocalDescription() {}
     getSelectedCandidatePair() { return null }
-    close() { queueMicrotask(() => this.state('closed')) }
+    close() { this.closedCalled = true; queueMicrotask(() => this.state('closed')) }
   }
   const ndc = { PeerConnection: class extends FakePc { constructor(...a) { super(...a); ndc.last = this } }, cleanup() {} }
   return ndc
@@ -61,6 +61,35 @@ describe('T369: a transient ICE disconnected before open', () => {
     pc.dc.open()
     const r = await outcome
     expect(r.ok).toBe(true)
+    await sleep(350)
+    expect(pc.closedCalled).toBeFalsy()
+    await t.stop()
+  })
+
+  it('a channel that opens during the grace is not killed when the grace expires', async () => {
+    const { t, pc, outcome } = await dialing({ disconnectGraceMs: 100 })
+    pc.state('disconnected')
+    await sleep(20)
+    pc.dc.open()
+    expect((await outcome).ok).toBe(true)
+    await sleep(150)
+    expect(pc.closedCalled).toBeFalsy()
+    await t.stop()
+  })
+
+  it('close() during the grace leaves no timer to fire later', async () => {
+    const { t, pc, outcome } = await dialing({ disconnectGraceMs: 100 })
+    pc.state('disconnected')
+    await t.stop()
+    expect((await outcome).ok).toBe(false)
+  })
+
+  it('a grace of 0 keeps the immediate fail', async () => {
+    const { t, pc, outcome } = await dialing({ disconnectGraceMs: 0 })
+    pc.state('disconnected')
+    const r = await outcome
+    expect(r.ok).toBe(false)
+    expect(r.ms).toBeLessThan(80)
     await t.stop()
   })
 
