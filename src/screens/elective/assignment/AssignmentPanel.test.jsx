@@ -18,6 +18,9 @@ vi.mock('../../../localClient', () => ({
     // hydration suite below. Every other suite in this file leaves these
     // unset (RunList itself renders nothing on an empty resolve).
     listElectiveRuns: vi.fn(), getElectiveRun: vi.fn(), setElectiveAssignment: vi.fn(),
+    // T280 — the answer memory read and write, and the decision journal. Best-effort in the panel;
+    // the default (nothing remembered) is a camp that has answered nothing yet.
+    matchImportAnswers: vi.fn(), rememberImportAnswers: vi.fn(), recordImportDecisions: vi.fn(),
   },
 }))
 
@@ -80,6 +83,9 @@ beforeEach(() => {
   localClient.listElectiveRuns.mockReset().mockResolvedValue([])
   localClient.getElectiveRun.mockReset()
   localClient.setElectiveAssignment.mockReset().mockResolvedValue({ ok: true })
+  localClient.matchImportAnswers.mockReset().mockResolvedValue({})
+  localClient.rememberImportAnswers.mockReset().mockResolvedValue({ written: [], skipped: [] })
+  localClient.recordImportDecisions.mockReset().mockResolvedValue({ ok: true })
   // Default for the pre-existing suites: encryption OFF, which is the real
   // default today (SHORESH_AT_REST_ENCRYPTION is unset). T249's own suite sets
   // this per test.
@@ -1446,5 +1452,90 @@ describe('AssignmentPanel — board item i-elective-attendance-residuals: commit
     fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [newFile] } })
     await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
     expect(screen.queryByText('Replace this sheet?')).toBeNull()
+  })
+})
+
+
+// T280 — the sheet-label questions (a resolver miss: a label this camp has no activity for) are
+// remembered in the camp's answer memory, so the same sheet imported again asks nothing already answered.
+describe('T280 -- a sheet label answered before is not asked again', () => {
+  const PROPS = { activities: [{ id: 'act-1', name: 'Archery' }, { id: 'act-2', name: 'Swim' }] }
+  const SHEET = ['Camper\tBunk\t#1\t#2', 'Ari Katz\tAleph\tQuidditch\tArchery'].join('\n')
+  const REMEMBERED = {
+    'resolve_unknown_label:Quidditch': {
+      tier: 0, source: 'instance', match: 'exact', memoryId: 'mem-1',
+      answer: { verdict: 'mapped', activity: 'Swim' }, why: "Remembered from Dana's answer on 1 Oct",
+    },
+  }
+
+  async function uploadAndConfirm() {
+    render(<AssignmentPanel {...baseProps(PROPS)} />)
+    fireEvent.change(document.querySelector('input[type="file"]'), {
+      target: { files: [new File([SHEET], 'prefs.txt', { type: 'text/plain' })] },
+    })
+    await screen.findByRole('button', { name: /Confirm Mapping/ })
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+  }
+
+  async function commit() {
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'r', counts: { campers: 1 } })
+    fireEvent.click(screen.getByText(/Solve/i))
+    await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+    await waitFor(() => expect(localClient.commitElectiveRun).toHaveBeenCalled())
+  }
+
+  it('asks the memory about each unresolved label, by label', async () => {
+    await uploadAndConfirm()
+    await waitFor(() => expect(localClient.matchImportAnswers).toHaveBeenCalled())
+    expect(localClient.matchImportAnswers.mock.calls[0][0].others).toEqual([
+      { id: 'resolve_unknown_label:Quidditch', qkind: 'pref_label', name: 'Quidditch' },
+    ])
+  })
+
+  it('applies a remembered mapping: no question, a remembered line, and the mapped activity imports', async () => {
+    localClient.matchImportAnswers.mockResolvedValue(REMEMBERED)
+    await uploadAndConfirm()
+    await screen.findByText(/Read as \u201cSwim\u201d \u2014 Remembered from Dana's answer on 1 Oct/)
+    expect(screen.queryByTestId('residue-map')).toBeNull()
+    await commit()
+    const { parsed } = localClient.commitElectiveRun.mock.calls.at(-1)[0]
+    expect(parsed.preferences.map((p) => [p.label, p.rank])).toEqual([['Swim', 1], ['Archery', 2]])
+  })
+
+  it('does not apply a remembered mapping to an activity this camp no longer has', async () => {
+    localClient.matchImportAnswers.mockResolvedValue({
+      'resolve_unknown_label:Quidditch': { ...REMEMBERED['resolve_unknown_label:Quidditch'], answer: { verdict: 'mapped', activity: 'Fencing' } },
+    })
+    await uploadAndConfirm()
+    await waitFor(() => expect(localClient.matchImportAnswers).toHaveBeenCalled())
+    expect(await screen.findByTestId('residue-map')).toBeTruthy()
+  })
+
+  it('remembers what the director answered, and journals the label and the column binding', async () => {
+    await uploadAndConfirm()
+    const select = await screen.findByTestId('residue-map-select')
+    fireEvent.change(select, { target: { value: 'Swim' } })
+    fireEvent.click(screen.getByTestId('residue-map'))
+    await screen.findByText(/Read as \u201cSwim\u201d/)
+    await commit()
+    await waitFor(() => expect(localClient.rememberImportAnswers).toHaveBeenCalled())
+    expect(localClient.rememberImportAnswers.mock.calls.at(-1)[0].entries).toEqual([
+      { other: { qkind: 'pref_label', name: 'Quidditch' }, answer: { verdict: 'mapped', activity: 'Swim' } },
+    ])
+    await waitFor(() => expect(localClient.recordImportDecisions).toHaveBeenCalled())
+    const entries = localClient.recordImportDecisions.mock.calls.at(-1)[0].entries
+    expect(entries.map((e) => [e.kind, e.outcome])).toEqual([['resolve_unknown_label', 'changed'], ['axis_binding', 'accepted']])
+  })
+
+  it('journals a remembered answer as learned from that memory, and does not write it again', async () => {
+    localClient.matchImportAnswers.mockResolvedValue(REMEMBERED)
+    await uploadAndConfirm()
+    await screen.findByText(/Read as \u201cSwim\u201d \u2014 Remembered/)
+    await commit()
+    await waitFor(() => expect(localClient.recordImportDecisions).toHaveBeenCalled())
+    const label = localClient.recordImportDecisions.mock.calls.at(-1)[0].entries.find((e) => e.kind === 'resolve_unknown_label')
+    expect(label.learned_from_id).toBe('mem-1')
+    expect(localClient.rememberImportAnswers).not.toHaveBeenCalled()
   })
 })

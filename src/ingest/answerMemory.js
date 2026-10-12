@@ -22,7 +22,11 @@ export const LEARNING_BAR = Object.freeze({
 // 'trip' and 'special_day': F3/F4 slice 2 (docs/adr/2026-10-11-import-special-days-and-field-trips.md, N3).
 // A trip item's answer is remembered by (name, day); a special_day answer is recorded but never auto-applied
 // (it is deliberately absent from AUTO_APPLY_ELIGIBLE), so a remembered answer pre-selects at most.
-export const QKINDS = Object.freeze(['classify', 'exclusion', 'value', 'drift_ack', 'split', 'merge', 'residue', 'trip', 'special_day'])
+// 'pref_label': T280. An elective preference sheet names a label this camp has no activity for (a resolver
+// miss, ADR 2026-09-27 §12.0); the director maps it to an activity, splits the packed cell, or adds it.
+// Remembered by the label alone, and the mapped activity travels in the answer (`activity`), so a
+// re-import of the same sheet resolves the label instead of asking again.
+export const QKINDS = Object.freeze(['classify', 'exclusion', 'value', 'drift_ack', 'split', 'merge', 'residue', 'trip', 'special_day', 'pref_label'])
 
 export const VERDICTS = Object.freeze({
   classify: ['accept', 'reject', 'as_activity'],
@@ -34,6 +38,7 @@ export const VERDICTS = Object.freeze({
   residue: ['added', 'mapped', 'ignored'],
   trip: ['event', 'activity'],
   special_day: ['special_day', 'events'],
+  pref_label: ['mapped', 'split', 'added'],
 })
 
 // Kinds the report emits that carry nothing worth remembering here. resolve_conflict has its own
@@ -198,6 +203,7 @@ export function signatureOfOther(qkind, { name, variants, patterns, target, cand
   // groups and blocks are deliberately not in the key, so a trip that moved by a period or gained a group
   // is still the director's known trip.
   if (qkind === 'trip' || qkind === 'special_day') return { qkind, parts: [normalizeName(name), normalizeDay(day)], baseline: {}, refs: [], features }
+  if (qkind === 'pref_label') return { qkind, parts: [normalizeName(name)], baseline: {}, refs: [], features }
   return null
 }
 
@@ -281,13 +287,22 @@ export function isExplicit(record) {
   return EXPLICIT_VERDICTS.has(record.answer?.verdict) || record.answer?.tap === true
 }
 
+// The activity a pref_label answer mapped to: the one answer field that is text rather than a flag.
+const isActivityName = (v) => typeof v === 'string' && v.trim() !== '' && v.length <= 128
+
 export function validateAnswer(qkind, a) {
   if (!a || typeof a !== 'object' || Array.isArray(a)) return false
   const verdicts = VERDICTS[qkind]
   if (!verdicts || !verdicts.includes(a.verdict)) return false
   for (const k of Object.keys(a)) {
+    if (k === 'activity' && qkind === 'pref_label') {
+      if (!isActivityName(a[k])) return false
+      continue
+    }
     if (k !== 'verdict' && k !== 'tap' && k !== 'recalled') return false
     if (k !== 'verdict' && typeof a[k] !== 'boolean') return false
   }
+  // A mapping that does not say what it maps to cannot be replayed.
+  if (qkind === 'pref_label' && a.verdict === 'mapped' && !isActivityName(a.activity)) return false
   return true
 }

@@ -131,6 +131,14 @@ function outcomeFor(decision, answer) {
     return OUTCOMES.UNANSWERED
   }
 
+  if (decision.kind === 'axis_binding') {
+    // T280 — the elective sheet's column binding. The corrector always PROPOSES one (inferred, or the
+    // camp's remembered layout), so confirming it untouched is ACCEPTED and editing it is CHANGED.
+    if (answer.action === 'confirmed') return OUTCOMES.ACCEPTED
+    if (answer.action === 'corrected') return OUTCOMES.CHANGED
+    return OUTCOMES.UNANSWERED
+  }
+
   // A kind this function has not been taught. Deliberately not a throw: a new
   // decision kind must never be able to fail an import through the journal,
   // which is diagnostics. It is recorded as unanswered and shows up as a gap in

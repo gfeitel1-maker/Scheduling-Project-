@@ -310,12 +310,13 @@ export function matchImportAnswers(db, { campId, decisions = [], others = [], su
 
 function instanceRecall(db, tables, decision, sig, heads, progress, nearKind = null) {
   const newest = heads[0]
-  const verdicts = new Set(heads.map((h) => h.answer.verdict))
+  // Two answers disagree when what they would replay differs: the verdict, or the activity a label was mapped to.
+  const verdicts = new Set(heads.map((h) => replayed(h.answer)))
   const qualifying = heads.every((h) => h.qualifies)
   const baselineEqual = heads.every((h) => valuesEqual(h.baseline, sig.baseline))
   const contradiction = verdicts.size > 1
   const exact = !nearKind && !contradiction && qualifying && baselineEqual && (decision ? refsAreLive(db, tables, decision, sig) : true)
-  const answer = decision ? toUiAnswer(decision, newest.answer) : { verdict: newest.answer.verdict }
+  const answer = decision ? toUiAnswer(decision, newest.answer) : otherAnswer(newest.answer)
   if (!answer) return null
   const asRecorded = !qualifying
   return {
@@ -327,6 +328,11 @@ function instanceRecall(db, tables, decision, sig, heads, progress, nearKind = n
     progress,
   }
 }
+
+// What an answer would replay, as one comparable string: its verdict, plus the activity a label maps to.
+const replayed = (a) => (typeof a?.activity === 'string' ? `${a.verdict}\u0000${a.activity}` : a?.verdict)
+// A session-state question's recalled answer: the verdict, and the activity when there is one.
+const otherAnswer = (a) => (typeof a.activity === 'string' ? { verdict: a.verdict, activity: a.activity } : { verdict: a.verdict })
 
 function patternRecall(decision, pat) {
   const answer = toUiAnswer(decision, pat.answer)
@@ -418,7 +424,7 @@ function planEntry(entry, ctx) {
   if (!rawSig) return { skip: 'not_remembered' }
   const sig = fitSignature(rawSig)
   const answer = other
-    ? (typeof entry.answer?.verdict === 'string' ? { verdict: entry.answer.verdict } : null)
+    ? (typeof entry.answer?.verdict === 'string' ? otherAnswer(entry.answer) : null)
     : toRecordAnswer(decision, entry.answer)
   if (answer && other && !validateAnswer(sig.qkind, answer)) return { skip: 'unanswered' }
   if (!answer) return { skip: 'unanswered' }
@@ -429,13 +435,14 @@ function planEntry(entry, ctx) {
   let role = roleFor(sig.qkind, answer)
   if (!role) return { skip: 'state_derived' }
   if (sig.parts.some((p) => camperNames.has(p))) return { skip: 'camper_name' }
+  if (typeof answer.activity === 'string' && camperNames.has(normalizeName(answer.activity))) return { skip: 'camper_name' }
   const key = canonicalKey(sig)
   const heads = state.answers.filter((a) => a.keyHash === key.keyHash && a.qkind === sig.qkind)
   // A card the director SAW pre-filled with a near memory is remembered only through an explicit
   // "Remember this" (ADR 3.5). Without it the answer is still kept, as evidence that retires nothing.
   const evidenceOnly = entry.recalled?.match === 'near' && entry.rememberNear !== true
   if (evidenceOnly) role = 'evidence'
-  const matches = (h) => h.qualifies && h.answer.verdict === answer.verdict && valuesEqual(h.baseline, sig.baseline)
+  const matches = (h) => h.qualifies && replayed(h.answer) === replayed(answer) && valuesEqual(h.baseline, sig.baseline)
   const same = heads.length > 0 && (evidenceOnly ? heads.some(matches) : heads.every(matches))
   if (same) return { skip: 'unchanged' }
   const supersedes = evidenceOnly ? [] : heads.map((h) => h.id)
@@ -484,17 +491,21 @@ function findAnswer(db, campId, memoryId, { allowForgotten = false } = {}) {
   return { state, found }
 }
 
+// Changing a mapped label keeps the activity it maps to only while the verdict is still a mapping.
+const changedAnswer = (found, verdict) => (verdict === 'mapped' && typeof found.answer?.activity === 'string' ? { verdict, activity: found.answer.activity } : { verdict })
+
 export function changeAnswer(db, { campId, authorUserId, deviceId, memoryId, verdict, now = () => new Date() } = {}) {
   const { state, found } = findAnswer(db, campId, memoryId, { allowForgotten: true })
   if (!found) return { ok: false, error: 'NOT_FOUND' }
   if (!VERDICTS[found.qkind].includes(verdict)) return { ok: false, error: 'BAD_VERDICT' }
+  if (!validateAnswer(found.qkind, changedAnswer(found, verdict))) return { ok: false, error: 'BAD_VERDICT' }
   const heads = state.answers.filter((a) => a.keyHash === found.keyHash && a.qkind === found.qkind)
   let res = null
   runAtomic(db, () => {
     res = insertAnswer(db, state, {
       campId, authorUserId, deviceId, confirmedAt: now().toISOString(), qkind: found.qkind, role: 'instance',
       key: { parts: found.parts, keyHash: found.keyHash }, baseline: found.baseline, refs: found.refs, features: found.features,
-      shape: campShape(db, campId), answer: { verdict }, importId: found.import_id, supersedes: heads.map((h) => h.id), overrode: heads.map((h) => h.id), bulk: false,
+      shape: campShape(db, campId), answer: changedAnswer(found, verdict), importId: found.import_id, supersedes: heads.map((h) => h.id), overrode: heads.map((h) => h.id), bulk: false,
     })
   })
   return res.id ? { ok: true, id: res.id } : { ok: false, error: res.error === 'too_large' ? 'TOO_LARGE' : 'UNWRITABLE' }
@@ -593,6 +604,28 @@ export function runRetention(db, { campId, deviceId, authorUserId, now = () => n
 
 const titleCase = (s) => String(s ?? '').replace(/\b\w/g, (c) => c.toUpperCase())
 
+// T280 — the elective sheet column layouts a director confirmed (the axis binding, ADR 2026-09-27 §6),
+// listed in the same view. They live in their own seedling kind and are recalled by recallColumnMapping,
+// so this only READS them for display: header text and roles, never a camper's data.
+function columnLayouts(db, campId, names) {
+  const rows = db.prepare(
+    "SELECT id, payload, confirmed_by, confirmed_at FROM camp_seedlings WHERE camp_id = ? AND kind = 'preference_column_roles' AND status = 'active'"
+  ).all(campId)
+  const out = []
+  for (const r of rows) {
+    let p
+    try { p = JSON.parse(r.payload) } catch { continue }
+    if (!p || typeof p.name !== 'string' || !Array.isArray(p.ranks)) continue
+    const text = (v) => (typeof v === 'string' && v.trim() !== '' ? v.slice(0, 128) : null)
+    out.push({
+      id: r.id, name: text(p.name), externalId: text(p.externalId), division: text(p.division),
+      ranks: [...p.ranks].filter((x) => x && Number.isInteger(x.rank)).sort((a, b) => a.rank - b.rank).map((x) => text(x.header)).filter(Boolean),
+      confirmed_at: r.confirmed_at, confirmed_by: r.confirmed_by, confirmedByName: names(r.confirmed_by).name,
+    })
+  }
+  return out.sort((a, b) => (a.confirmed_at < b.confirmed_at ? 1 : -1))
+}
+
 export function listLearned(db, { campId, viewerUserId, permissions } = {}) {
   const opts = permissions ? { permissions } : undefined
   const state = liveRecords(db, campId, opts)
@@ -601,6 +634,7 @@ export function listLearned(db, { campId, viewerUserId, permissions } = {}) {
   const answers = state.answers.map((a) => ({
     id: a.id, qkind: a.qkind, role: a.role, name: titleCase(a.parts[0]), verdict: a.answer.verdict,
     label: answerLabel(a.features, a.answer.verdict), features: a.features, explicit: isExplicit(a), bulk: a.bulk,
+    activity: typeof a.answer.activity === 'string' ? a.answer.activity : null,
     confirmed_at: a.confirmed_at, confirmed_by: a.confirmed_by, confirmedByName: names(a.confirmed_by).name,
     asRecorded: !a.qualifies, former: a.former, camp_shape: a.camp_shape,
   }))
@@ -618,6 +652,7 @@ export function listLearned(db, { campId, viewerUserId, permissions } = {}) {
   patterns.sort((a, b) => b.progress.agreeing - a.progress.agreeing)
   return {
     answers, patterns,
+    columnLayouts: columnLayouts(db, campId, names),
     vetoes: state.vetoes.length,
     formerUserAnswers: state.answers.filter((a) => !a.qualifies).length,
     canWrite: viewer.qualifies,

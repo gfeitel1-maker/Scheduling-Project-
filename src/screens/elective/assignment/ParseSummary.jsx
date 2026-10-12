@@ -164,8 +164,10 @@ function ResidueRow({ group, onAddActivity, onMapToActivity, onSplitPacked, acti
 // WHAT THE ROW SAYS ONCE IT IS SETTLED. Bare fact, and it names the thing that
 // changed rather than congratulating anyone for changing it.
 function settledText(settled) {
-  if (settled.action === RESOLUTION.MAP_TO_EXISTING) return `Read as \u201c${settled.activityName}\u201d`
-  if (settled.action === RESOLUTION.SPLIT_PACKED) return 'Read as separate choices'
+  // T280 — a resolution replayed from the camp's answer memory says where it came from.
+  const why = settled.remembered?.why ? ` \u2014 ${settled.remembered.why}` : ''
+  if (settled.action === RESOLUTION.MAP_TO_EXISTING) return `Read as \u201c${settled.activityName}\u201d${why}`
+  if (settled.action === RESOLUTION.SPLIT_PACKED) return `Read as separate choices${why}`
   return 'Added as an activity'
 }
 

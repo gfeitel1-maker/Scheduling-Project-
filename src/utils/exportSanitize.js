@@ -85,9 +85,41 @@ export function assertImportFileSize(byteLength, limits = IMPORT_LIMITS) {
 export function readWorkbookSafely(data, { type, byteLength, limits = IMPORT_LIMITS } = {}) {
   const len = typeof byteLength === 'number' ? byteLength : (data?.byteLength ?? data?.length ?? 0)
   assertImportFileSize(len, limits)
-  const workbook = XLSX.read(data, { type })
+  const FS = tabSeparated(data, type) ? '\t' : undefined
+  const workbook = XLSX.read(data, FS ? { type, FS } : { type })
   assertWorkbookComplexity(workbook, limits)
   return workbook
+}
+
+// Is this delimited text separated by TABS? SheetJS sniffs the separator from the body, so a TSV whose
+// cells hold commas ("Swim, Archery, Ceramics") was read as CSV: every row split on the commas and the
+// tabs stayed inside the cells, and the import read nothing from a file a person reads at a glance
+// (found by the T282 shape corpus). The HEADER line decides instead, since a header names columns
+// and rarely holds a comma: more tabs than unquoted commas there means tab-separated. Binary
+// workbooks (zip or OLE) and non-byte inputs are left to SheetJS exactly as before.
+function tabSeparated(data, type) {
+  if (type !== 'array' && type !== 'buffer') return false
+  let bytes
+  try {
+    bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
+  } catch {
+    return false
+  }
+  if (bytes.length < 2) return false
+  const zip = bytes[0] === 0x50 && bytes[1] === 0x4b
+  const ole = bytes[0] === 0xd0 && bytes[1] === 0xcf
+  if (zip || ole) return false
+  const head = new TextDecoder('utf-8').decode(bytes.subarray(0, 4096))
+  const line = head.split(/\r?\n/).find((l) => l.trim() !== '') ?? ''
+  let tabs = 0
+  let commas = 0
+  let quoted = false
+  for (const ch of line) {
+    if (ch === '"') quoted = !quoted
+    else if (!quoted && ch === '\t') tabs += 1
+    else if (!quoted && ch === ',') commas += 1
+  }
+  return tabs > 0 && tabs >= commas
 }
 
 // ONE READER FOR THE BYTES, one layer above `readWorkbookSafely` (T313): every

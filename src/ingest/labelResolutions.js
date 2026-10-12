@@ -91,7 +91,47 @@ export function resolutionMap(list = []) {
     // Dropping it here means the resolver never has to ask whether its own
     // inputs make sense.
     if (item.action === RESOLUTION.MAP_TO_EXISTING && !item.activityName) continue
-    out[item.label] = { action: item.action, activityName: item.activityName ?? null }
+    out[item.label] = { action: item.action, activityName: item.activityName ?? null, ...(item.remembered ? { remembered: item.remembered } : {}) }
+  }
+  return out
+}
+
+// T280 — the camp's answer memory, for the label questions (qkind `pref_label`).
+//
+// A resolution the director gave is remembered BY LABEL, and a remembered one is replayed as the
+// resolution itself, so the same sheet imported again settles the label instead of asking. Only an
+// EXACT memory replays, and only what still makes sense against the camp as it is now: a mapping to an
+// activity the camp no longer has, or a split of a cell that is not packed, asks again (recall can only
+// fail toward asking). 'added' replays nothing: the activity it added either exists, and the label
+// resolves on its own, or was removed, and the question is real again.
+const RECORD_VERDICT = {
+  [RESOLUTION.MAP_TO_EXISTING]: 'mapped',
+  [RESOLUTION.SPLIT_PACKED]: 'split',
+  [RESOLUTION.ADD_ACTIVITY]: 'added',
+}
+
+export function resolutionFromRecall(label, recalled, { activityNames = [], packed = false } = {}) {
+  if (!label || recalled?.match !== 'exact' || !recalled.answer) return null
+  const { verdict, activity } = recalled.answer
+  const remembered = { memoryId: recalled.memoryId ?? null, why: recalled.why ?? null }
+  if (verdict === 'mapped' && typeof activity === 'string') {
+    const name = activityNames.find((n) => typeof n === 'string' && n.trim().toLowerCase() === activity.trim().toLowerCase())
+    return name ? { label, action: RESOLUTION.MAP_TO_EXISTING, activityName: name, remembered } : null
+  }
+  if (verdict === 'split' && packed) return { label, action: RESOLUTION.SPLIT_PACKED, remembered }
+  return null
+}
+
+// What to remember about the labels the director settled THIS import. A resolution replayed from
+// memory is not written back: it is the memory, and writing it again would count it twice.
+export function labelAnswerEntries(list = []) {
+  const out = []
+  for (const r of list) {
+    if (!r?.label || r.remembered) continue
+    const verdict = RECORD_VERDICT[r.action]
+    if (!verdict) continue
+    if (verdict === 'mapped' && !r.activityName) continue
+    out.push({ other: { qkind: 'pref_label', name: r.label }, answer: verdict === 'mapped' ? { verdict, activity: r.activityName } : { verdict } })
   }
   return out
 }
