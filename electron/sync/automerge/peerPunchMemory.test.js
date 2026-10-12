@@ -7,6 +7,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { initSchema } from '../../db/localDb.js'
 import { rememberPunchMemory, loadTrustedPunchMemory, forgetPeerAddress } from './peerAddressBook.js'
+import { rosterDevice } from './rosterTestSupport.js'
 
 const files = []
 afterEach(() => {
@@ -20,9 +21,11 @@ function freshDb() {
   initSchema(db)
   return db
 }
-const trust = (db, deviceId, peerId, revoked = false) =>
-  db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at, revoked_at, libp2p_peer_id) VALUES (?, ?, 'approved', ?, ?, ?)")
+const trust = (db, deviceId, peerId, revoked = false) => {
+  rosterDevice(db, deviceId, peerId)
+  return db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at, revoked_at, libp2p_peer_id) VALUES (?, ?, 'approved', ?, ?, ?)")
     .run(deviceId, deviceId, '2026-10-01T00:00:00.000Z', revoked ? '2026-10-02T00:00:00.000Z' : null, peerId)
+}
 
 const SDP = 'v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=ice-ufrag:abcd\r\na=ice-pwd:' + 'x'.repeat(24) + '\r\na=fingerprint:sha-256 AA:BB:CC\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=setup:active\r\n'
 const memory = {

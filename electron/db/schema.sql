@@ -1922,6 +1922,21 @@ CREATE TABLE IF NOT EXISTS authority_cache (
   updated_at TEXT NOT NULL
 );
 
+-- roster_cache (v96, T376 — docs/adr/2026-10-12-shared-signed-device-roster.md). Device-local,
+-- NEVER-SYNCED cache of the host-signed `device_roster` Automerge collection: one row per device this
+-- device has verified as a camp member (signature against camps.signing_public_key + camps.id), with the
+-- libp2p peer id the Host bound it to. Admission between devices (connectionAuth.js evaluateAuthenticate,
+-- peerIdentity.js createBoundPeerTrust) reads this, so it needs no Host and no token. MONOTONIC: a row is
+-- never removed because the document record later fails verification or is deleted (a document writer
+-- must not be able to subtract a verified device); removal of a device is a signed revoke in
+-- camp_authority_log, which denies at admission through authority_cache. Same exclusion class as
+-- authority_cache above: no PROJECTIONS entry, no syncable-field list.
+CREATE TABLE IF NOT EXISTS roster_cache (
+  device_id TEXT PRIMARY KEY,
+  peer_id TEXT NOT NULL UNIQUE,
+  verified_at TEXT NOT NULL
+);
+
 -- elective_run_outer_snapshots (v74, T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-
 -- slices.md). A finalized run's per-camper, per-cell export snapshot — the "outer" grid position
 -- (day/time-block) a camper's assignment resolves to, frozen at finalization time so the export

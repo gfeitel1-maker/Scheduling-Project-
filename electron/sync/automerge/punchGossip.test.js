@@ -206,6 +206,16 @@ describe('punchGossip', () => {
     expect(isPublicAddress('ip6', '3ffe::1')).toBe(true)
   })
 
+  it('T376: a device known only from the signed roster is trusted; a revoked one is not', () => {
+    a.db.prepare("INSERT INTO roster_cache (device_id, peer_id, verified_at) VALUES ('device-r', 'peer-r', 'now')").run()
+    const reg = deviceRegistryFromDb(a.db)
+    expect(reg.peerIdForDevice('device-r')).toBe('peer-r')
+    expect(reg.deviceIdForPeer('peer-r')).toBe('device-r')
+    a.db.prepare("INSERT INTO authority_cache (device_id, status, updated_at) VALUES ('device-r', 'revoked', 'now')").run()
+    expect(reg.peerIdForDevice('device-r')).toBeNull()
+    expect(reg.deviceIdForPeer('peer-r')).toBeNull()
+  })
+
   it('readReflexive refuses to run without a highWater store', () => {
     doc = publish(b)
     expect(() => readReflexive(doc, { campId: CAMP_ID, registry: deviceRegistryFromDb(a.db), now: () => NOW + 1000 })).toThrow(/highWater/)

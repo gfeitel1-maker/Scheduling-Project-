@@ -46,7 +46,7 @@ afterEach(() => {
 })
 
 async function start(punchSignaling) {
-  const fakeStartSyncNode = vi.fn(async () => ({ broadcastLocalDoc() {}, onPeersChanged() {}, setAuthToken() {}, stop: async () => {} }))
+  const fakeStartSyncNode = vi.fn(async () => ({ broadcastLocalDoc() {}, onPeersChanged() {}, stop: async () => {} }))
   const starter = createAutomergeSyncStarter({
     deviceId: getOrCreateDeviceId(db), db, userDataPath, docCipher: null,
     getMainWindow: () => null, getLiveHandlers: () => null,

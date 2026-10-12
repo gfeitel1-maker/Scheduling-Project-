@@ -37,11 +37,13 @@ function freshDb() {
   return db
 }
 
-// Minimal devices row: a trusted (authorized, not revoked) device bound to peerId.
+// A trusted device: on the signed roster (T376) bound to peerId, with a devices row carrying the routing peer id; the
+// legacy revoked stamp is set when `revoked`.
 function seedTrustedDevice(db, { deviceId, peerId, revoked = false }) {
   db.prepare(
     "INSERT INTO devices (id, name, pairing_status, authorized_at, revoked_at, libp2p_peer_id) VALUES (?, ?, 'approved', ?, ?, ?)"
   ).run(deviceId, deviceId, '2026-10-01T00:00:00.000Z', revoked ? '2026-10-02T00:00:00.000Z' : null, peerId)
+  db.prepare("INSERT INTO roster_cache (device_id, peer_id, verified_at) VALUES (?, ?, '2026-10-01T00:00:00.000Z')").run(deviceId, peerId)
 }
 
 describe('rememberPeerAddress', () => {

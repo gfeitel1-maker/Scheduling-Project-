@@ -87,6 +87,31 @@ describe('DeviceManagerScreen — write controls gated by device mode', () => {
     expect(screen.queryByText(/main computer/i)).toBeNull()
   })
 
+  it('a revoke that only applied on this computer says so as a note, not an error (T376)', async () => {
+    const user = userEvent.setup()
+    localClient.listDevices.mockResolvedValue([authorizedDevice()])
+    localClient.revokeDevice.mockResolvedValue({ fleetWide: false })
+
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="client" />)
+    await user.click(await screen.findByText('Revoke'))
+
+    // Shown as the muted inline note the Deny copy uses, not in the error box (a <div> banner).
+    const note = await screen.findByText(/Removed on this computer only/)
+    expect(note.tagName).toBe('SPAN')
+  })
+
+  it('a fleet-wide revoke shows no local-only note (T376)', async () => {
+    const user = userEvent.setup()
+    localClient.listDevices.mockResolvedValue([authorizedDevice()])
+    localClient.revokeDevice.mockResolvedValue({ fleetWide: true })
+
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="client" />)
+    await user.click(await screen.findByText('Revoke'))
+
+    await new Promise((r) => setTimeout(r, 50))
+    expect(screen.queryByText(/Removed on this computer only/)).toBeNull()
+  })
+
   it('says plainly, inline, that a deny applies to this device only (T351)', async () => {
     const user = userEvent.setup()
     localClient.listPendingPairingRequests.mockResolvedValueOnce([pendingDevice()]).mockResolvedValue([])

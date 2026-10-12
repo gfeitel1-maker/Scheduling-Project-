@@ -79,6 +79,10 @@ export const PURGE_INFRASTRUCTURE_TABLES = [
   // never having been purged, not from preserving these derived rows byte-identically).
   'applied_authority_log',
   'authority_cache',
+  // roster_cache (T376, docs/adr/2026-10-12-shared-signed-device-roster.md): the device-local, monotonic cache of the
+  // host-signed `device_roster` document collection. Like authority_cache, the document collection is not purged, so
+  // wiping this cache loses nothing the next projection pass cannot re-verify and rebuild from the untouched signed entries.
+  'roster_cache',
   // peer_tombstone_reports (T322 S3a, docs/adr/2026-09-19-multi-device-erasure-propagation.md's
   // 2026-10-01 addendum): a peer's self-reported set of (tombstone id, version) pairs it has
   // verified-and-projected — erasure-PROPAGATION metadata (which peer applied which purge, at what

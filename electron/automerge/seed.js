@@ -151,7 +151,8 @@ export function seedAllFromSqlite(db, doc = createEmptyDoc()) {
     // there is nothing in SQLite to carry into a freshly-seeded document. Correctly starts empty;
     // real entries only ever arrive by being written directly into the live document (authorityLog.js)
     // or by merging in from a peer.
-    if (entity === 'camp_authority_log') continue
+    // device_roster (T376) is likewise host-signed document-only data with no SQLite source to seed from.
+    if (entity === 'camp_authority_log' || entity === 'device_roster') continue
     d = seedDocFromSqlite(db, d, entity)
   }
   for (const entity of BULK_REPLACE_MODELED_ENTITIES) {

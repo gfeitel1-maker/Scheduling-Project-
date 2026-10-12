@@ -1148,7 +1148,8 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
         // projected into a 1:1 mirror table like tombstones; its verified state lives in
         // applied_authority_log/authority_cache instead (see campDocument.js's
         // EXTRA_MODELED_ENTITIES comment). Nothing to compare row-for-row here.
-        if (entity === 'camp_authority_log') continue
+        // device_roster (T376) is the same shape: its verified state lives in roster_cache.
+        if (entity === 'camp_authority_log' || entity === 'device_roster') continue
         const sourceRows = db.prepare(`SELECT * FROM ${entity} ORDER BY id`).all()
         const targetRows = targetDb.prepare(`SELECT * FROM ${entity} ORDER BY id`).all()
         expect(targetRows).toEqual(sourceRows)

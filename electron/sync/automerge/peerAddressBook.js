@@ -30,7 +30,6 @@
 // snapshot is taken. redialTrustedPeers re-checks trust IMMEDIATELY BEFORE each individual dial —
 // not once for the whole batch — so a peer revoked mid-batch is not dialed even though it was
 // still trusted when the snapshot was read.
-import { deviceTrustStatus } from '../../auth/deviceTrust.js'
 import { createBoundPeerTrust } from './peerIdentity.js'
 import { multiaddr } from '@multiformats/multiaddr'
 import { isPublicAddress, MAX_FUTURE_SKEW_MS } from './punchGossip.js'
@@ -169,7 +168,7 @@ export function loadTrustedPunchMemory(db, peerId, { isPeerTrusted } = {}) {
   }
 }
 
-// Every (peerId, multiaddr) pair for a trusted (authorized, not revoked) peer with at least one
+// Every (peerId, multiaddr) pair for a trusted (on the signed roster, not revoked) peer with at least one
 // remembered address — the redial list. A multi-homed peer contributes one entry per remembered
 // address. Queried fresh on every call, same discipline as createBoundPeerTrust (peerIdentity.js):
 // a peer revoked since the last read is excluded. This is a SNAPSHOT, not a live guarantee — see
@@ -184,11 +183,11 @@ export function listTrustedRememberedAddresses(db, { now = Date.now } = {}) {
     .all()
   const at = now()
   const fresh = (row) => at - Date.parse(row.lastSeenAt) <= (isPublicTcp(row.multiaddr) ? MAPPED_ADDRESS_MAX_AGE_MS : LAN_ADDRESS_MAX_AGE_MS)
+  // T376: trusted means on the Host-signed roster and not revoked (createBoundPeerTrust), the same rule admission uses,
+  // so a client remembers and redials the other clients it learned about from the roster, not only the Host.
+  const isPeerTrusted = createBoundPeerTrust(db)
   return rows
-    .filter((row) => {
-      const trust = deviceTrustStatus(db, row.deviceId)
-      return trust.authorized && !trust.revoked && fresh(row)
-    })
+    .filter((row) => isPeerTrusted(row.peerId) && fresh(row))
     .sort((a, b) => isPublicTcp(b.multiaddr) - isPublicTcp(a.multiaddr) || (a.lastSeenAt < b.lastSeenAt ? 1 : a.lastSeenAt > b.lastSeenAt ? -1 : 0))
     .map((row) => ({ peerId: row.peerId, multiaddr: row.multiaddr }))
 }
@@ -216,7 +215,7 @@ export function redialTarget(peerId, remembered) {
 // this call) is skipped, never double-dialed, for ALL of its remembered addresses.
 //
 // TOCTOU-safe via `isPeerTrusted`: re-checked immediately before EACH target's own dial (not once
-// for the whole batch), defaulting to createBoundPeerTrust(db) — a fresh devices-table query, so a
+// for the whole batch), defaulting to createBoundPeerTrust(db) — a fresh roster/authority query, so a
 // revoke landing after the initial snapshot (listTrustedRememberedAddresses) is still honored for
 // any target not yet dialed.
 //

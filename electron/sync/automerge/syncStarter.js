@@ -47,7 +47,6 @@ import { relayRuntimeEligible, holePunchFoundationPresent } from './relayEnablem
 import { punchRuntimeEligible, punchNativeLoadable } from './punchEnablement.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { recordAuditEvent } from '../../audit/auditLog.js'
-import { issueDeviceToken } from '../../auth/localAuth.js'
 import { recordDeviceHealthEvent, DEVICE_HEALTH } from '../../ops/deviceHealthEvents.js'
 import { codeForAuthRejectedReason } from '../../authRejectedSender.js'
 // sanitizeOpForIpc is defined in main.js (the sole exporter). This creates a
@@ -727,22 +726,6 @@ export function createAutomergeSyncStarter({
         try { getLiveHandlers()?.pushSyncStatus?.() } catch { /* never break sync over a UI notice */ }
       })
 
-      // Host case: a device holding host_signing_key can self-issue its own
-      // device-admission token on demand (same fact issueDeviceToken itself
-      // relies on) — no login step needed, mirroring chooseMode's existing
-      // Host auto-authorize precedent. A Client has no signing key and gets
-      // its (camp) token instead from login()/chooseMode's client branch
-      // below. Finding 2 fix: issueDeviceToken, not issueCampToken(db, null,
-      // deviceId) — see the doc comment at the chooseMode call site above.
-      try {
-        automergeSyncNode.setAuthToken(issueDeviceToken(db, deviceId))
-      } catch {
-        // Not the Host — no host_signing_key row. Expected for a Client: its
-        // token comes from the join's sign-in or chooseMode, which may have
-        // run BEFORE this node existed (a just-joined device), so take it now.
-        const clientToken = getLiveHandlers()?.getNodeAuthToken?.()
-        if (clientToken) automergeSyncNode.setAuthToken(clientToken)
-      }
       const listenCount = automergeSyncNode.getMultiaddrs?.().length ?? 0
       if (listenCount > 0) console.log(`automerge sync: node started, listening on ${listenCount} address(es)`)
       else console.warn('automerge sync: node started but is listening on 0 addresses — other devices cannot reach it')

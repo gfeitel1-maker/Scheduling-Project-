@@ -39,6 +39,8 @@ import { startJoinSession } from '../../electron/sync/automerge/joinSession.js'
 import { mintJoinSecret } from '../../electron/sync/joinCode.js'
 import { seedAllFromSqlite } from '../../electron/automerge/seed.js'
 import { signAuthFields } from '../../electron/auth/authSignature.js'
+import { ensureDeviceIdentity } from '../../electron/auth/deviceIdentity.js'
+import { buildRosterWrites } from '../../electron/automerge/deviceRoster.js'
 import { ensureHostSigningKey, issueDeviceToken } from '../../electron/auth/localAuth.js'
 import { saveDoc, loadDoc } from '../../electron/sync/automerge/docStore.js'
 import { setUserDataDirGetter, setLocalWriteBroadcaster } from '../../electron/sync/automerge/liveDoc.js'
@@ -250,7 +252,6 @@ export class AmHost {
       this.campId = existingCamp.id
       try {
         this.adminToken = issueDeviceToken(this.db, this.deviceId)
-        this.node.setAuthToken(this.adminToken)
       } catch {
         // No host_signing_key yet — a first-run Host, whose bootstrap() will
         // mint one in a moment.
@@ -275,7 +276,6 @@ export class AmHost {
     this.campId = campId
     this.adminUserId = user.id
     this.adminToken = issueDeviceToken(this.db, this.deviceId)
-    this.node.setAuthToken(this.adminToken)
 
     // The camp must be in the DOCUMENT, not only in SQLite — the document is
     // what a joining device receives. main.js's ensureAutomergeDocSeeded does
@@ -283,9 +283,22 @@ export class AmHost {
     // join scenario pass against an empty camp.
     await this.node.applyLocal(seedAllFromSqlite(this.db, this.node.getDoc()))
 
+    // T376: the Host's own roster entry, as main.js's bootstrapCamp writes it, so clients admit the Host from the signed roster.
+    const { peerId: hostPeerId } = await ensureDeviceIdentity(this.db)
+    await this.enrollInDoc(this.deviceId, hostPeerId)
+
     this.addingDevices = true
     this.joinSecret = mintJoinSecret()
     return { campId, userId: user.id, token: this.adminToken, joinCode: this.joinSecret }
+  }
+
+  /** Write the signed roster entry for `deviceId` into this Host's live document (a Host-only operation). */
+  async enrollInDoc(deviceId, peerId) {
+    const writes = buildRosterWrites(this.db, { deviceId, peerId })
+    if (!writes) return
+    let doc = this.node.getDoc()
+    for (const w of writes) doc = applyWrite(doc, w)
+    await this.node.applyLocal(doc)
   }
 
   waitForPairingRequest(timeoutMs = 6000) {
@@ -497,7 +510,6 @@ export class AmClient {
       await this.node.dial(host.node.getMultiaddrs()[0])
       await waitForCond(() => this.node.getPeers().includes(this.hostPeerId))
     }
-    this.node.setAuthToken(this.token)
     // T271 round 3 cleanup: each side announces its OWN handshakeSchemaVersion override when one was
     // given at construction, not always the real constant — a scenario combining an override with
     // restart+reconnect would otherwise silently exercise the wrong (real) value and false-pass.
@@ -614,6 +626,18 @@ export async function setupTwoJoinedDevices({
   await clientB.join(host)
 
   return { tmpDir, host, clientA, clientB, campId }
+}
+
+/**
+ * setupTwoJoinedDevices plus a third client (T376 roster tests: revocation, ordering and forgery need a
+ * device that is neither the revoker nor the revoked). Every client joins through the real join flow.
+ */
+export async function setupThreeJoinedDevices(opts = {}) {
+  const trio = await setupTwoJoinedDevices(opts)
+  const clientC = new AmClient(`${trio.tmpDir}/clientC.db`)
+  clientC.open()
+  await clientC.join(trio.host)
+  return { ...trio, clientC }
 }
 
 /**

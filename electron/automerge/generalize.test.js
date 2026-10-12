@@ -80,6 +80,8 @@ describe('Automerge generalization slice — modeled entity set is pinned to DIR
       // T331 (docs/adr/2026-10-02-distributed-revocation-authority.md): the genesis-registered
       // camp_authority_log collection, added to EXTRA_MODELED_ENTITIES the same way tombstones was.
       'camp_authority_log',
+      // T376 (docs/adr/2026-10-12-shared-signed-device-roster.md): the Host-signed device roster collection.
+      'device_roster',
     ].filter((e) => !DEFERRED_ENTITIES.has(e))
     const expectedScopes = [...BULK_REPLACE_MODELED_ENTITIES].map((e) => `${e}_scopes`)
     // Field provenance (docs/adr/2026-09-09-field-provenance-in-the-document.md)

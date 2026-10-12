@@ -109,7 +109,6 @@ const node = await startSyncNode({
   onAuthRejected: (i) => console.log(`  ⚠️  inbound auth REJECTED: ${JSON.stringify(i)}`),
 })
 setLocalWriteBroadcaster((d) => node.broadcastLocalDoc(d).catch(() => {}))
-node.setAuthToken(token)
 pass('libp2p node started', `peer ${String(node.peerId).slice(0, 14)}…`)
 console.log(`  listening: ${node.getMultiaddrs().map(String).join(', ') || '(none)'}`)
 

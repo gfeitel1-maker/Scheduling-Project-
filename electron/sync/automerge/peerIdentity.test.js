@@ -136,41 +136,52 @@ describe('bindOrVerifyPeerIdentity — a peer id already claimed by another devi
 // syncNode.js's permissive lanTopologyTrust stub. It must return true only for
 // a peer id bound to a devices row that is authorized and not revoked, and
 // must query fresh every call (mutualAuth never caches the verdict).
-describe('createBoundPeerTrust', () => {
-  it('returns true for a peer id bound to an authorized, non-revoked device', () => {
+describe('createBoundPeerTrust (signed device roster, T376)', () => {
+  const roster = (db, deviceId, peerId) =>
+    db.prepare("INSERT INTO roster_cache (device_id, peer_id, verified_at) VALUES (?, ?, '2026-01-01')").run(deviceId, peerId)
+
+  it('returns true for a peer id the roster binds to a non-revoked device', () => {
+    const db = freshDb()
+    roster(db, 'd1', 'peer-a')
+    expect(createBoundPeerTrust(db)('peer-a')).toBe(true)
+  })
+
+  it('does not depend on a devices row or on devices.authorized_at', () => {
+    const db = freshDb()
+    roster(db, 'd1', 'peer-a')
+    db.prepare("INSERT INTO devices (id, name, libp2p_peer_id) VALUES ('d1', 'Device 1', 'peer-a')").run()
+    expect(createBoundPeerTrust(db)('peer-a')).toBe(true)
+  })
+
+  it('returns false for a peer that only has a TOFU-bound, authorized devices row but is not on the roster', () => {
     const db = freshDb()
     db.prepare(
       "INSERT INTO devices (id, name, libp2p_peer_id, authorized_at) VALUES ('d1', 'Device 1', 'peer-a', '2026-01-01')"
     ).run()
+    expect(createBoundPeerTrust(db)('peer-a')).toBe(false)
+  })
+
+  it('returns false when the rostered device carries the legacy revoked stamp, unless authority_cache says admin', () => {
+    const db = freshDb()
+    roster(db, 'd1', 'peer-a')
+    db.prepare("INSERT INTO devices (id, name, revoked_at) VALUES ('d1', 'Device 1', '2026-02-01')").run()
     const isTrusted = createBoundPeerTrust(db)
+    expect(isTrusted('peer-a')).toBe(false)
+    db.prepare("INSERT INTO authority_cache (device_id, status, updated_at) VALUES ('d1', 'admin', 'x')").run()
     expect(isTrusted('peer-a')).toBe(true)
   })
 
-  it('returns false when the device is bound but never authorized', () => {
+  it('returns false for a rostered device the distributed authority marks revoked', () => {
     const db = freshDb()
-    db.prepare(
-      "INSERT INTO devices (id, name, libp2p_peer_id) VALUES ('d1', 'Device 1', 'peer-a')"
-    ).run()
-    const isTrusted = createBoundPeerTrust(db)
-    expect(isTrusted('peer-a')).toBe(false)
-  })
-
-  it('returns false when the device is bound and authorized but later revoked', () => {
-    const db = freshDb()
-    db.prepare(
-      "INSERT INTO devices (id, name, libp2p_peer_id, authorized_at, revoked_at) VALUES ('d1', 'Device 1', 'peer-a', '2026-01-01', '2026-02-01')"
-    ).run()
-    const isTrusted = createBoundPeerTrust(db)
-    expect(isTrusted('peer-a')).toBe(false)
+    roster(db, 'd1', 'peer-a')
+    db.prepare("INSERT INTO authority_cache (device_id, status, updated_at) VALUES ('d1', 'revoked', 'x')").run()
+    expect(createBoundPeerTrust(db)('peer-a')).toBe(false)
   })
 
   it('returns false for an unknown peer id', () => {
     const db = freshDb()
-    db.prepare(
-      "INSERT INTO devices (id, name, libp2p_peer_id, authorized_at) VALUES ('d1', 'Device 1', 'peer-a', '2026-01-01')"
-    ).run()
-    const isTrusted = createBoundPeerTrust(db)
-    expect(isTrusted('peer-unknown')).toBe(false)
+    roster(db, 'd1', 'peer-a')
+    expect(createBoundPeerTrust(db)('peer-unknown')).toBe(false)
   })
 
   it('returns false for an empty or non-string peer id, without querying', () => {
@@ -184,13 +195,11 @@ describe('createBoundPeerTrust', () => {
 
   it('re-queries the db on every call, so a revocation between two calls takes effect immediately', () => {
     const db = freshDb()
-    db.prepare(
-      "INSERT INTO devices (id, name, libp2p_peer_id, authorized_at) VALUES ('d1', 'Device 1', 'peer-a', '2026-01-01')"
-    ).run()
+    roster(db, 'd1', 'peer-a')
     const isTrusted = createBoundPeerTrust(db)
     expect(isTrusted('peer-a')).toBe(true)
 
-    db.prepare("UPDATE devices SET revoked_at = '2026-03-01' WHERE id = 'd1'").run()
+    db.prepare("INSERT INTO authority_cache (device_id, status, updated_at) VALUES ('d1', 'revoked', 'x')").run()
     expect(isTrusted('peer-a')).toBe(false)
   })
 })
