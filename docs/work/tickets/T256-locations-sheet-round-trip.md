@@ -1,7 +1,7 @@
 ---
 title: "Should the Locations sheet round-trip at all, and if so by id"
 document_type: ticket
-status: parked
+status: completed
 created: 2026-09-24
 archive_when: the owner has decided whether Locations round-trips — either the sheet becomes id-matched and updatable on BOTH the export and import sides, or the decision is recorded that it stays create-or-skip and this ticket closes as wont-fix
 task_class: architecture
@@ -11,7 +11,16 @@ related_tickets: [docs/work/tickets/T255-name-keyed-lookups-assume-uniqueness.md
 
 # T256 — Should the Locations sheet round-trip at all
 
-## Status: PARKED by owner decision, 2026-09-24
+## Status: COMPLETED 2026-10-11
+
+The owner pulled this into v1 once fresh-camps-only removed the workbook-shape concern. Locations is
+now a `SHEET_LAYOUT` entry (`screenImportOnly`), `shoresh_id` first. Re-import is id-matched in
+`resolveLocationImportRow` (`src/utils/importLocationsSheet.js`): a known id updates that row
+(rename included), an unknown or blank id creates, and a blank id updates by name only when exactly
+one location has that name — no tie-break. Pinned through the real export → edit → re-import
+pipeline by `src/utils/importLocationsSheet.roundtrip.test.js`.
+
+## Original status: PARKED by owner decision, 2026-09-24
 
 This is spun out of [T255](T255-name-keyed-lookups-assume-uniqueness.md) finding 9, which is closed
 there as deferred-by-decision. **Nothing is to be changed until the product question below is

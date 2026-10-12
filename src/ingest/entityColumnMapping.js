@@ -112,6 +112,9 @@ export const ENTITY_FIELD_CATALOGS = {
   locations: {
     sheet: 'Locations',
     fields: [
+      // T256: the export's read-only id column — the re-import match key. Optional:
+      // a blank or absent id means "create" (or a unique-name match), never an error.
+      { key: 'shoresh_id', required: false, synonyms: ['shoresh_id'] },
       { key: 'name', required: true, synonyms: ['name'] },
       { key: 'capacity', required: true, synonyms: ['capacity'] },
       { key: 'kind', required: false, synonyms: ['kind'] },

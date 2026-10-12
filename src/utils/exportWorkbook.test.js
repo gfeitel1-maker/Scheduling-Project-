@@ -39,9 +39,8 @@ function fixture() {
     ],
     // M4: locations is an extra input, resolved into the activities sheet's
     // `location` column (via SHEET_LAYOUT) AND rendered as its own visible,
-    // director-editable Locations sheet (see LOCATIONS_SHEET, T121 capacity
-    // round-trip). It deliberately does not join SHEET_LAYOUT's baseline/
-    // shoresh_id/Status machinery — see the comment at LOCATIONS_SHEET.
+    // director-editable Locations sheet — a SHEET_LAYOUT entry since T256, so it
+    // carries shoresh_id/Status and re-imports id-matched.
     locations: [
       { id: 'loc-pool', name: 'Pool', capacity: 2, kind: 'pool', sort_order: 2 },
       { id: 'loc-gym', name: 'Gym', capacity: 4, kind: 'court', sort_order: 1 },
@@ -88,8 +87,8 @@ describe('exportWorkbook — sheets + columns', () => {
     for (const name of expected) expect(wb.SheetNames).toContain(name)
     expect(wb.SheetNames).toContain(LOCATIONS_SHEET)
     expect(wb.SheetNames).toContain(META_SHEET)
-    // One sheet per SHEET_LAYOUT entity + Locations + meta, nothing else.
-    expect(wb.SheetNames.length).toBe(expected.length + 2)
+    // One sheet per SHEET_LAYOUT entity (Locations among them, T256) + meta, nothing else.
+    expect(wb.SheetNames.length).toBe(expected.length + 1)
   })
 
   it('each entity sheet starts with shoresh_id and ends with Status', () => {
@@ -213,16 +212,14 @@ describe('exportWorkbook — Fixed Events sheet (SLICE B2, board q-export-column
 })
 
 describe('exportWorkbook — Locations sheet (T121 capacity round-trip)', () => {
-  it('is visible and its header matches the existing LocationsScreen importer exactly', () => {
+  it('is visible and its header is shoresh_id first, then the importer\'s fields, then Status (T256)', () => {
     const wb = exportWorkbook(fixture())
     const idx = wb.SheetNames.indexOf(LOCATIONS_SHEET)
     expect(idx).toBeGreaterThan(-1)
     expect(wb.Workbook.Sheets[idx].Hidden).toBe(0)
     const header = XLSX.utils.sheet_to_json(wb.Sheets[LOCATIONS_SHEET], { header: 1 })[0]
-    // No shoresh_id/Status columns — this sheet is NOT part of SHEET_LAYOUT's
-    // baseline-diffed re-import; it is read by LocationsScreen's own plain
-    // "Import from Excel" path, whose header is exactly name/capacity/kind.
-    expect(header).toEqual(['name', 'capacity', 'kind'])
+    // shoresh_id is the id-match key LocationsScreen's "Import from Excel" reads (T256).
+    expect(header).toEqual([ID_COLUMN, 'name', 'capacity', 'kind', STATUS_COLUMN])
   })
 
   it('carries every location\'s real capacity and kind, ordered by sort_order', () => {
@@ -236,7 +233,7 @@ describe('exportWorkbook — Locations sheet (T121 capacity round-trip)', () => 
   it('an empty camp still produces a header-only Locations sheet', () => {
     const wb = exportWorkbook({ camp_id: 'c', cohort_id: null, base_generation: 0, locations: [] })
     const header = XLSX.utils.sheet_to_json(wb.Sheets[LOCATIONS_SHEET], { header: 1 })[0]
-    expect(header).toEqual(['name', 'capacity', 'kind'])
+    expect(header).toEqual([ID_COLUMN, 'name', 'capacity', 'kind', STATUS_COLUMN])
     expect(sheetRows(wb, LOCATIONS_SHEET)).toEqual([])
   })
 

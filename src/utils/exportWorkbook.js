@@ -27,7 +27,8 @@ import { aoaToSanitizedSheet } from './exportSanitize.js'
 // v4 (SLICE B2b/B3, same board item): Age Divisions/Time Blocks/Fixed Events gain a
 // `cohort_name` column (the row's PROGRAM by name) so a re-import resolves the right
 // cohort instead of always defaulting to whichever one is active.
-export const PLAN_VERSION = 4
+// v5 (T256): the Locations sheet joins SHEET_LAYOUT — shoresh_id + Status columns.
+export const PLAN_VERSION = 5
 
 // The hidden metadata sheet's name. S4b reads camp_id/cohort_id/base_generation
 // + the per-row baseline out of it; a re-import whose metadata is missing or
@@ -40,13 +41,11 @@ export const META_SHEET = '_shoresh_meta'
 export const ID_COLUMN = 'shoresh_id'
 export const STATUS_COLUMN = 'Status'
 
-// T121 — the visible, director-editable Locations sheet name. Deliberately
-// OUTSIDE SHEET_LAYOUT: it is not part of S4b's id-matched baseline-diff
-// re-import (no shoresh_id/Status columns), it is read by LocationsScreen's
-// own pre-existing plain "Import from Excel" path instead (onFileChange in
-// src/screens/LocationsScreen.jsx), whose header is exactly
-// name/capacity/kind. Matching that shape exactly means the round-trip needs
-// no new parser. See docs/work/tickets/T121-... capacity export gap.
+// The visible, director-editable Locations sheet name. A SHEET_LAYOUT entry like the
+// others (T256): shoresh_id first, Status last, so a re-import is id-matched. It is
+// `screenImportOnly` — read by LocationsScreen's own "Import from Excel"
+// (resolveLocationImportRow, src/utils/importLocationsSheet.js), never the
+// whole-workbook path.
 export const LOCATIONS_SHEET = 'Locations'
 
 // Sheet + column layout, in INGESTIBLE_ENTITIES order (ADR §1 table). Each
@@ -103,6 +102,12 @@ export const SHEET_LAYOUT = Object.freeze([
       { key: 'notes' },
       { key: 'cohort_name', label: true },
     ],
+  },
+  // T256: the Locations sheet round-trips by id. Columns mirror the LOCATIONS catalog
+  // (src/ingest/entityColumnMapping.js); a director's capacity edit updates that row.
+  {
+    entity: 'locations', sheet: LOCATIONS_SHEET, nameKey: 'name', screenImportOnly: true,
+    columns: [{ key: 'name' }, { key: 'capacity' }, { key: 'kind' }],
   },
 ])
 
@@ -197,13 +202,14 @@ export function exportWorkbook({
   fixed_events = [],
   camp_id = null, cohort_id = null, base_generation = null,
 } = {}) {
-  // M4 §D6 / T121: 'locations' resolves the activities sheet's `location`
-  // column AND gets its own visible Locations sheet below (name/capacity/kind)
-  // so capacity survives an export→import round-trip and a director can bulk
-  // -edit capacity in Excel. SHEET_LAYOUT itself does not gain a Locations
-  // entry — the Locations sheet is built separately, outside the baseline/
-  // shoresh_id/Status machinery (see LOCATIONS_SHEET above).
-  const entities = { cohorts, tiers, groups, days_of_operation, time_blocks, activities, fixed_events }
+  // 'locations' resolves the activities sheet's `location` column AND is its own
+  // SHEET_LAYOUT sheet (T256), sorted by the persisted sort_order like the screen.
+  // An unset capacity exports as the 1 the importer would read a blank as, so an untouched
+  // re-import is a no-op rather than a write.
+  const sortedLocations = [...locations].sort(
+    (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.name ?? '').localeCompare(String(b.name ?? ''))
+  ).map((l) => ({ ...l, capacity: l.capacity ?? 1 }))
+  const entities = { cohorts, tiers, groups, days_of_operation, time_blocks, activities, fixed_events, locations: sortedLocations }
   const maps = {
     tierNameById: new Map(tiers.map((t) => [t.id, t.name])),
     groupNameById: new Map(groups.map((g) => [g.id, g.name])),
@@ -262,20 +268,6 @@ export function exportWorkbook({
 
     XLSX.utils.book_append_sheet(wb, ws, layout.sheet)
   }
-
-  // T121 — visible Locations sheet, matching LocationsScreen's own importer
-  // header exactly (name, capacity, kind — no shoresh_id/Status). Sorted by
-  // the persisted sort_order (matching the screen's own sort), never a row
-  // index. Not sanitizer-bypassed: same aoaToSanitizedSheet as every other
-  // sheet.
-  const sortedLocations = [...locations].sort(
-    (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.name ?? '').localeCompare(String(b.name ?? ''))
-  )
-  const locHeader = ['name', 'capacity', 'kind']
-  const locAoa = [locHeader, ...sortedLocations.map((l) => [l.name ?? '', l.capacity ?? 1, l.kind ?? ''])]
-  const locWs = aoaToSanitizedSheet(locAoa)
-  locWs['!cols'] = [{ wch: 24 }, { wch: 14 }, { wch: 14 }]
-  XLSX.utils.book_append_sheet(wb, locWs, LOCATIONS_SHEET)
 
   // Hidden metadata sheet: camp/cohort identity, base_generation, and the
   // baseline. REQUIRED — S4b fails closed if it is missing or camp-mismatched.
