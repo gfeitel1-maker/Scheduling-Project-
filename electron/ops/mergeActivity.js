@@ -136,7 +136,8 @@ export function mergeActivity(db, { loser_id, winner_id, expected_ref_count, aut
 
     const ops = []
     const push = (entity, entity_id, field, value) =>
-      ops.push(appendOp(db, { entity, entity_id, field, value, author_user_id, device_id }))
+      // T375: the merged-away activity (and a duplicate join) is a rejection, so a re-import does not bring it back.
+      ops.push(appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, ...(field === DELETE_FIELD ? { source: 'human' } : {}) }))
 
     for (const { entity, field } of ACTIVITY_REFERRERS) {
       for (const row of refs[entity]) push(entity, row.id, field, winner_id)

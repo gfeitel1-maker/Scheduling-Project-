@@ -404,6 +404,7 @@ function removeSlotRows(db, rows, { author_user_id, device_id }) {
       value: 1,
       author_user_id,
       device_id,
+      source: 'human', // T375: a director-caused delete, direct or cascaded, is a rejection (keeper ruling).
     })
   )
 }
@@ -416,7 +417,7 @@ function removeSlotRows(db, rows, { author_user_id, device_id }) {
 // grid position that no longer exists — so it is deleted here too.
 function removeDayFromWeek(db, { day_id, slots, author_user_id, device_id }) {
   const del = (entity, entity_id) =>
-    appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
+    appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id, source: 'human' })
 
   const ops = []
   for (const row of fixedEventRows(db, day_id)) ops.push(del('fixed_events', row.id))
@@ -487,7 +488,7 @@ function deleteOrMergeLocation(db, { entity_id, expected_ref_count, reassign_to,
 
     const ops = []
     const push = (entity, entity_id, field, value) =>
-      ops.push(appendOp(db, { entity, entity_id, field, value, author_user_id, device_id }))
+      ops.push(appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, ...(field === DELETE_FIELD ? { source: 'human' } : {}) }))
 
     for (const activity of activities) {
       push('activities', activity.id, 'location_id', reassign_to ?? null)
@@ -650,7 +651,7 @@ export function deleteRecord(db, { entity, entity_id, expected_slot_count, autho
         // so restore finds exactly what THIS delete did to events.
         const { sole, trimmed } = groupDeleteCascade(db, entity_id)
         for (const e of sole) {
-          ops.push(appendOp(db, { entity: 'fixed_events', entity_id: e.id, field: DELETE_FIELD, value: 1, author_user_id, device_id, client_write_id: `${cascadeBatch}:${e.id}` }))
+          ops.push(appendOp(db, { entity: 'fixed_events', entity_id: e.id, field: DELETE_FIELD, value: 1, author_user_id, device_id, source: 'human', client_write_id: `${cascadeBatch}:${e.id}` }))
         }
         for (const e of trimmed) {
           ops.push(
@@ -663,7 +664,7 @@ export function deleteRecord(db, { entity, entity_id, expected_slot_count, autho
 
       ops.push(
         appendOp(db, {
-          entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id,
+          entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id, source: 'human',
           ...(entity === 'groups' ? { client_write_id: `${cascadeBatch}:group` } : {}),
         })
       )

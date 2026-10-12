@@ -68,7 +68,7 @@ import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 export function cascadeDeleteElectiveRun(db, runId, { author_user_id, device_id } = {}) {
   const ops = []
   const del = (entity, entity_id) =>
-    ops.push(appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id }))
+    ops.push(appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id, source: 'human' })) // T375: a director-caused delete, direct or cascaded, is a rejection (keeper ruling).
 
   // T320 part 2 item 3 — these rows now carry a real `camper_id`, so an
   // orphan is orphaned PII, not just a stray diagnostic.

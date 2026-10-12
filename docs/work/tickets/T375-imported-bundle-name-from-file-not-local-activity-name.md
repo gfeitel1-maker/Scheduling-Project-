@@ -63,3 +63,13 @@ Residual: a choice that matched a pre-existing catalog activity by spelling, rat
 - The marker clears when the record comes back.
 
 Pinned two-device by `electron/automerge/deleteProvenanceAcrossDevices.test.js`, red first: the director-delete case failed before the fix.
+
+**Every delete a director causes is a rejection** (keeper ruling on Red Hat risk 2). These paths now write `source: 'human'` on each delete they make:
+- `deleteRecord`: the direct delete, a group's cascade over its fixed events and slots, and removing a day with its fixed events and slots.
+- `deleteEvent`.
+- `deleteElectiveRun`, and so the season purge that shares its cascade.
+- `mergeActivity`: the merged-away activity.
+
+Pinned one test per path by `electron/ops/directorDeletesAreRejections.test.js`, which also covers the group cascade across two devices. Only undo and import teardown are not rejections.
+
+**Accepted (keeper):** two devices that make different confirm-step edits write different bundle names, and the conflict row is the right outcome.
