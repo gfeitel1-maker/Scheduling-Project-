@@ -3374,6 +3374,16 @@ function recordUndoableRun(db, runId, invertibleOps, createdEntityIds) {
   while (runs.size > UNDOABLE_RUNS_MAX) runs.delete(runs.keys().next().value)
 }
 
+// The "Imported from X" versions an import saved (materializeImportedVersion, called by the commit
+// handler after commitIngest). They name the rows the import created, so undo must neither keep those
+// rows on their account nor leave the versions behind once the rows are gone.
+// Each entry is { id, name }: a version the director has since renamed is theirs, not the import's.
+export function recordRunVersion(db, runId, id, name) {
+  const rec = undoableRuns.get(db)?.get(runId)
+  if (!rec || typeof id !== 'string') return
+  rec.ownSnapshots = [...(rec.ownSnapshots ?? []).filter((v) => v.id !== id), { id, name }]
+}
+
 /**
  * Undo an import by run id alone. The rows and field snapshots come from what the run recorded
  * server-side; nothing the caller sends can widen the set. An unknown run (never committed with
@@ -3385,6 +3395,7 @@ export function undoImportRun(db, { importRunId, author_user_id, device_id, clie
   return ingestUndo(db, {
     invertibleOps: structuredClone(rec.invertibleOps),
     createdEntityIds: structuredClone(rec.createdEntityIds),
+    ownSnapshots: structuredClone(rec.ownSnapshots ?? []),
     importRunId,
     author_user_id, device_id, client_write_id,
   })
@@ -3444,7 +3455,7 @@ function deriveUndoDeleteClientWriteId(outerClientWriteId, entity, entity_id) {
  * edited a field the import left blank (or any field) since commit, or a live
  * row outside this undo's own deletion set still references it.
  */
-export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRunId = null, author_user_id, device_id, client_write_id }) {
+export function ingestUndo(db, { invertibleOps, createdEntityIds = [], ownSnapshots = [], importRunId = null, author_user_id, device_id, client_write_id }) {
   if (!Array.isArray(invertibleOps)) throw new Error('ingestUndo: invertibleOps must be an array')
   if (!Array.isArray(createdEntityIds)) throw new Error('ingestUndo: createdEntityIds must be an array')
   if (typeof client_write_id !== 'string' || client_write_id.length === 0) {
@@ -3550,8 +3561,14 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRun
     }
 
     // A saved schedule version that names a row would restore with a blank cell; keep the row and say so.
+    // The versions this import saved itself do not count: they go with the import (deleted below),
+    // unless the director has renamed one since, which makes it theirs.
+    const ownVersions = new Set(ownSnapshots
+      .filter((v) => db.prepare('SELECT name FROM schedule_snapshots WHERE id = ?').get(v.id)?.name === v.name)
+      .map((v) => v.id))
     const namedInSavedVersions = new Set()
-    for (const { slots } of db.prepare('SELECT slots FROM schedule_snapshots WHERE slots IS NOT NULL').all()) {
+    for (const { id, slots } of db.prepare('SELECT id, slots FROM schedule_snapshots WHERE slots IS NOT NULL').all()) {
+      if (ownVersions.has(id)) continue
       let parsed
       try { parsed = JSON.parse(slots) } catch { continue }
       for (const slot of Array.isArray(parsed) ? parsed : []) {
@@ -3681,6 +3698,20 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRun
         }
         deleted.push({ entity, entity_id })
       }
+    }
+
+    // The import's own "Imported from X" versions go with it.
+    for (const snapshotId of ownVersions) {
+      if (!db.prepare('SELECT 1 FROM schedule_snapshots WHERE id = ?').get(snapshotId)) continue
+      const rowClientWriteId = deriveUndoDeleteClientWriteId(client_write_id, 'schedule_snapshots', snapshotId)
+      if (!findOpByClientWriteId(db, rowClientWriteId)) {
+        appendOp(db, {
+          entity: 'schedule_snapshots', entity_id: snapshotId, field: DELETE_FIELD, value: null,
+          author_user_id: author_user_id ?? null, device_id, parent_op_id: null,
+          client_write_id: rowClientWriteId, source: 'human',
+        })
+      }
+      deleted.push({ entity: 'schedule_snapshots', entity_id: snapshotId })
     }
 
     // The questions this import left on Roots are about records it just removed.

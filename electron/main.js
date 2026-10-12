@@ -35,7 +35,7 @@ import { tierForField } from '../src/utils/ruleProvenance.js'
 import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from './ops/deleteRecord.js'
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
 import { listOpenReconciliationDecisions, dismissOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
-import { commitIngest, undoImportRun, listImportEvidence, listCompoundCellDecisions, listActivityAliases } from './ops/ingest.js'
+import { commitIngest, undoImportRun, recordRunVersion, listImportEvidence, listCompoundCellDecisions, listActivityAliases } from './ops/ingest.js'
 import { materializeImportedVersion, cleanSourceFileName } from './ops/materializeImportedVersion.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { mergeActivity, previewActivityMerge } from './ops/mergeActivity.js'
@@ -642,6 +642,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!outcome?.held && Array.isArray(placements) && placements.length > 0) {
       return materializeImportedVersion(db, syncClient, {
         campId: camp.id, authorUserId: session.userId, placements, sourceFileName: cleanSourceFileName(sourceFileName),
+        // Undo of this import removes the versions it saved, and does not keep its rows on their account.
+        onSnapshotCreated: (id, name) => { if (outcome.importRunId) recordRunVersion(db, outcome.importRunId, id, name) },
       }).then((version) => {
         outcome.version = version
         return outcome

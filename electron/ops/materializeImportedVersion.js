@@ -55,7 +55,7 @@ export function nameMap(db, table, campId, nameColumn = 'name') {
  * @param {{campId: string, authorUserId: string, placements: Array}} args
  * @returns {Promise<{created: boolean, snapshotId: string|null, allWeeksArchived?: boolean, unresolvedCount: number, unresolvedNames: string[]}>}
  */
-export async function materializeImportedVersion(db, syncClient, { campId, authorUserId, placements, sourceFileName = null }) {
+export async function materializeImportedVersion(db, syncClient, { campId, authorUserId, placements, sourceFileName = null, onSnapshotCreated = null }) {
   if (!placements || placements.length === 0) {
     return { created: false, snapshotId: null, unresolvedCount: 0, unresolvedNames: [] }
   }
@@ -130,6 +130,8 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
       slots: slotsJson,
     }, authorUserId)
     snapshotId ??= id
+    // Reported as each is saved, so a later failure cannot leave one the import does not own.
+    onSnapshotCreated?.(id, name)
   }
 
   if (!snapshotId) return { created: false, snapshotId: null, unchanged: true, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
