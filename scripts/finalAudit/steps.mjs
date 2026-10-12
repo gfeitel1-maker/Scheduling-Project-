@@ -81,7 +81,9 @@ export async function run(h) {
     return note
   })
 
-  await step(4, 'Special day: Copy time blocks, place on Week 1 Mon, Also bring', async () => {
+  // Placed on Friday: a special day replaces the regular day in the grid, and step 11's double-period
+  // file has its elective on Monday, which a Monday special day would hide.
+  await step(4, 'Special day: Copy time blocks, place on Week 1 Fri, Also bring', async () => {
     await nav('Special Events')
     await waitFor(`const i=__inp('input[placeholder="Color War"]'); if(!i) return false; __set(i,'Audit Day'); const s=__inp('select'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,[...s.options].find(o=>o.text==='Special Day').value); s.dispatchEvent(new Event('change',{bubbles:true})); return true`, 10000, 'special event form')
     await sleep(300); await click('+ Add', true)
@@ -89,7 +91,7 @@ export async function run(h) {
     await waitFor(`return /created — build it/.test(__main())`, 120000, 'copy finished')
     await nav('Special Schedules'); await click('Audit Day', false)
     await click('+ Place on a day', true)
-    await waitFor(`const b=document.querySelector('button[aria-label^="Week 1, Monday"]'); if(!b) return false; b.click(); return true`, 10000, 'Week 1 Monday cell')
+    await waitFor(`const b=document.querySelector('button[aria-label^="Week 1, Friday"]'); if(!b) return false; b.click(); return true`, 10000, 'Week 1 Friday cell')
     const before = await waitFor(`const m=__main().match(/(\\d+) \\/ (\\d+) filled/); return m && +m[1]`, 10000, 'filled count')
     const offer = await waitFor(`const m=__main().match(/Also bring[^\\n]*/); return m && m[0]`, 15000, 'Also bring offer')
     await click('Bring', true)
@@ -201,6 +203,12 @@ export async function run(h) {
     if (!build) throw new Error('build commit unknown (step 1a reads it from the footer)')
     try { git('fetch', '-q', 'origin', 'main') } catch {}
     try { git('merge-base', '--is-ancestor', info.mergeCommit.oid, build) } catch { skip(`PR #${pr} merged as ${info.mergeCommit.oid.slice(0, 9)}, after build ${build}`) }
+  }
+  // The device screen: "Devices" since #976, "LAN & Devices" before it, so the driver runs on either build.
+  // Matched on the start of the item (it also reads "only this computer"); under Settings when not in view.
+  const openDevices = async () => {
+    const js = `const b=[...document.querySelectorAll('button,[role=menuitem],a')].filter(__vis).find(b=>/^(LAN & )?Devices\\b/.test(b.innerText.replace(/\\s+/g,' ').trim())); if(!b) return false; b.click(); return true`
+    if (!await ev(js)) { await click('Settings', true, 10000); await waitFor(js, 10000, '"Devices" (or "LAN & Devices")') }
   }
   const SYN = (f) => path.join(h.REPO, 'docs/work/specs/samples/synthetic', f)
   const S07 = SYN('s07-by-group-3-divisions.txt')
@@ -358,7 +366,7 @@ export async function run(h) {
     const header = () => Object.fromEntries(dbFiles().map((f) => [path.relative(UD, f), plain(f) ? 'plain' : 'encrypted']))
     const snap0 = await snapshot()
     const h0 = header()
-    await nav('Devices')
+    await openDevices()
     await click('Turn off encryption…', true, 15000)
     await waitFor(`const i=[...document.querySelectorAll('label input')].filter(__vis)[0]; if(!i) return false; __set(i,'DISABLE ENCRYPTION'); return true`, 10000, 'confirmation input')
     await sleep(300); await click('Turn off encryption', true, 10000)
@@ -394,9 +402,7 @@ export async function run(h) {
     // A (this instance) is the host. B and C join by camp code and are approved on A; a normally
     // approved device is a plain member (admin standing comes only from the signed authority log).
     const devicesScreen = async () => {
-      // The menu item reads "LAN & Devices  only this computer", so it is matched on its start.
-      const openDevices = `const b=[...document.querySelectorAll('button,[role=menuitem],a')].filter(__vis).find(b=>b.innerText.replace(/\\s+/g,' ').trim().startsWith('LAN & Devices')); if(!b) return false; b.click(); return true`
-      if (!await ev(openDevices)) { await click('Settings', true, 10000); await waitFor(openDevices, 10000, '"LAN & Devices"') }
+      await openDevices()
       await waitFor(`return /Add a device|Stop adding devices/.test(__main())`, 20000, 'Device Manager')
     }
     const pair = async (peer) => {

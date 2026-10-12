@@ -163,13 +163,15 @@ async function relaunch() {
 
 // The app restarted ITSELF (app.relaunch keeps argv, so the new process has the same debugging
 // port): wait for the old pid to exit, find the new one by that port argument, and re-attach.
+// The pattern goes after `--`: one starting with "--remote…" is read by pgrep as an option and never matches, and
+// the binary name keeps it off the renderer helpers, whose arguments carry the same port.
 async function adopt(timeoutMs = 120000) {
   const t = Date.now(); try { app.close() } catch {}
   while (Date.now() - t < timeoutMs) { try { process.kill(pid, 0) } catch { break } await sleep(250) }
   const { execFileSync } = await import('node:child_process')
   let next = null
   while (!next && Date.now() - t < timeoutMs) {
-    try { next = execFileSync('pgrep', ['-n', '-f', `--remote-debugging-port=${PORT}`], { encoding: 'utf8' }).trim().split('\n').map(Number).find((n) => n && n !== pid) } catch {}
+    try { next = execFileSync('pgrep', ['-n', '-f', '--', `${path.basename(APP)} --remote-debugging-port=${PORT}`], { encoding: 'utf8' }).trim().split('\n').map(Number).find((n) => n && n !== pid) } catch {}
     if (!next) await sleep(500)
   }
   if (!next) throw new Error(`no relaunched process with --remote-debugging-port=${PORT} within ${timeoutMs / 1000}s`)
