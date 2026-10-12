@@ -12,6 +12,7 @@ import { initSchema } from '../../db/localDb.js'
 import { startTransport } from './transport.js'
 import { attemptRung1 } from './punchRung1.js'
 import { MAPPED_ADDRESS_MAX_AGE_MS } from './peerAddressBook.js'
+import { rosterDevice } from './rosterTestSupport.js'
 
 const files = []
 let handles = []
@@ -30,6 +31,7 @@ async function setup({ ageMs = 1000 } = {}) {
   handles.push(remote, local)
   const peerId = remote.peerId
   db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at, libp2p_peer_id) VALUES ('d1', 'd1', 'approved', '2026-10-01T00:00:00.000Z', ?)").run(peerId)
+  rosterDevice(db, 'd1', peerId)
   const tcp = remote.getMultiaddrs().map(String).find((m) => m.includes('/tcp/'))
   const addr = tcp.includes('/p2p/') ? tcp : `${tcp}/p2p/${peerId}`
   db.prepare('INSERT INTO peer_last_addresses (peer_id, multiaddr, last_seen_at) VALUES (?, ?, ?)').run(peerId, addr, new Date(Date.now() - ageMs).toISOString())

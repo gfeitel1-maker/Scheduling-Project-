@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { initSchema } from '../../db/localDb.js'
 import { rememberPunchMemory } from './peerAddressBook.js'
 import { attemptRung1 } from './punchRung1.js'
+import { rosterDevice } from './rosterTestSupport.js'
 
 const files = []
 afterEach(() => {
@@ -28,6 +29,7 @@ const SRFLX = { candidate: 'candidate:1 1 UDP 1686052607 203.0.113.9 50001 typ s
 function setup() {
   const db = freshDb()
   db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at, libp2p_peer_id) VALUES ('d1', 'd1', 'approved', '2026-10-01T00:00:00.000Z', 'peer-1')").run()
+  rosterDevice(db, 'd1', 'peer-1')
   rememberPunchMemory(db, 'peer-1', { role: 'offerer', remoteSdpType: 'answer', remoteSdp: SDP, candidates: [SRFLX] })
   const closed = []
   const connection = { remotePeer: { toString: () => 'peer-1' }, close: async () => { closed.push(true) } }
