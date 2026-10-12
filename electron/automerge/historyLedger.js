@@ -141,11 +141,14 @@ export function appendReceivedOps(db, events, { fromPeerId, doc } = {}) {
       // would drop the protection the director is relying on. Inventing either
       // would make this table lie, which is worse than it being incomplete.
       //
-      // A delete has no field of its own to attribute, so it carries NULL —
-      // the same thing appendOp records when a caller names no source.
+      // A delete is 'human' only when the document carries the rejection
+      // marker the deleting device wrote (T375, campDocument.js): a director's
+      // own delete, which a re-import must not undo on THIS device either.
+      // An undo of an import or an import teardown carries no marker and is
+      // recorded with NULL, as appendOp records a write that names no source.
       const source =
         e.field === DELETE_FIELD
-          ? null
+          ? (doc && isHumanEdited(doc, e.entity, e.entity_id, DELETE_FIELD) ? 'human' : null)
           : (doc && isHumanEdited(doc, e.entity, e.entity_id, e.field) ? 'human' : 'import')
 
       insert.run(

@@ -62,6 +62,10 @@ import { BULK_REPLACE_ENTITIES, validateBulkReplaceRows } from './campScopedEnti
 // a genuine projected field.
 export const DELETE_FIELD = '__deleted__'
 
+// Mirrors UNDO_DELETE_PREFIX in ingest.js (which imports this module); pinned equal by
+// undoDeletePrefixParity.test.js.
+export const UNDO_DELETE_PREFIX_MIRROR = 'undo-import:'
+
 // The single serialization boundary for a field-level op's `value`.
 //
 // better-sqlite3 only binds numbers, strings, bigints, buffers and null. Every
@@ -332,7 +336,10 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
     // off the op that was just written rather than the caller's argument, so the
     // document records exactly what the op-log recorded — including appendOp's
     // own defaulting — and the two can never disagree.
-    const outcome = recordLocalWrite(db, { entity, entity_id, field, value: storedValue, source: op.source, author_user_id: op.author_user_id, op_id: op.id }, op)
+    // T375: an undo of an import deletes with source 'human' (Trash names the director) but is not
+    // a rejection; the document is told 'undo' so other devices do not read it as one.
+    const docSource = field === DELETE_FIELD && String(op.client_write_id ?? '').startsWith(UNDO_DELETE_PREFIX_MIRROR) ? 'undo' : op.source
+    const outcome = recordLocalWrite(db, { entity, entity_id, field, value: storedValue, source: docSource, author_user_id: op.author_user_id, op_id: op.id }, op)
     op[DOCUMENT_OUTCOME] = MODELED_ENTITIES.has(entity) ? outcome : 'not-modeled'
   } catch (err) {
     // Durable, not just a console line. SQLite has this write and the document

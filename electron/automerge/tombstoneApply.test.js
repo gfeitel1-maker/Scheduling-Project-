@@ -10,7 +10,7 @@ import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { ensureHostSigningKey } from '../auth/localAuth.js'
 import { signTombstone } from './tombstoneSignature.js'
 import { verifyTombstones, applyTombstonesToDoc, settleRejoinDeletes } from './tombstoneApply.js'
-import { createEmptyDoc, applyWrites, readRecord, readFieldAuthor } from './campDocument.js'
+import { createEmptyDoc, applyWrites, readRecord, readFieldAuthor, isHumanEdited } from './campDocument.js'
 import { DELETE_FIELD } from '../ops/operations.js'
 
 afterAll(() => cleanupTemplatedDbs())
@@ -82,6 +82,19 @@ describe('edit vs delete across a Pair-again merge', () => {
     const out = rejoinMerge(camp, offline)
     expect(readRecord(out, 'activities', 'act')).toBeNull()
     expect(readFieldAuthor(out, 'activities', 'act', DELETE_FIELD)).toBe('dir')
+  })
+
+  // T375 (Red Hat): the camp's delete was the director rejecting the record; re-deleting it on
+  // rejoin must keep that rejection, or a re-import would bring it back on every device.
+  it("keeps the camp's rejection marker when it re-deletes the record", () => {
+    const b = base()
+    const camp = applyWrites(A.clone(b), [{ entity: 'activities', entity_id: 'act', field: DELETE_FIELD, value: null, source: 'human', author_user_id: 'dir' }])
+    const offline = applyWrites(A.clone(b), [{ entity: 'activities', entity_id: 'act', field: 'name', value: 'Swim (deep end)' }])
+    // Positive control: the plain merge carries the marker before the rejoin re-delete runs.
+    expect(isHumanEdited(A.merge(A.clone(camp), A.clone(offline)), 'activities', 'act', DELETE_FIELD)).toBe(true)
+    const out = rejoinMerge(camp, offline)
+    expect(readRecord(out, 'activities', 'act')).toBeNull()
+    expect(isHumanEdited(out, 'activities', 'act', DELETE_FIELD)).toBe(true)
   })
 
   it('offline edits to records the camp did not delete still merge', () => {

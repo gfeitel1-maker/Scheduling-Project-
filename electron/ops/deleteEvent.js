@@ -46,7 +46,7 @@ export function deleteEvent(db, { eventId }, { author_user_id, device_id } = {})
   }
 
   const del = (entity, entity_id) =>
-    appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
+    appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id, source: 'human' }) // T375: a director-caused delete, direct or cascaded, is a rejection (keeper ruling).
 
   const outcome = runAtomic(db, () => {
     const ops = []

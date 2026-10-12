@@ -646,6 +646,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         onSnapshotCreated: (id, name) => { if (outcome.importRunId) recordRunVersion(db, outcome.importRunId, id, name) },
         // T219: the elective bundles it links a double period with go with the import on undo.
         onRowCreated: (entity, id) => { if (outcome.importRunId) recordRunCreated(db, outcome.importRunId, entity, id) },
+        // T375: the file's own choice labels, so a double period's bundles are named the same on every device.
+        electiveChoiceLabels: Array.isArray(confirmedElectiveSets) ? confirmedElectiveSets : [],
       }).then((version) => {
         outcome.version = version
         return outcome

@@ -775,6 +775,19 @@ function applyOneWriteInto(d, { entity, entity_id, field, value, source, author_
         noteKey(batch, AUTHOR_COLLECTION, tombstoneKey, markGroup)
       }
     }
+    // T375: WHETHER the director rejected it, which also has to outlive the record. Every device
+    // reads it (historyLedger.js) to decide if a re-import of the same file may bring the record
+    // back (fieldProvenance.js isHumanDeleted). Only an explicit 'human' delete is a rejection: an
+    // undo of an import ('undo', keeper ruling: "as if the import never happened") and an import
+    // teardown (no source) leave no marker. Same sparse collection as field provenance.
+    if (source === 'human') {
+      const prov = d[PROVENANCE_COLLECTION]
+      if (prov) {
+        const pKey = provenanceKey(entity, entity_id, DELETE_FIELD)
+        prov[pKey] = HUMAN_PROVENANCE
+        noteKey(batch, PROVENANCE_COLLECTION, pKey, markGroup)
+      }
+    }
     return
   }
   if (!fields.includes(field)) return
@@ -832,6 +845,9 @@ function applyOneWriteInto(d, { entity, entity_id, field, value, source, author_
   // than the "Unknown" this whole change is fixing.
   const authorsForTombstone = d[AUTHOR_COLLECTION]
   if (authorsForTombstone) delete authorsForTombstone[authorKey(entity, entity_id, DELETE_FIELD)]
+  // Likewise the rejection marker (T375): a record that exists again is not rejected.
+  const provForTombstone = d[PROVENANCE_COLLECTION]
+  if (provForTombstone) delete provForTombstone[provenanceKey(entity, entity_id, DELETE_FIELD)]
 }
 
 export function applyWrite(doc, write) {

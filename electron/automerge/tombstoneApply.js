@@ -3,7 +3,7 @@
 // camper; merging first would carry it back into the camp's document. Deleting it locally first
 // means the merge carries the deletion instead (the camp's regenerated document never had the
 // record, so the device's create and delete both arrive and the record stays gone).
-import { applyWrites, listRecordIds, readRecord, readFieldAuthor, MODELED_ENTITIES } from './campDocument.js'
+import { applyWrites, listRecordIds, readRecord, readFieldAuthor, MODELED_ENTITIES, isHumanEdited } from './campDocument.js'
 import { verifyTombstone } from './tombstoneSignature.js'
 import { TOMBSTONE_DENYLISTED_ENTITIES } from './projector.js'
 import { DELETE_FIELD } from '../ops/operations.js'
@@ -56,7 +56,10 @@ export function findRejoinDeletes(preMergeDoc, mergedDoc) {
       const lostAKey = Object.keys(mine).some((f) => !(f in now))
       const onlyMine = Object.entries(now).every(([f, v]) => f in mine && JSON.stringify(mine[f]) === JSON.stringify(v))
       if ((markerIsNew || lostAKey) && onlyMine) {
-        deletes.push({ entity, entity_id: id, field: DELETE_FIELD, value: null, ...(marker ? { author_user_id: marker } : {}) })
+        // T375: a re-delete of the camp's rejected record keeps the rejection (source 'human' rewrites
+        // the marker the delete sweep would otherwise clear), so a re-import cannot bring it back.
+        const rejected = isHumanEdited(mergedDoc, entity, id, DELETE_FIELD)
+        deletes.push({ entity, entity_id: id, field: DELETE_FIELD, value: null, ...(marker ? { author_user_id: marker } : {}), ...(rejected ? { source: 'human' } : {}) })
       }
     }
   }
