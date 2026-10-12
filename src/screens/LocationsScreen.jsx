@@ -11,6 +11,7 @@ import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
+import NameWithMarkers from '../components/setup/NameWithMarkers'
 import ModalCard from '../components/ModalCard'
 import WeekToggle from '../components/WeekToggle'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
@@ -19,7 +20,6 @@ import ImportModal from '../components/setup/ImportModal'
 import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx'
 import InlineAddRow from '../components/setup/InlineAddRow'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
-import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
 import { CapacityStepper } from '../components/CapacityStepper'
@@ -343,9 +343,9 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle, capacityUnc
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
           style={{ cursor: 'pointer' }}
         >{location.name}</span>
-        {duplicateSiblings?.length > 0 && (
+        <NameWithMarkers markers={duplicateSiblings?.length > 0 && (
           <DuplicateLocationDot location={location} siblings={duplicateSiblings} onMerge={onMergeDuplicate} busy={duplicateMergeBusy} />
-        )}
+        )} />
       </td>
       <td style={{ ...S.td, fontVariantNumeric: 'tabular-nums' }}>
         {capacityWord(location.capacity)}
@@ -801,27 +801,17 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
 
   return (
     <div>
-      <button className="press-97" onClick={() => onNavigate('activities')} style={{ ...S.backBar, marginBottom: 14 }}>← Back to Activities</button>
       <SetupScreenShell
+        week={{ weekId, weeks, onSelectWeek, exclusionCount: excludedLocationIds.size, totalCount: locations.length, entityLabel: 'locations' }}
+        screenKey="locations"
+        onNavigate={onNavigate}
         countLabel={`${locations.length} location${locations.length !== 1 ? 's' : ''}`}
         role={role}
         actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
         fileInputRef={fileRef}
         onFileChange={onFileChange}
-        nextLabel="Recurring Events →"
-        onNext={() => onNavigate('recurringevents')}
         error={error}
         cohortPicker={<>
-          {weeks.length > 0 && (
-            <WeekContextBar
-              weekId={weekId}
-              weeks={weeks}
-              onSelectWeek={onSelectWeek}
-              exclusionCount={excludedLocationIds.size}
-              totalCount={locations.length}
-              entityLabel="locations"
-            />
-          )}
           {/* D-3.3 — an absent/empty journal renders no review region at all. */}
           {nearDuplicateGroups.length === 0 && advisoryItems.length > 0 && (
             <CapacityAdvisoryStrip

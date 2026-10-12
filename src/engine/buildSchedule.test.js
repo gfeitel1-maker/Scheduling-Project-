@@ -446,6 +446,30 @@ describe("'unavailable' slot type", () => {
   })
 })
 
+// Consistency audit 2026-10-12 A3: an imported block carries no part_of_day. A morning-only group must
+// still be scheduled in a 9:00 block (part of day derived from the start time), not marked unavailable
+// in every block of the camp.
+describe('part_of_day derived from start_time when a block has none', () => {
+  const act = { id: 'a1', name: 'Archery', priority: 'low', max_per_week: 5, min_per_week: 1, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+  const morningGroup = { id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'morning' }
+  it('a morning-only group is placed in a 9:00 block that has no part_of_day', () => {
+    const block = { ...baseBlock, part_of_day: null }
+    const { slots } = buildSchedule(minimal({ groups: [morningGroup], activities: [act], timeBlocks: [block] }))
+    expect(slots.filter(s => s.type === 'unavailable')).toHaveLength(0)
+    expect(slots.some(s => s.activityId === 'a1')).toBe(true)
+  })
+  it('the same group is unavailable in a 14:00 block that has no part_of_day', () => {
+    const block = { ...baseBlock, start_time: '14:00', end_time: '15:00', part_of_day: null }
+    const { slots } = buildSchedule(minimal({ groups: [morningGroup], activities: [act], timeBlocks: [block] }))
+    expect(slots.filter(s => s.type === 'unavailable')).toHaveLength(1)
+  })
+  it('a stored part_of_day still wins over the start time', () => {
+    const block = { ...baseBlock, start_time: '09:00', part_of_day: 'afternoon' }
+    const { slots } = buildSchedule(minimal({ groups: [morningGroup], activities: [act], timeBlocks: [block] }))
+    expect(slots.filter(s => s.type === 'unavailable')).toHaveLength(1)
+  })
+})
+
 describe('WEATHER_RISK', () => {
   it('is no longer emitted anywhere in flags — outdoor exposure is read at render time from activity.is_outdoor', () => {
     const act = { id: 'a1', name: 'Swimming', priority: 'low', max_per_week: 5, min_per_week: 0, is_outdoor: true, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }

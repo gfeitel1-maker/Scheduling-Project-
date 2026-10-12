@@ -127,6 +127,20 @@ export const NAV_SECTIONS = [
   },
 ]
 
+// The setup screens, in sidebar order (Germination, then Sprouts). One source for "is this a setup
+// screen" (TopBar's "← Roots") and for each setup screen's "next" link, so neither drifts from the
+// sidebar a director actually reads (consistency audit 2026-10-12, C1/C2/C4).
+export const SETUP_SCREEN_ORDER = NAV_SECTIONS
+  .filter((section) => section.key === 'germination' || section.key === 'sprouts')
+  .flatMap((section) => section.items)
+  .map(({ key, label }) => ({ key, label }))
+
+// The setup screen after `key` in sidebar order, or null for the last one (and for a non-setup key).
+export function nextSetupScreen(key) {
+  const i = SETUP_SCREEN_ORDER.findIndex((s) => s.key === key)
+  return i >= 0 && i < SETUP_SCREEN_ORDER.length - 1 ? SETUP_SCREEN_ORDER[i + 1] : null
+}
+
 // The admin cluster, reached from the Settings gear at the bottom of the
 // sidebar (Sidebar.jsx) rather than from an always-open third nav section.
 // Roots-as-Hub Slice B (ADR §4), carried forward by the lifecycle-IA

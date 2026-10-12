@@ -21,7 +21,7 @@ import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describe
 import { resolveRowAction } from '../ingest/resolveRowAction.js'
 import { resolveRowCohort, describeCohortNote } from '../ingest/resolveRowCohort.js'
 import { commitSetupImportBatch } from '../ingest/setupImportCommit.js'
-import { formatTime12, blockDisplayName } from '../utils/timeBlockLabel'
+import { formatTime12, blockDisplayName, isTimeRangeName, timeRangeLabel } from '../utils/timeBlockLabel'
 import { timeBlocksListed } from './setupListSelectors'
 
 const TIME_BLOCKS_CATALOG = ENTITY_FIELD_CATALOGS.time_blocks
@@ -54,19 +54,22 @@ const overlapFlagStyle = { ...S.fieldFlag, color: 'var(--text-secondary)' }
 
 function BlockRow({ block, role, onSave, onDelete, duplicateSiblings, overlaps }) {
   const [editing, setEditing] = useState(false)
-  const [name, setName] = useState(block.name)
+  // Empty when the stored name is just the time range, so the field reads as optional (audit A3).
+  const [name, setName] = useState(isTimeRangeName(block.name) ? '' : block.name)
   const [start, setStart] = useState(block.start_time)
   const [end, setEnd] = useState(block.end_time)
-  const [pod, setPod] = useState(block.part_of_day)
+  // The effective part of day (stored, else from the start time, as the engine reads it), so saving the
+  // form never writes a null the director did not choose (Red Hat, audit A3).
+  const [pod, setPod] = useState(block.part_of_day ?? partOfDayForStart(block.start_time))
   const [eventsOnly, setEventsOnly] = useState(!!block.events_only)
   const [saving, setSaving] = useState(false)
   const draftBackwards = isBackwardsBlock({ start_time: start, end_time: end })
 
   async function save() {
-    if (!name.trim() || draftBackwards) return
+    if (draftBackwards) return
     setSaving(true)
     try {
-      await onSave(block.id, { name: name.trim(), start_time: start, end_time: end, part_of_day: pod, sort_order: minutesFromMidnight(start), events_only: eventsOnly ? 1 : 0 })
+      await onSave(block.id, { name: name.trim() || timeRangeLabel({ start_time: start, end_time: end }), start_time: start, end_time: end, part_of_day: pod, sort_order: minutesFromMidnight(start), events_only: eventsOnly ? 1 : 0 })
       setEditing(false)
     } catch {
       // onSave already surfaced the error; stay in edit mode so nothing is lost.
@@ -92,7 +95,7 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings, overlaps }
         <td style={{ ...S.td, textAlign: 'right' }}>
           <div style={rowActionsFlex}>
             <button className="press-97" onClick={save} disabled={saving || draftBackwards} style={draftBackwards ? { ...S.btnPrimary, ...S.buttonDisabled, whiteSpace: 'nowrap' } : { ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
-            <button className="press-97" onClick={() => { setName(block.name); setStart(block.start_time); setEnd(block.end_time); setPod(block.part_of_day); setEventsOnly(!!block.events_only); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
+            <button className="press-97" onClick={() => { setName(isTimeRangeName(block.name) ? '' : block.name); setStart(block.start_time); setEnd(block.end_time); setPod(block.part_of_day ?? partOfDayForStart(block.start_time)); setEventsOnly(!!block.events_only); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
           </div>
         </td>
       </tr>
@@ -123,7 +126,7 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings, overlaps }
       </td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>{fmt(block.start_time)}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>{fmt(block.end_time)}{isBackwardsBlock(block) && <div style={{ ...S.fieldFlag, fontFamily: 'var(--font-sans)' }}>{BACKWARDS_FLAG}</div>}</td>
-      <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{POD_OPTIONS.find(o => o.value === block.part_of_day)?.label ?? '—'}</td>
+      <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{POD_OPTIONS.find(o => o.value === (block.part_of_day ?? partOfDayForStart(block.start_time)))?.label ?? '—'}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button
           onClick={e => { e.stopPropagation(); onDelete(block.id) }}
@@ -202,9 +205,11 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   }
 
   async function addBlock(values) {
-    const trimmedName = String(values.name ?? '').trim()
     const start = values.start_time
     const end = values.end_time
+    // The name is optional (consistency audit A3): a blank one is stored as the block's own time range,
+    // so it is never empty and shows as the range like an imported block's does.
+    const trimmedName = String(values.name ?? '').trim() || timeRangeLabel({ start_time: start, end_time: end })
     if (!trimmedName || !start || !end || !activeCohort) return false
     // Case/whitespace-normalized existing-name check, matching
     // confirmImport's dedupe — without this, the plain "+ Add" button had
@@ -450,13 +455,13 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   return (
     <>
     <SetupScreenShell
+      screenKey="timeblocks"
+      onNavigate={onNavigate}
       countLabel={`${blocks.length} block${blocks.length !== 1 ? 's' : ''}`}
       role={role}
       actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll, deleteAllDisabled: !activeCohort }}
       fileInputRef={fileRef}
       onFileChange={onFileChange}
-      nextLabel="Activities →"
-      onNext={() => onNavigate('activities')}
       error={error}
       cohortPicker={<CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />}
     >
@@ -493,7 +498,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
                   last row of the time blocks table (Excel-like inline add). */}
               <InlineAddRow
                 fields={[
-                  { key: 'name', type: 'text', placeholder: 'Block 1', required: true },
+                  { key: 'name', type: 'text', placeholder: 'Optional, e.g. Period 1' },
                   { key: 'start_time', type: 'time', required: true, width: 110 },
                   { key: 'end_time', type: 'time', required: true, width: 110 },
                   { key: 'part_of_day', type: 'select', default: 'morning', width: 120, options: POD_OPTIONS },

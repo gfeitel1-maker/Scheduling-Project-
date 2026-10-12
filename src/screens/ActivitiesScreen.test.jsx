@@ -126,8 +126,10 @@ describe('ActivitiesScreen quick-add', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('0 activities')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Archery'), { target: { value: 'Archery' } })
-    fireEvent.click(screen.getByText('+ Add'))
+    fireEvent.click(screen.getByText('+ Add Activity'))
+    await waitFor(() => expect(screen.queryByPlaceholderText('Activity name')).not.toBeNull())
+    fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Archery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Activity' }))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
     const fieldsWritten = Object.fromEntries(
@@ -166,8 +168,10 @@ describe('ActivitiesScreen quick-add', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Archery'), { target: { value: 'archery' } })
-    fireEvent.click(screen.getByText('+ Add'))
+    fireEvent.click(screen.getByText('+ Add Activity'))
+    await waitFor(() => expect(screen.queryByPlaceholderText('Activity name')).not.toBeNull())
+    fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'archery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Activity' }))
 
     await waitFor(() =>
       expect(screen.queryByText(/An activity with this name already exists/)).not.toBeNull()
@@ -187,8 +191,10 @@ describe('ActivitiesScreen quick-add', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('0 activities')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Archery'), { target: { value: 'Archery' } })
-    fireEvent.click(screen.getByText('+ Add'))
+    fireEvent.click(screen.getByText('+ Add Activity'))
+    await waitFor(() => expect(screen.queryByPlaceholderText('Activity name')).not.toBeNull())
+    fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Archery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Activity' }))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id'))
   })

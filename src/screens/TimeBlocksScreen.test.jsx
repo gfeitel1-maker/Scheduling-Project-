@@ -22,6 +22,7 @@ vi.mock('xlsx', () => ({
   read: vi.fn(() => ({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } })),
 }))
 
+import { timeRangeLabel, blockDisplayName } from '../utils/timeBlockLabel'
 import TimeBlocksScreen from './TimeBlocksScreen'
 import { localClient } from '../localClient'
 import * as XLSX from 'xlsx'
@@ -144,6 +145,35 @@ describe('TimeBlocksScreen — cohort-scoped load', () => {
 })
 
 describe('TimeBlocksScreen — add', () => {
+  // Consistency audit 2026-10-12 A3: the name is optional; a blank one is stored as the time range.
+  it('a blank name is stored as the block\'s time range', async () => {
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      return Promise.resolve([])
+    })
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await screen.findByPlaceholderText('Optional, e.g. Period 1')
+    const timeInputs = document.querySelectorAll('input[type="time"]')
+    fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
+    fireEvent.change(timeInputs[1], { target: { value: '10:15' } })
+    fireEvent.click(screen.getByText('+ Add'))
+    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'time_blocks', 'new-block-id', 'name', timeRangeLabel({ start_time: '09:00', end_time: '10:15' })))
+  })
+
+  // A3: an imported block's name is a copy of its times ("12:55-01:35"); the table shows the formatted
+  // range instead, and a part of day derived from the start time instead of "—".
+  it('shows a time-range name as the formatted range, and a missing part of day as derived', async () => {
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'time_blocks') return Promise.resolve([block({ name: '12:55-01:35', start_time: '12:55', end_time: '13:35', part_of_day: null })])
+      return Promise.resolve([])
+    })
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await screen.findByText(blockDisplayName({ name: '12:55-01:35', start_time: '12:55', end_time: '13:35' }))
+    expect(screen.queryByText('12:55-01:35')).toBeNull()
+    expect(screen.queryByText('Afternoon', { selector: 'td' })).not.toBeNull()
+  })
+
   it('adds a time block by writing each field via localClient.write, cohort_id then name', async () => {
     localClient.list.mockReset().mockImplementation(entity => {
       if (entity === 'cohorts') return Promise.resolve([cohort()])
@@ -151,9 +181,9 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Block 1')
+    await screen.findByPlaceholderText('Optional, e.g. Period 1')
 
-    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Block 1' } })
+    fireEvent.change(screen.getByPlaceholderText('Optional, e.g. Period 1'), { target: { value: 'Block 1' } })
     const timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
     fireEvent.change(timeInputs[1], { target: { value: '10:00' } })
@@ -192,11 +222,11 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Block 1')
+    await screen.findByPlaceholderText('Optional, e.g. Period 1')
 
     // Enter "10:00" first, then "09:00" — a director typing blocks in the
     // wrong order must still get chronological sort_order values.
-    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Late Block' } })
+    fireEvent.change(screen.getByPlaceholderText('Optional, e.g. Period 1'), { target: { value: 'Late Block' } })
     let timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '10:00' } })
     fireEvent.change(timeInputs[1], { target: { value: '10:40' } })
@@ -206,7 +236,7 @@ describe('TimeBlocksScreen — add', () => {
     expect(sortCall[4]).toBe(600)
 
     localClient.write.mockClear()
-    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Early Block' } })
+    fireEvent.change(screen.getByPlaceholderText('Optional, e.g. Period 1'), { target: { value: 'Early Block' } })
     timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
     fireEvent.change(timeInputs[1], { target: { value: '09:40' } })
@@ -227,9 +257,9 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Block 1')
+    await screen.findByPlaceholderText('Optional, e.g. Period 1')
 
-    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Block 1' } })
+    fireEvent.change(screen.getByPlaceholderText('Optional, e.g. Period 1'), { target: { value: 'Block 1' } })
     const timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
     fireEvent.change(timeInputs[1], { target: { value: '10:00' } })
@@ -246,9 +276,9 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Block 1')
+    await screen.findByPlaceholderText('Optional, e.g. Period 1')
 
-    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Block 1' } })
+    fireEvent.change(screen.getByPlaceholderText('Optional, e.g. Period 1'), { target: { value: 'Block 1' } })
     const timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
     fireEvent.change(timeInputs[1], { target: { value: '10:00' } })
@@ -264,10 +294,10 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Block 1')
+    await screen.findByPlaceholderText('Optional, e.g. Period 1')
 
-    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Block 1' } })
-    fireEvent.keyDown(screen.getByPlaceholderText('Block 1'), { key: 'Enter' })
+    fireEvent.change(screen.getByPlaceholderText('Optional, e.g. Period 1'), { target: { value: 'Block 1' } })
+    fireEvent.keyDown(screen.getByPlaceholderText('Optional, e.g. Period 1'), { key: 'Enter' })
 
     expect(localClient.write).not.toHaveBeenCalled()
   })
@@ -285,9 +315,9 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Block 1')
+    await screen.findByPlaceholderText('Optional, e.g. Period 1')
 
-    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Block 1' } })
+    fireEvent.change(screen.getByPlaceholderText('Optional, e.g. Period 1'), { target: { value: 'Block 1' } })
     const timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
     fireEvent.change(timeInputs[1], { target: { value: '10:00' } })
@@ -526,8 +556,8 @@ describe('TimeBlocksScreen — backwards and overlapping blocks (audit A4/A5/A7)
   it('disables + Add and flags the end time when the end is before the start', async () => {
     withBlocks([])
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Block 1')
-    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Late' } })
+    await screen.findByPlaceholderText('Optional, e.g. Period 1')
+    fireEvent.change(screen.getByPlaceholderText('Optional, e.g. Period 1'), { target: { value: 'Late' } })
     const timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '16:00' } })
     fireEvent.change(timeInputs[1], { target: { value: '15:00' } })
@@ -541,7 +571,7 @@ describe('TimeBlocksScreen — backwards and overlapping blocks (audit A4/A5/A7)
   it('defaults part of day from the start time on the add row', async () => {
     withBlocks([])
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Block 1')
+    await screen.findByPlaceholderText('Optional, e.g. Period 1')
     const timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '16:00' } })
     expect(screen.getByDisplayValue('Afternoon')).not.toBeNull()

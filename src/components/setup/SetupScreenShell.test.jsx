@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { createRef } from 'react'
 import SetupScreenShell, { SETUP_MAX_WIDTH } from './SetupScreenShell'
 
 const base = {
   countLabel: '5 days', role: 'admin', fileInputRef: createRef(),
-  onFileChange: () => {}, nextLabel: 'Next: X →', onNext: () => {}, error: null,
+  onFileChange: () => {}, screenKey: 'days', onNavigate: () => {}, error: null,
 }
 
 describe('SetupScreenShell', () => {
@@ -14,7 +14,7 @@ describe('SetupScreenShell', () => {
     render(<SetupScreenShell {...base} actions={{}}><div>BODY</div></SetupScreenShell>)
     expect(screen.queryByText('5 days')).not.toBeNull()
     expect(screen.queryByText('BODY')).not.toBeNull()
-    expect(screen.queryByText('Next: X →')).not.toBeNull()
+    expect(screen.queryByText('Time Blocks →')).not.toBeNull()
   })
 
   it('hides Delete All when no onDeleteAll is given', () => {
@@ -39,10 +39,10 @@ describe('SetupScreenShell', () => {
     expect(screen.queryByText('PICKER')).not.toBeNull()
   })
 
-  it('applies the shared setup width (760) when none is passed', () => {
+  it('applies the one shared setup width (820) on every screen', () => {
     const { container } = render(<SetupScreenShell {...base} actions={{}}><div /></SetupScreenShell>)
-    expect(SETUP_MAX_WIDTH).toBe(760)
-    expect(container.firstChild.style.maxWidth).toBe('760px')
+    expect(SETUP_MAX_WIDTH).toBe(820)
+    expect(container.firstChild.style.maxWidth).toBe('820px')
   })
 
   it('renders no footer when there is neither a Next nor a utility', () => {
@@ -52,9 +52,32 @@ describe('SetupScreenShell', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('applies a custom maxWidth when passed', () => {
-    const { container } = render(<SetupScreenShell {...base} maxWidth={820} actions={{}}><div /></SetupScreenShell>)
+  // Consistency audit 2026-10-12 C10: one width; a screen cannot widen itself.
+  it('ignores a per-screen maxWidth', () => {
+    const { container } = render(<SetupScreenShell {...base} maxWidth={1200} actions={{}}><div /></SetupScreenShell>)
     expect(container.firstChild.style.maxWidth).toBe('820px')
+  })
+
+  // C2/C4: the forward link follows the sidebar's setup order, and the last setup screen leads to the schedule.
+  it('links to the next setup screen in sidebar order, and from the last one to the schedule', () => {
+    const onNavigate = vi.fn()
+    const { unmount } = render(<SetupScreenShell {...base} screenKey="locations" onNavigate={onNavigate} actions={{}}><div /></SetupScreenShell>)
+    fireEvent.click(screen.getByText('Activities →'))
+    expect(onNavigate).toHaveBeenCalledWith('activities')
+    unmount()
+    render(<SetupScreenShell {...base} screenKey="specialevents" onNavigate={onNavigate} actions={{}}><div /></SetupScreenShell>)
+    fireEvent.click(screen.getByText('Schedule →'))
+    expect(onNavigate).toHaveBeenLastCalledWith('schedule')
+  })
+
+  // Owner finding 2026-10-12: one week bar, first on the screen, only where the data is per-week.
+  it('renders the week bar first when given week props, and none without them', () => {
+    const week = { weekId: 'w1', weeks: [{ id: 'w1', name: 'Week 1' }], onSelectWeek: () => {}, exclusionCount: 0, totalCount: 3, entityLabel: 'groups' }
+    const { container, unmount } = render(<SetupScreenShell {...base} week={week} actions={{}}><div>BODY</div></SetupScreenShell>)
+    expect(container.firstChild.firstChild.textContent).toMatch(/Week 1/)
+    unmount()
+    render(<SetupScreenShell {...base} actions={{}}><div>BODY</div></SetupScreenShell>)
+    expect(screen.queryByText(/Week 1/)).toBeNull()
   })
 
   it('disables Delete All when deleteAllDisabled is true, even for admins', () => {

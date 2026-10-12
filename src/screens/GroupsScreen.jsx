@@ -12,7 +12,6 @@ import ImportModal from '../components/setup/ImportModal'
 import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import InlineAddRow from '../components/setup/InlineAddRow'
-import WeekContextBar from '../components/schedule/WeekContextBar'
 import { describeDivisionEvidence } from '../utils/divisionProvenance.js'
 import ProvenanceDot from '../components/setup/ProvenanceDot'
 import DuplicateNameDot from '../components/setup/DuplicateNameDot'
@@ -532,24 +531,15 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
   return (
     <>
     <div style={enterStyle}>
-    {weeks.length > 0 && (
-      <WeekContextBar
-        weekId={weekId}
-        weeks={weeks}
-        onSelectWeek={onSelectWeek}
-        exclusionCount={excludedGroupIds.size}
-        totalCount={groups.length}
-        entityLabel="groups"
-      />
-    )}
     <SetupScreenShell
+      week={{ weekId, weeks, onSelectWeek, exclusionCount: excludedGroupIds.size, totalCount: groups.length, entityLabel: 'groups' }}
+      screenKey="groups"
+      onNavigate={onNavigate}
       countLabel={`${groups.length} group${groups.length !== 1 ? 's' : ''}`}
       role={role}
       actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
       fileInputRef={fileRef}
       onFileChange={onFileChange}
-      nextLabel="Days →"
-      onNext={() => onNavigate('days')}
       error={error}
     >
       {tiers.length === 0 && !loading && (

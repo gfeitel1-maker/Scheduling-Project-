@@ -1,4 +1,5 @@
 import { CHILD_SCREEN, DOMAIN_SCREEN } from '../reconciliation/rootMapNav'
+import { SETUP_SCREEN_ORDER } from './navSections'
 
 // Must match the sidebar's labels exactly (src/components/layout/navSections.js).
 // A screen missing here falls back to "Shoresh", which tells the director
@@ -45,10 +46,12 @@ const TITLES = {
 // the "← Roots" return loop can't drift from the forward "Manage {Area} →"
 // navigation it pairs with. Schedule routes are excluded — they're their
 // own destination, not a setup-detail you return from.
-const SETUP_SCREENS = new Set(
-  [...Object.values(CHILD_SCREEN), ...Object.values(DOMAIN_SCREEN)]
-    .filter((screen) => screen && !screen.startsWith('schedule'))
-)
+// Every setup screen the sidebar lists (SETUP_SCREEN_ORDER), plus the Roots map's own targets. The map
+// alone missed Fixed Events, which it does not link to (consistency audit 2026-10-12, C1).
+const SETUP_SCREENS = new Set([
+  ...SETUP_SCREEN_ORDER.map((s) => s.key),
+  ...[...Object.values(CHILD_SCREEN), ...Object.values(DOMAIN_SCREEN)].filter((screen) => screen && !screen.startsWith('schedule')),
+])
 
 // Destinations reached FROM Roots that carry no sidebar entry of their own
 // (so a director landing there has no other way to tell where they came
