@@ -1,138 +1,180 @@
 # Shoresh
 
-Shoresh helps camps control, adapt, and own their scheduling logic.
+Shoresh is a scheduling app for summer camps. It builds and keeps the weekly
+schedule: which group does which activity, where, and when. You stay in charge
+of the decisions.
 
-It's the adaptive scheduling layer for camps that outgrow spreadsheets but don't want to surrender their operational judgment to a black-box platform.
+It runs on the camp's own computers. There is no account to create and no
+company server holding your camp's data: the schedule lives on your devices and
+syncs directly between them.
 
 ---
 
-## The problem
+## For a camp director
 
-Camp scheduling is a constraint satisfaction problem dressed up as a logistics problem. A typical week involves groups with different availability windows, activities with location capacity and eligibility rules, anchors that can't move, frequency goals, and preferences like "swimming should happen before Wednesday."
+### What it does
 
-Spreadsheets break down fast. Black-box tools make decisions you can't see or override. Shoresh sits in between — it handles the constraints and surfaces the conflicts, but you stay in control.
+- **Set up your camp once.** Groups and age divisions, days, time blocks,
+  activities, locations, fixed events (meals, flag, rest hour), recurring
+  events, and special days such as trips.
+- **Bring last year's schedule in.** Import the spreadsheet or text file you
+  already use. Shoresh reads it and creates the camp from it. It asks only about
+  what it can't tell on its own, and remembers your answers for next time. An
+  import can be undone.
+- **Two ways to build the week.**
+  - **Manual Build**: you place every cell, the way a spreadsheet works.
+  - **Generated Schedule**: the engine proposes a full week that respects your
+    rules, and you adjust it by dragging and dropping.
 
-## What it does
+  The two coexist, and switching between them never loses work.
+- **See what needs attention.** Cells nothing can fill, activities a group
+  doesn't get often enough, and a group booked in two places at once are all
+  flagged where they happen.
+- **Lock what must not move.** Generate again and your locked choices stay.
+- **Versions.** Named snapshots of a week, and an automatic one before every
+  regeneration. An imported schedule is saved as a version you can restore.
+- **Electives.** Define elective periods and their choices, including choices
+  that run across two periods. Import campers' ranked preferences from a sheet,
+  then let Shoresh assign campers fairly.
+- **Export.** Excel and JSON exports of the schedule. Shoresh also keeps a plain
+  workbook of the camp's data in `Documents/Shoresh` that anyone can open.
+- **Several devices, one camp.** Add a device by typing the camp code an admin
+  shows under **LAN & Devices** → Add a device. Edits made on different devices merge.
+  When two people change the same thing, Shoresh shows both versions and asks
+  you to choose.
+- **Your data stays protected.** The database on each device is encrypted by
+  default, and each device has its own PIN-protected sign-in with admin and
+  staff roles.
 
-You define the rules: groups, tiers, time blocks, activities, anchors, and constraints. The engine builds a schedule that respects all of them, then flags what it couldn't satisfy. From there you adjust, lock, drag, and iterate — the schedule is yours to own.
+### Getting started
 
-- **Schedule engine** — deterministic, constraint-aware, runs in milliseconds
-- **Drag-and-drop editing** — swap slots between groups directly on the grid
-- **Flag system** — surfaces unfillable slots, underserved activities, weather risk, and distribution gaps
-- **Locking** — protect decisions that shouldn't change across regenerations
-- **Snapshots** — named versions with auto-save before every regeneration; importing a prior year's schedule also saves its placements as a version you can pull up later, without overwriting what you're currently building
-- **Conflict resolution** — when two devices edit the same field offline, a dedicated screen surfaces the conflict and lets a director choose which version to keep
-- **Local-first** — each camp's data lives in its own on-device SQLite database, isolated by design
+There is no published installer yet; see **Status** below. Until there is, a
+camp builds the app from this repository (next section) or gets a build from
+whoever maintains its fork.
 
-## Architecture
+On first run, choose **Start a new camp** on the first device, or **Join with a
+camp code** on any device after that. The first device can create the camp by
+importing last year's schedule.
 
-Shoresh is a local-first desktop app built on Electron and SQLite. Each device runs its own SQLite database plus an Automerge document (a CRDT — a data structure built to merge concurrent edits automatically). One device acts as the LAN "Host." Other devices are "Clients" that discover the Host via libp2p mDNS and sync peer-to-peer over Noise-encrypted, mutually authenticated libp2p connections. There is no cloud backend — everything lives on-device and syncs directly between devices on the local network.
+---
 
-**Device access is gated by a pairing flow:** while an admin has an "Add a device" window open on the Host, the Host advertises a camp code; a new device enters that code, sends a pairing request, and the admin approves it in the Device Manager screen — the Host mints a per-device secret for that device. After pairing, a device's offline sessions use a local HMAC token; online sessions use a Host-minted Ed25519 camp token that other devices can verify but never forge.
+## Building it yourself
 
-Every write lands in the writing device's own database immediately and converges with every other device by merging Automerge documents — there's no round trip to a Host to confirm a write before it counts. When two devices edit the *same field* concurrently, that disagreement is recorded explicitly and surfaced in the Conflicts screen for a human to resolve; edits to *different* fields on the same record merge automatically. Nothing is silently dropped.
+You need:
 
-See [`docs/current/PLATFORM_STATE.md`](docs/current/PLATFORM_STATE.md) for the full architecture, screen inventory, and database schema. See [`SECURITY.md`](SECURITY.md) for the security model and known limitations.
+- **macOS**: Node.js, git, and Xcode Command Line Tools (for the native SQLite
+  driver).
+- **Windows**: build on Windows itself.
 
-## Security model
-
-Shoresh is designed for a **trusted private LAN** — a known group of collaborators on a network they control (camp office Wi-Fi, a direct switch, etc.).
-
-- **Device pairing gate** — every new device must be explicitly approved by an admin before it can sync or log in, using a camp code shown on the Host rather than a raw address, so pairing reads as recognizing your own camp.
-- **Ed25519 camp tokens** — session tokens for network use are signed exclusively by the Host's private key. Other devices can verify but never mint them.
-- **Encrypted, mutually authenticated sync connections** — device-to-device sync runs over libp2p with Noise-protocol encryption, not plaintext.
-- **Device revocation** — an admin can revoke a device in Device Manager; its live connection is closed immediately and all future requests from that device are denied.
-- **Centralized `authorize()` at the write boundary** — every mutating IPC handler re-derives the user's role from the database on every call, so a role change or revocation takes effect on the very next write from that device. See [`docs/current/CRDT_SECURITY_GAPS.md`](docs/current/CRDT_SECURITY_GAPS.md) for the tradeoffs of this device-side model.
-- **Audit log** — auth events and denied calls are written to the `audit_events` table.
-
-**This system is not designed for public internet hosting, open Wi-Fi, or enterprise identity requirements.** See [`SECURITY.md`](SECURITY.md) for explicit limitations.
-
-## Running locally
-
-```bash
-npm install
-npx electron-rebuild -f -w better-sqlite3   # required before first electron:dev run
-npm run electron:dev                          # Vite + Electron together
-```
-
-After switching between `npm run test` (Node) and `npm run electron:dev` (Electron), rebuild the native module for the target:
-
-```bash
-npx electron-rebuild -f -w better-sqlite3   # before electron:dev
-npm rebuild better-sqlite3                   # before npm run test
-```
-
-## Local deploy
-
-`npm run deploy:local` rebuilds the app and updates an already-installed
-`/Applications/Shoresh.app` in place, so a source change appears in the
-installed app with one command. Before replacing anything it moves the
-current install aside to `Shoresh.app.bak`, then proves the new build good
-(native module ABI check, a launch smoke test, and a build-stamp check
-against `git rev-parse HEAD`) before deleting the backup. The launch smoke
-test runs the build against a fresh, throwaway data directory — never the
-machine's real operational database — so it verifies the build boots
-regardless of whatever schema version the machine's live database happens to
-be at, and waits (up to 40s) for a nonce-stamped startup heartbeat — a marker
-the app writes only after its window finishes loading, tied to this specific
-run — rather than just checking the process is still alive, so a
-main-process crash that Electron keeps alive behind its own error dialog now
-correctly fails the deploy instead of silently passing. If any check fails, it automatically restores
-`Shoresh.app.bak` back to `Shoresh.app` and exits non-zero — the machine is
-always left with a working installed app. For a first-time install, use
-`npm run install:mac` instead.
-
-If `better-sqlite3`'s native build gets into a bad state from a concurrent
-rebuild (a rare, self-resolving race — not a broken environment), recover with:
+The repository pins a Node version in `.nvmrc`. **On an Intel Mac, use Node 22**:
+the encrypting SQLite driver (`better-sqlite3-multiple-ciphers`, a required
+dependency) does not compile under the pinned Node there.
 
 ```bash
-rm -rf node_modules/better-sqlite3/build && npm rebuild better-sqlite3
+npm ci
+npm run electron:dev
 ```
 
-## Windows build
+`electron:dev` runs the real app against a separate development database, so
+it cannot touch an installed copy's data. The sidebar shows a **DEV** badge
+when the development database is loaded.
 
-The camp runs a mix of macOS and Windows machines, so the app also builds a Windows target. **This must be built on an actual Windows machine** — electron-builder can only cross-compile Windows targets from macOS via Wine, and that path is unreliable; it is not supported here.
+To produce the packaged app:
 
 ```bash
-npm install
-npx electron-rebuild -f -w better-sqlite3   # rebuilds better-sqlite3 for Electron's ABI
-npm run electron:build                      # produces an NSIS installer under release/
+npm run electron:build
 ```
 
-`preelectron:build` (via `scripts/ensure-abi.js`) rebuilds the native module automatically before packaging, the same way it does on macOS — this is what fixes the "installs fine, opens no window" failure that a Node-ABI `better-sqlite3` binary causes.
+The output goes under `release/`. The build rebuilds the native module for
+Electron first (`scripts/ensure-abi.js`). It then fails unless the packaged app
+loads its encrypted database and boots (`scripts/verifyPackagedApp.js`).
 
-**Installer format:** a per-user NSIS installer (`nsis`, `perMachine: false`). Camp machines are shared, staff are non-technical, and the machine used to validate this had no admin rights on Windows at all — a per-machine install (Program Files, elevation prompt) would have failed outright. A per-user NSIS install runs without elevation and installs to the current user's `%LOCALAPPDATA%`, at the cost of every login/user account on a shared machine needing its own install. `asar` stays `false` on Windows too, matching macOS — same native-module (`better-sqlite3`) and inspectability reasoning applies to both platforms.
+On a Mac:
+- `npm run install:mac` installs the built app into `/Applications`.
+- `npm run deploy:local` rebuilds an installed copy in place. It keeps a backup
+  and restores it automatically if the new build fails its checks.
 
-**Firewall (read before deploying to a real camp room):** Windows classifies a new network as "Public" by default, which drops unsolicited inbound TCP connections. The Host device's libp2p node will start, mDNS discovery will still find it, and everything will *look* healthy — the Host just silently accepts no connections. This was confirmed on real hardware. Fixing this requires a firewall exception, and creating one requires admin rights — which conflicts directly with the no-admin, per-user install this app ships. Rather than bundle an NSIS script that would silently fail on a no-admin machine (or force a per-machine/elevated install to make it work), this is a **manual step**, to be done once per Windows machine that will act as Host:
-
-1. Set the Wi-Fi/network connection to **Private**, not Public (Settings → Network & Internet → the connection → Network profile type), **or**
-2. If it must stay Public, add an inbound firewall rule for the app manually (Windows Defender Firewall → Advanced Settings → Inbound Rules → New Rule → allow the Shoresh executable, or the LAN sync port), which does require an admin.
-
-If neither is done, sync will silently fail to connect on that Host — check the network profile type first when troubleshooting "peers found but not syncing" on Windows.
-
-## Tests
+After switching between running tests (Node) and running the app (Electron),
+rebuild the native module for the one you are about to use:
 
 ```bash
-npm run test                              # Vitest unit tests — see PLATFORM_STATE.md for current counts
-node test/integration/run.automerge.js    # multi-process integration scenarios over the live libp2p sync engine
-npm run lint                              # ESLint
+npx electron-rebuild -f -w better-sqlite3   # before npm run electron:dev
+npm rebuild better-sqlite3                   # before npm test
 ```
 
-The integration harness spawns real child processes to cover cross-process behavior (pairing, revocation, conflict detection, clock skew, role changes) that Vitest's single-process model cannot verify.
+### Windows
+
+`npm run electron:build` on a Windows machine produces a per-user NSIS
+installer that needs no admin rights. Windows treats a new network as
+**Public**, which silently blocks other devices from connecting to that
+computer. On each Windows computer that should accept connections, either:
+
+- set the network to **Private**, or
+- add an inbound firewall rule for Shoresh (this one needs an admin).
+
+---
+
+## Forking it for your own camp
+
+Shoresh is open source (Apache 2.0) and is meant to be forked: each camp runs
+its own copy, and no central service owns your data.
+
+What a camp runs:
+
+- **The app, on its own devices.** Each device keeps the whole camp in a local
+  database. Devices on the same network find each other automatically and sync
+  over encrypted, mutually authenticated connections.
+- **Optionally, a small rendezvous service, so devices can reconnect across
+  networks** (office and home, say).
+  - Packaged builds try a direct connection across the internet and use a tiny
+    Cloudflare Worker only to introduce two devices. The Worker never sees or
+    stores camp data; it holds short-lived, signed address records.
+  - The source is in `workers/rendezvous/`, and the app's default address is in
+    `electron/wanDefaults.js`.
+  - A fork that wants its own deploys that Worker and points
+    `DEFAULT_RENDEZVOUS_URL` at it. Setting `SHORESH_RENDEZVOUS_URL` to an empty
+    value turns the rendezvous step off.
+  - Adding a new device always happens on the local network, whichever option a
+    camp picks.
+
+There is no server to keep running for the schedule itself. See
+[SECURITY.md](SECURITY.md) for what the network setup does and does not
+protect.
+
+To change the app for your camp, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## How it works
+
+- **Data:** each device holds the camp in an
+  [Automerge](https://automerge.org) document, a structure designed to merge
+  edits made on different devices. A local SQLite database mirrors it for fast
+  reading. Edits to different fields merge on their own; two edits to the same
+  field are kept as a conflict for a person to resolve.
+- **Sync:** runs over [libp2p](https://libp2p.io) with Noise encryption.
+- **Engine:** the schedule engine is a pure, deterministic function. The same
+  inputs always produce the same week.
+
+Current architecture, screens and database tables:
+[docs/current/PLATFORM_STATE.md](docs/current/PLATFORM_STATE.md). The security
+model: [SECURITY.md](SECURITY.md).
 
 ## Status
 
-Active development, pre-production. Being built for Shoresh camp; not yet running with live camp data. Open work is tracked as tickets and run records under [`docs/work`](docs/work/README.md), governed by the rules indexed at [`docs/governance/GOVERNANCE_INDEX.md`](docs/governance/GOVERNANCE_INDEX.md).
-
-Self-hosting guide and contributing guidelines coming with the first stable release.
+Pre-release. v1 is being built and audited for one camp, and there is no
+published release or installer yet. Open work is tracked as tickets under
+[docs/work](docs/work/README.md), governed by
+[docs/governance/GOVERNANCE_INDEX.md](docs/governance/GOVERNANCE_INDEX.md).
 
 ## Tech
 
-React 19 · Vite · Electron · better-sqlite3 · Automerge · libp2p · @dnd-kit · Vitest
+React 19 · Vite · Electron · better-sqlite3-multiple-ciphers · Automerge · libp2p ·
+@dnd-kit · Vitest
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). The packaged app's
-**Licenses** menu item lists every production dependency's version, SPDX identifier,
-and full license text, generated by `scripts/generate-licenses.js` from
-`electron/third-party-licenses.json`.
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). The packaged
+app's **Licenses** menu item lists every production dependency's version,
+license identifier and full license text, generated by
+`scripts/generate-licenses.js`.
