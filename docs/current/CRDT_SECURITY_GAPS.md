@@ -230,6 +230,15 @@ record is gone from the document by design. Kept a separate collection from `fie
 provenance is deliberately sparse and authorship is not, so folding them together would have
 destroyed that property silently.
 
+**Rejection of a deleted record** (T375): whether a delete was a director rejecting the record now
+replicates as well. A delete with `source: 'human'` writes a `'human'` marker under the delete
+sentinel in `field_provenance` (`electron/automerge/campDocument.js`). The receiving history ledger
+records the delete as `'human'` only when that marker is present (`electron/automerge/historyLedger.js`),
+so `isHumanDeleted` gives the same answer on every device and a re-import cannot bring a rejected row
+back anywhere. An undo of an import and an import's own teardown write no marker, and a Pair-again
+re-delete keeps it. Before T375 a received delete was always recorded with a NULL source, so another
+device's rejection never suppressed a re-import.
+
 `device_id` is deliberately NOT carried in the document. The history ledger attributes a received
 change to the PEER it arrived from, via `devices.libp2p_peer_id` — which is what "which device did
 this reach me from" honestly means, and does not require the document to carry a device identity that
