@@ -1,6 +1,6 @@
 # Shoresh — Security Model
 
-_Last updated: 2026-09-28_
+_Last updated: 2026-10-12_
 
 The standing security program that governs how this model is maintained and tested lives at
 [docs/work/security/2026-09-14-security-program.md](docs/work/security/2026-09-14-security-program.md)
@@ -19,33 +19,31 @@ as "the network auth path", now the libp2p auth gate (`authGate.js`).
 
 ## Deployment boundary
 
-Shoresh is designed for a **trusted private LAN** — a small, known group of collaborators
-(camp directors, scheduling staff) on a network they control: a camp office router, a direct
-switch, or equivalent. It is not hardened for the public internet.
+Shoresh is built for a **small, known group of collaborators** (camp directors and scheduling
+staff) whose devices sync with each other. There is no central server holding camp data.
 
-**This boundary is an assumption with an expiry, and it is enforced by network topology, not by
-code — be precise about how.** The production node binds **all interfaces** (`/ip4/0.0.0.0/tcp/0`,
-`electron/sync/automerge/syncStarter.js` — the listen + mDNS wiring moved out of `main.js` in
-T276) — NOT loopback (loopback would break LAN sync). What keeps it off the internet
-today is **discovery**: peers are found only via `@libp2p/mdns` (link-local multicast); no DHT,
-relay, or bootstrap is installed or wired. So the pre-auth surface is reachable by anything that can
-route to the host's ephemeral port — shielded by NAT/firewall topology + an unadvertised port, not
-by a code boundary. The intended next step (owner decision 2026-09-15) is **cross-internet sync,
-direct hole-punch, NO relay** ("no server of any kind") — which a WAN security assessment
-(`docs/work/security/2026-09-15-wan-dht-boundary-assessment.md`) found has hard blockers that must
-be fixed first (join code, LAN-sized rate limits, unsigned builds) and one
-networking invariant (symmetric-NAT/CGNAT pairs cannot be punched directly without a relay).
-The join-code blocker has since been **addressed by T286** (see the WAN-connectivity hardening
-ladder, [docs/adr/2026-09-27-wan-connectivity-hardening-ladder.md](docs/adr/2026-09-27-wan-connectivity-hardening-ladder.md)):
-the join secret is now ephemeral, window-scoped, random (never campId-derived), 50-bit, and
-scrypt-tagged for rendezvous (`electron/sync/joinCode.js`) — replacing the earlier
-`base32Crockford(sha256(campId)[:5])` derivation. LAN-sized rate limits and unsigned builds remain
-open. This does not move the deployment boundary: the WAN rendezvous modules exist with tests but
-are still **not wired into production discovery** (mDNS-only), so the boundary described above holds. Any
-move to internet-reachable discovery requires that re-assessment first — enforced by
-[docs/adr/2026-09-14-internet-transport-security-gate.md](docs/adr/2026-09-14-internet-transport-security-gate.md)
-and its build-failing guard (which reads the real `electron/sync/automerge/syncStarter.js` discovery
-wiring, not a dead loopback constant).
+**How devices find each other.**
+- **On a local network:** by `@libp2p/mdns` (link-local multicast).
+- **Across networks** (packaged builds, on by default since T340; see "Router port mapping"
+  below for the exposure this creates): a device does three things.
+  - It asks its own router to open its sync port (UPnP-IGD or NAT-PMP).
+  - It tries a direct connection and a hole-punch.
+  - As a last resort, it asks a small Cloudflare rendezvous Worker (`workers/rendezvous/`) to
+    introduce it to the camp's other devices. The Worker stores only short-lived, signed address
+    records, never camp data, and the app's default address for it is in `electron/wanDefaults.js`.
+- **No relay of any kind.** A pair of devices that are both behind carrier-grade NAT cannot
+  connect across networks
+  ([docs/adr/2026-10-08-relayless-cross-network-reconnect.md](docs/adr/2026-10-08-relayless-cross-network-reconnect.md)).
+- **Development builds** and tests leave the cross-network ladder off unless it is set
+  explicitly.
+
+**What protects a device that is reachable.** Every connection is encrypted and mutually
+authenticated by the Noise protocol, then admitted only by the auth gate (`authGate.js`) as a
+paired, non-revoked camp device. The pre-authentication window is bounded per source and in total.
+The move to internet reachability was made under the gate in
+[docs/adr/2026-09-14-internet-transport-security-gate.md](docs/adr/2026-09-14-internet-transport-security-gate.md):
+each capability is registered and signed off in `electron/sync/automerge/transportCapabilities.js`,
+and a build-failing guard reads the real discovery wiring.
 
 Pairing is accepted only from a private (RFC1918 / IPv6 ULA), loopback or link-local address. Carrier-grade NAT `100.64.0.0/10` falls outside that list, as does every Tailscale address and any VPN or relay path; all are refused with `pairing-requires-local-network` ([docs/adr/2026-10-08-max-connections-dos-mitigation.md](docs/adr/2026-10-08-max-connections-dos-mitigation.md)).
 
@@ -295,10 +293,10 @@ separately by the session token at the auth gate). Under the trusted-LAN model t
 The residual exposures that remain are the application-layer ones below (the PIN reaching the Host
 process, and camp-membership trust), not wire-plaintext.
 
-**Do not expose the sync transport to the internet.** Doing so requires the re-assessment gated by
-[docs/adr/2026-09-14-internet-transport-security-gate.md](docs/adr/2026-09-14-internet-transport-security-gate.md)
-— including whether Noise-only channel encryption is sufficient off-LAN and whether relays must be
-independently authenticated.
+Off the local network the same holds: a cross-network connection (see "Deployment boundary") is
+the same Noise channel with no relay in between, and camp membership is still proven at the auth
+gate. Any new internet-facing capability goes through the gate in
+[docs/adr/2026-09-14-internet-transport-security-gate.md](docs/adr/2026-09-14-internet-transport-security-gate.md).
 
 ### Raw PIN reaches the Host process on initial login
 
@@ -759,9 +757,13 @@ key material is a single point of failure for revoking another device.
 
 ## Explicitly NOT for
 
-- **Public internet hosting** — no TLS, no rate limiting on the WS port beyond login lockout,
-  no protection against unauthenticated port scanning.
-- **Open or shared Wi-Fi** — raw PINs and all sync traffic are readable on the LAN.
+- **Public hosting** — Shoresh is not a service to host for others. A device's sync port can be
+  reachable from the internet (see "Router port mapping"), and only paired camp devices get past
+  the auth gate. A scanner can still reach the pre-authentication window, which is bounded but not
+  closed.
+- **Open or shared Wi-Fi** — sync traffic is Noise-encrypted, but pairing trusts the local
+  network: while an admin has "Add a device" open, any device on that network that has the camp
+  code can ask to join, and the admin must recognize it before approving.
 - **Enterprise identity** — no SSO, no LDAP/AD, no MFA, no federated identity.
 - **High-risk PII or regulated data** — Shoresh is a scheduling tool for camp staff; it is
   not designed to hold medical records, financial data, or any data subject to compliance

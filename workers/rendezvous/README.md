@@ -1,14 +1,19 @@
-# Rendezvous Worker (T209, Phase A) — undeployed
+# Rendezvous Worker (T209)
 
-This directory holds the source and tests for a Cloudflare Worker + SQLite-backed Durable Object "bulletin board"
+The source and tests for the Cloudflare Worker and its single SQLite-backed Durable Object: the
+"bulletin board" that lets two camp devices on different networks find each other's address. It is
 described in `docs/work/tickets/T209-rendezvous-worker-phase-a.md` and
-`docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md`. **Nothing here is deployed, and
-nothing in this repository's automated workflow deploys it.** It is not wired into the Shoresh
-app in any way — no code under `src/` or `electron/` imports or calls anything in this directory.
+`docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md`.
 
-Deploying it is an **owner action**, outside every ticket in this program (T209 §"Does NOT count
-as done"). This README exists so that whoever does deploy it knows what is and is not handled by
-the code.
+**Deployed and in use.** The project's Worker went live on 2026-10-09. Packaged builds use it by
+default as the last rung of the cross-network ladder: `electron/wanDefaults.js` holds its address,
+and `electron/sync/automerge/rendezvousClient.js` is the only code that calls it. Nothing in this
+repository's automated workflow deploys it; a deploy is a manual `wrangler deploy` from this
+directory.
+
+**A fork can run its own.** Deploy this Worker under your own Cloudflare account, then point
+`DEFAULT_RENDEZVOUS_URL` in `electron/wanDefaults.js` at it. Setting `SHORESH_RENDEZVOUS_URL` to an
+empty value turns the rendezvous step off while keeping the direct rungs.
 
 ## What this Worker does
 
