@@ -7,6 +7,8 @@ import { aoaToSanitizedSheet, readEntitySheet } from '../utils/exportSanitize.js
 import { localClient } from '../localClient'
 import { ChevronIcon, OutdoorIcon } from '../components/icons'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
+import AddRecordRow from '../components/setup/AddRecordRow'
+import NameWithMarkers from '../components/setup/NameWithMarkers'
 import ModalCard from '../components/ModalCard'
 import WeekToggle from '../components/WeekToggle'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
@@ -18,7 +20,6 @@ import ProvenanceDot from '../components/setup/ProvenanceDot'
 import { provenanceDotStyles } from '../components/setup/provenanceDotStyles.js'
 import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 import { filterFreeChoiceActivities } from '../engine/freeChoiceActivities'
-import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
 import { resolveRowAction } from '../ingest/resolveRowAction.js'
@@ -518,8 +519,6 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   const [deletingAll, setDeletingAll] = useState(false)
   const [excludedActivityIds, setExcludedActivityIds] = useState(new Set())
   const [pendingExclusion, setPendingExclusion] = useState(null) // { activity, slotCount }
-  const [quickName, setQuickName] = useState('')
-  const [quickAdding, setQuickAdding] = useState(false)
   // Slice D: { evidence: importEvidenceRow[], fieldSources: { [activityId]: { [opField]: source|null } } }
   const [provenance, setProvenance] = useState({ evidence: [], fieldSources: {} })
   // Slice E, Target 3 — a single-shot row settle highlight after a
@@ -808,50 +807,6 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
           ? `An activity named "${copyName}" already exists — rename it before duplicating again.`
           : describeWriteFailure(err, 'That activity could not be duplicated.')
       )
-    }
-  }
-
-  // Name-only quick-add — mirrors saveActivity's create path but skips the
-  // modal, filling every other field with normalizeActivity's own fallbacks
-  // so a quick-added row is indistinguishable from one created via the modal.
-  async function addActivityQuick() {
-    const trimmedName = quickName.trim()
-    if (!trimmedName) return
-    if (activities.some(a => whitespaceInsensitiveName(a.name) === whitespaceInsensitiveName(trimmedName))) {
-      setError('An activity with this name already exists — choose a different name.')
-      return
-    }
-    setQuickAdding(true)
-    const newId = crypto.randomUUID()
-    try {
-      await repository.createRecord('activities', newId, serializeFields({
-        name: trimmedName,
-        camp_id: campId,
-        location_id: null,
-        is_outdoor: false,
-        max_groups_per_slot: 1,
-        min_per_week: 0,
-        max_per_week: 5,
-        span_blocks: 1,
-        same_tier_only: false,
-        priority: 'low',
-        eligible_tier_ids: [],
-        eligible_group_ids: [],
-        prefer_before_day: null,
-        prefer_before_day_min: null,
-        weather_alternative_id: null,
-        notes: null,
-      }))
-      setQuickName('')
-      await load()
-    } catch (err) {
-      setError(
-        /UNIQUE/i.test(err?.message ?? '')
-          ? 'An activity with this name already exists — choose a different name.'
-          : describeWriteFailure(err, 'That activity could not be added.')
-      )
-    } finally {
-      setQuickAdding(false)
     }
   }
 
@@ -1215,41 +1170,19 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
 
   return (
     <div>
-      {weeks.length > 0 && (
-        <WeekContextBar
-          weekId={weekId}
-          weeks={weeks}
-          onSelectWeek={onSelectWeek}
-          exclusionCount={excludedActivityIds.size}
-          totalCount={catalogActivities.length}
-          entityLabel="activities"
-        />
-      )}
       <SetupScreenShell
+        week={{ weekId, weeks, onSelectWeek, exclusionCount: excludedActivityIds.size, totalCount: catalogActivities.length, entityLabel: 'activities' }}
+        screenKey="activities"
+        onNavigate={onNavigate}
         countLabel={`${catalogActivities.length} activit${catalogActivities.length !== 1 ? 'ies' : 'y'}`}
         role={role}
         actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
         fileInputRef={fileRef}
         onFileChange={onFileChange}
-        maxWidth={820}
-        nextLabel="Recurring Events →"
-        onNext={() => onNavigate('recurringevents')}
         error={error}
       >
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <button className="press-97" onClick={() => setModal({ activity: null })} style={S.btnPrimary}>+ Add Activity</button>
-      </div>
-
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
-      ) : catalogActivities.length === 0 ? (
-        // padding 40px 24px intentional — wider horizontal padding than other empty states
-        <div style={{ ...S.emptyState, padding: '40px 24px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
-          <div style={emptyEnter}>
-            <div style={S.emptyStateTitle}>No activities yet</div>
-            <div style={S.emptyStateBody}>Add your first activity, or import last year's schedule.</div>
-          </div>
-        </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1266,6 +1199,11 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
               </tr>
             </thead>
             <tbody>
+              {catalogActivities.length === 0 && (
+                <tr><td colSpan={weekId ? 8 : 7} style={S.emptyState}>
+                  <div style={emptyEnter}><div style={S.emptyStateTitle}>No activities yet</div><div style={S.emptyStateBody}>Add your first activity, or import last year's schedule.</div></div>
+                </td></tr>
+              )}
               {[{ label: 'High Priority', rows: highPriority }, { label: 'Low Priority', rows: lowPriority }].map(({ label, rows }) => {
                 if (!rows.length) return null
                 return (
@@ -1299,22 +1237,24 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ activity: a }) } }}
                             style={{ cursor: 'pointer' }}
                           >{a.name}</span>
-                          {(duplicateSiblings.get(a.id)?.length ?? 0) > 0 && (
-                            <DuplicateActivityDot
+                          <NameWithMarkers markers={<>
+                            {(duplicateSiblings.get(a.id)?.length ?? 0) > 0 && (
+                              <DuplicateActivityDot
+                                activity={a}
+                                siblings={duplicateSiblings.get(a.id)}
+                                onMerge={mergeDuplicateActivity}
+                                busy={mergingId === a.id}
+                              />
+                            )}
+                            <RuleProvenanceDot
                               activity={a}
-                              siblings={duplicateSiblings.get(a.id)}
-                              onMerge={mergeDuplicateActivity}
-                              busy={mergingId === a.id}
+                              evidenceByField={evidenceByActivity[a.id] || {}}
+                              fieldSources={provenance.fieldSources?.[a.id] || {}}
+                              onConfirmField={confirmProvenanceField}
+                              onConfirmAll={confirmAllProvenance}
+                              onChange={(activity) => setModal({ activity })}
                             />
-                          )}
-                          <RuleProvenanceDot
-                            activity={a}
-                            evidenceByField={evidenceByActivity[a.id] || {}}
-                            fieldSources={provenance.fieldSources?.[a.id] || {}}
-                            onConfirmField={confirmProvenanceField}
-                            onConfirmAll={confirmAllProvenance}
-                            onChange={(activity) => setModal({ activity })}
-                          />
+                          </>} />
                         </td>
                         <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{a.location_id ? locMap[a.location_id] || '—' : '—'}</td>
                         <td style={{ ...S.td, fontSize: 12 }}>{a.is_outdoor ? <OutdoorIcon role="img" aria-label="Outdoor" style={{ display: 'inline-block', verticalAlign: 'middle' }} /> : '—'}</td>
@@ -1334,7 +1274,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                             />
                           </td>
                         )}
-                        <td style={{ ...S.td, textAlign: 'right', borderLeft: weekId ? '1px solid var(--border)' : undefined }}>
+                        {/* Actions side by side at one row height, never stacked (consistency audit C7). */}
+                        <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap', borderLeft: weekId ? '1px solid var(--border)' : undefined }}>
                           <button className="press-97" onClick={e => { e.stopPropagation(); duplicateActivity(a) }} style={S.btnSecondary}>Duplicate</button>
                           <button
                             onClick={e => { e.stopPropagation(); deleteActivity(a.id) }}
@@ -1348,28 +1289,11 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                   </React.Fragment>
                 )
               })}
+              <AddRecordRow label="Add Activity" colSpan={weekId ? 8 : 7} onClick={() => setModal({ activity: null })} />
             </tbody>
           </table>
         </div>
       )}
-
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', marginTop: 16 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Add Activity
-        </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <input
-            placeholder="Archery"
-            value={quickName}
-            onChange={e => setQuickName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addActivityQuick()}
-            style={{ ...S.input, flex: 1 }}
-          />
-          <button className="press-97" onClick={addActivityQuick} disabled={quickAdding || !quickName.trim()} style={S.btnPrimary}>
-            {quickAdding ? 'Adding…' : '+ Add'}
-          </button>
-        </div>
-      </div>
 
       </SetupScreenShell>
 

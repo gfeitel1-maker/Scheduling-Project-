@@ -106,7 +106,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Monday'), { target: { value: 'Wednesday' } })
+    fireEvent.change(screen.getByPlaceholderText('Same as the weekday'), { target: { value: 'Wednesday' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
@@ -124,7 +124,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    const labelInput = screen.getByPlaceholderText('Monday')
+    const labelInput = screen.getByPlaceholderText('Same as the weekday')
     fireEvent.change(labelInput, { target: { value: 'Sunday' } })
     fireEvent.keyDown(labelInput, { key: 'Enter' })
 
@@ -138,7 +138,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    const labelInput = screen.getByPlaceholderText('Monday')
+    const labelInput = screen.getByPlaceholderText('Same as the weekday')
     fireEvent.change(labelInput, { target: { value: 'Saturday' } })
     // Blur with relatedTarget outside the row commits the add.
     fireEvent.blur(labelInput, { relatedTarget: document.body })
@@ -148,12 +148,13 @@ describe('DaysScreen', () => {
     expect(labelsWritten).toContain('Saturday')
   })
 
-  it('does not commit the inline row on blur when the label is empty', async () => {
+  // Audit A2: the label is optional now, so the guard is that an untouched row does not commit on blur.
+  it('does not commit the inline row on blur when nothing in it was changed', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    const labelInput = screen.getByPlaceholderText('Monday')
+    const labelInput = screen.getByPlaceholderText('Same as the weekday')
     fireEvent.blur(labelInput, { relatedTarget: document.body })
 
     expect(localClient.write).not.toHaveBeenCalled()
@@ -166,14 +167,14 @@ describe('DaysScreen', () => {
 
     // After the add, the reload returns the newly-created day.
     localClient.list.mockResolvedValue([day({ id: 'new-day-id', label: 'Wednesday', day_of_week: 3, sort_order: 3 })])
-    const labelInput = screen.getByPlaceholderText('Monday')
+    const labelInput = screen.getByPlaceholderText('Same as the weekday')
     fireEvent.change(labelInput, { target: { value: 'Wednesday' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     // The created day now shows as a real row...
     await waitFor(() => expect(screen.queryByText('1 day')).not.toBeNull())
     // ...and the blank row is still there, cleared, ready for the next entry.
-    const blankInput = screen.getByPlaceholderText('Monday')
+    const blankInput = screen.getByPlaceholderText('Same as the weekday')
     expect(blankInput.value).toBe('')
   })
 
@@ -186,7 +187,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Monday'), { target: { value: 'Thursday' } })
+    fireEvent.change(screen.getByPlaceholderText('Same as the weekday'), { target: { value: 'Thursday' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'new-day-id'))
@@ -198,21 +199,22 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Monday'), { target: { value: 'Friday' } })
+    fireEvent.change(screen.getByPlaceholderText('Same as the weekday'), { target: { value: 'Friday' } })
     const dowSelect = screen.getByDisplayValue('Monday')
     fireEvent.keyDown(dowSelect, { key: 'Enter' })
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
   })
 
-  it('does not add on Enter from a secondary field when the row is invalid (no label)', async () => {
+  // Audit A2: pick the weekday; the label defaults to its name.
+  it('Enter with no label adds the picked weekday, named after it', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
     fireEvent.keyDown(screen.getByDisplayValue('Monday'), { key: 'Enter' })
 
-    expect(localClient.write).not.toHaveBeenCalled()
+    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'days_of_operation', expect.any(String), 'label', 'Monday'))
   })
 
   it('names the schedule cells and recurring events a day holds, before deleting it', async () => {
@@ -332,7 +334,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Monday'), { target: { value: 'Monday' } })
+    fireEvent.change(screen.getByPlaceholderText('Same as the weekday'), { target: { value: 'Monday' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(screen.queryByText(/Another record already has that name/)).not.toBeNull())
@@ -344,7 +346,8 @@ describe('DaysScreen', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Monday' }))
-    const labelInput = screen.getAllByDisplayValue('Monday')[0]
+    // The edit row's label field is empty when the label is the weekday's own name (audit A2).
+    const labelInput = screen.getAllByPlaceholderText('Same as the weekday')[0]
     fireEvent.change(labelInput, { target: { value: 'Mon' } })
     fireEvent.click(screen.getByText('Save'))
 
@@ -359,7 +362,7 @@ describe('DaysScreen', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Monday' }))
-    const dowSelect = screen.getAllByDisplayValue('Monday')[1]
+    const dowSelect = screen.getAllByDisplayValue('Monday')[0] // the edit row's weekday (the add row's comes after)
     fireEvent.change(dowSelect, { target: { value: '3' } })
     fireEvent.click(screen.getByText('Save'))
 
@@ -367,6 +370,9 @@ describe('DaysScreen', () => {
       expect(localClient.write).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'day-1', 'sort_order', 3)
     )
     expect(localClient.write).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'day-1', 'day_of_week', 3)
+
+    // The label was the weekday's own name, so it follows the new weekday (audit A2).
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'day-1', 'label', 'Wednesday')
   })
 
   // Days offers bulk Excel import like the other setup screens (Wave B2

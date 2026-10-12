@@ -105,7 +105,7 @@ async function revokeOrdinary(calls) {
   const handlers = makeHandlers(db, founderDeviceId, { getAutomergeSyncNode: () => fakeNode(calls) })
   await handlers.chooseMode({ mode: 'host' })
   const { token } = await handlers.login({ name: 'Founder', pin: '135790' })
-  expect(handlers.revokeDevice({ token, deviceId: target })).toEqual({ deviceId: target, revoked: true })
+  expect(handlers.revokeDevice({ token, deviceId: target })).toEqual({ deviceId: target, revoked: true, fleetWide: true })
 }
 
 describe('F1 (2026-10-09 WAN-ladder assessment) — revoking a device rotates the rendezvous namespace AND address key', () => {

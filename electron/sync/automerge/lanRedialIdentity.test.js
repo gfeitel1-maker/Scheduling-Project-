@@ -12,6 +12,7 @@ import { initSchema } from '../../db/localDb.js'
 import { startTransport } from './transport.js'
 import { rememberPeerAddress, redialTrustedPeers } from './peerAddressBook.js'
 import { createAttemptLan } from './punchReconnectWiring.js'
+import { rosterDevice } from './rosterTestSupport.js'
 
 const files = []
 let handles = []
@@ -29,6 +30,7 @@ async function setup() {
   const laptop = await startTransport({ deviceId: 'laptop' })
   handles.push(office, laptop)
   db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at, libp2p_peer_id) VALUES ('d1', 'd1', 'approved', '2026-10-01T00:00:00.000Z', ?)").run(office.peerId)
+  rosterDevice(db, 'd1', office.peerId)
   const live = office.getMultiaddrs().map(String).find((m) => m.includes('/tcp/'))
   return { db, office, laptop, liveAddr: live.includes('/p2p/') ? live : `${live}/p2p/${office.peerId}` }
 }

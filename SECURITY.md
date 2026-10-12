@@ -93,12 +93,13 @@ minted a fresh keypair on every process start.
   in libp2p's own protobuf marshal format. It is never replicated: it appears in no projection, no
   camp-scoped entity set, and no Automerge document, and a test pins that exclusion. It inherits
   at-rest encryption from SQLCipher along with the rest of the database (on by default); there is deliberately no separate key store for it.
-- **What it buys.** A session token is no longer a pure bearer credential. On `authenticate` and on
-  `login`, the peer identity libp2p's Noise handshake already proved for the connection is checked
-  against `devices.libp2p_peer_id` on a trust-on-first-use basis: the first peer id presented for a
-  device binds, every later one must match, and a mismatch is refused with reason
-  `peer_identity_mismatch` and close code `4405`, audited. A token stolen off one machine and
-  replayed from another is therefore rejected. This closes the property T155 characterized.
+- **What it buys.** The peer identity libp2p's Noise handshake already proved for a connection is
+  the device's identity. On `login` it is bound to `devices.libp2p_peer_id` on a trust-on-first-use
+  basis (the first peer id presented for a device binds, every later one must match, a mismatch is
+  refused with `peer_identity_mismatch` / `4405`, audited). On `authenticate` it is checked against
+  the **Host-signed device roster** instead (see "Admission is the signed device roster" below), which
+  fixes the binding at enrolment rather than at first contact. A credential copied off one machine and
+  replayed from another is rejected either way. This closes the property T155 characterized.
 - **Accepted cost, stated plainly.** Losing the key — an app reinstall, a database restored from
   before it existed, a rollback of the schema past it — means the device presents a *new* identity
   and is refused by every device that knew the old one. **This is deliberately treated as needing to
@@ -113,7 +114,10 @@ minted a fresh keypair on every process start.
 Token lifetime is 24 hours. There is no in-band token-renewal message; a token past this window
 simply stops verifying (`electron/auth/localAuth.js`), and freshness comes from the client
 re-presenting its token on every restart (ADR `2026-08-16-client-reauth-on-restart`, described
-below), at which point revocation is re-checked.
+below), at which point revocation is re-checked. **As of T376 a session token no longer gates
+network admission between devices** (see "Admission is the signed device roster" below): a token
+that has lapsed does not stop two enrolled devices syncing. Tokens still authenticate a person's
+local IPC calls and the `login_ok` reply.
 
 ### Centralized `authorize()`
 
@@ -651,27 +655,71 @@ non-Host device is refused rather than silently erasing only itself.
 
 Restoring a backup made before a purge or delete puts those records back on the restoring device until it syncs with peers that hold the erasure; the restore confirmation says so.
 
-### A camp token is a bearer credential (T155)
+### Admission is the signed device roster (T155, T162, T376)
 
-`evaluateAuthenticate` binds a token to the `device_id` carried **inside** the token, **and** — as
-of T162 — to the device's libp2p peer id on a trust-on-first-use basis. `bindOrVerifyPeerIdentity`
-(defined in `electron/sync/automerge/peerIdentity.js`, called from `electron/auth/connectionAuth.js`)
-records the PeerId the first time a device authenticates and
-rejects a mismatch on later connections (`4405 peer_identity_mismatch`), so a valid token replayed
-from a *different* machine is no longer admitted. Production wires this live:
-`electron/sync/automerge/syncNode.js` passes the Noise-proven connection PeerId (`fromPeerId`) into
-`evaluateAuthenticate`. Measured, not assumed:
-`electron/sync/automerge/syncNodeAuthGate.test.js` pins both this and its counterweight — revocation
-is re-checked on every authenticate, so a token also stops working the moment the device it names is
-revoked.
+Decision record: `docs/adr/2026-10-12-shared-signed-device-roster.md`. Owner ruling 2026-10-12:
+"Shared device list": any two approved, unrevoked devices admit each other directly with or without
+the host computer, permission renews without the host, the host is needed only to add brand-new
+devices, and a removed device is refused everywhere.
 
-_Prior: this section held that `devices.libp2p_peer_id` "cannot close this as it stands" because
-libp2p generates a fresh peer id on every process start. That is no longer true — `device_identity_key`
-(schema v67, `electron/auth/deviceIdentity.js`) persists a per-device libp2p identity, giving a
-stable PeerId across restarts, which is exactly what made the TOFU binding above possible._
+- **What is replicated.** Each enrolled device has one `device_roster` record in the Automerge
+  document: `device_id`, the libp2p `device_peer_id` the Host bound it to, `added_at`, and an
+  Ed25519 `sig` by `host_signing_key` over `[id, camp_id, device_id, device_peer_id, added_at]`
+  (`electron/automerge/deviceRosterSignature.js`, domain `shoresh-roster-sig-v1`, so it can never verify
+  as a credential, token or authority-log signature). The Host writes it on a device's first
+  successful network login (where the peer id is the Noise-proven `fromPeerId`, never a client claim)
+  and, for itself, at camp bootstrap.
+- **How it is verified.** Every device verifies each entry against its own `camps.signing_public_key`
+  and `camps.id` (the trust root `users` credentials already use, never a key read from the document)
+  and projects the valid ones into `roster_cache` (`projector.js`, `upsertDeviceRosterEntity`). The
+  cache is **monotonic**: a verified row is never removed because its document record is later
+  overwritten, fails verification or is deleted, so a document writer (a stolen staff device) cannot
+  take a device out of any peer's roster. Entries are processed in `device_id` order and skipped before
+  insert on a device-id or peer-id collision, so a collision cannot throw and halt projection.
+- **Admission.** `evaluateAuthenticate` admits iff the roster binds the device id claimed to the
+  Noise-proven peer id, `authority_cache` does not mark it `revoked`, and the legacy
+  `devices.revoked_at` stamp is absent (unless `authority_cache` says `admin`). There is no token in the
+  `authenticate` frame. Refusals: `4403 device_not_authorized`, `4404 device_revoked(_by_authority)`,
+  `4405 peer_identity_mismatch`. A refusal of a peer the roster knows is audited; an unrostered stranger
+  is not (the audit table is append-only, so auditing strangers would let one write unbounded rows).
+- **Removal and no-readmission.** Removal is the existing T331 signed `revoke`. A revoked device is
+  refused; the host cannot re-add it (its id is revoked); and a roster entry whose peer id equals a
+  revoked device's peer id (read from the verified document entries as well as the cache) is dropped, so
+  the same machine cannot return under a new device id. A removed machine returns only as a new device
+  with a new identity key, approved by a director.
+- **First sync of a new device.** The joiner holds no roster until it holds the camp document, so for
+  that first sync it admits the host peer it verified through the join-code proof (`node.admitPeer`,
+  `joinSession.js`): in memory, one connection, that one peer id, gone on disconnect. After that,
+  `roster_cache` decides. **The host must stay on until the new device has its camp** (the join flow
+  reports success only when the camp has arrived).
 
-Obtaining the token in the first place means reaching a paired device's storage, and anyone who can
-do that already has the camp document.
+Stolen-device model (the honest-failure model scopes a malicious admin or host out; this is what a
+*thief* can do until the device is removed):
+
+| Stolen | What the thief can do | How it stops |
+|---|---|---|
+| Client (staff) | If the database opens: sync as that device with staff-level access to camp data, with the host off. Cannot add devices, cannot revoke, cannot make anyone admin. Can overwrite or delete roster records, which no peer that already verified an entry will drop | A director removes it; peers that hear refuse it and evict it live |
+| Admin client | The above plus revoking ordinary devices and granting admin to rostered devices. Cannot enroll a new device (needs the host key). A lone stolen admin cannot evict other admins (quorum, T331) | Another admin removes it |
+| Host | Everything above plus signing roster entries, credentials and purge tombstones. The worst case; there is no key rotation | Recovery is the existing rule: export the last file, start a new camp, re-upload |
+
+**If a device is lost or stolen, remove it from Devices right away; until you do, it can still sync.**
+Removal is one action (Devices screen, Revoke) available on any computer that was made an admin, not only the host; an admin user on a computer that was never made an admin removes the device on that computer only, and the app says so.
+
+**Accepted costs, stated plainly.** (1) There is **no automatic expiry** any more: the 24-hour token
+used to bound a stolen, unreported client (only while the host was also unreachable); now a stolen
+device stays a member until a director removes it. (2) Removal is eventually consistent: a device that
+has not yet received the removal keeps admitting the removed device, and what the removed device writes
+through it in that window stays in the document; once any one honest peer learns of the removal it
+refuses the device. (3) A device that loses its identity key (backup restore, keystore reset) is
+refused with `4405`; the way back is to remove it and add it again as a new device. (4) A document
+writer can stop a *not yet verified* device being learned by a given peer, until the host re-writes the
+signed record; it cannot escalate.
+
+_Prior: this section held that a camp token was a bearer credential bound to the first peer id that
+presented it (`bindOrVerifyPeerIdentity`, T162), admitted for 24 hours from the Host's signature, with
+a `devices` row marked authorized as the membership fact. With the host off nothing could renew the
+token and two clients never held an authorized row for each other, so they stopped syncing between
+themselves (pinned before this change, and now flipped, by `electron/sync/automerge/hostOffRoster.integration.test.js`)._
 
 ### Role enforcement is device-side under CRDT sync
 

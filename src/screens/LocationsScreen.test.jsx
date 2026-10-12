@@ -541,16 +541,15 @@ describe('LocationsScreen', () => {
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 
-  it('navigates to Activities and to Fixed Events from its own Next chain', async () => {
+  // Consistency audit 2026-10-12 C2: no extra back bar, and Next follows the sidebar (Locations → Activities).
+  it('has no extra back bar, and its Next is the next screen in sidebar order (Activities)', async () => {
     const onNavigate = vi.fn()
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('← Back to Activities'))
+    expect(screen.queryByText('← Back to Activities')).toBeNull()
+    fireEvent.click(screen.getByText('Activities →'))
     expect(onNavigate).toHaveBeenCalledWith('activities')
-
-    fireEvent.click(screen.getByText('Recurring Events →'))
-    expect(onNavigate).toHaveBeenCalledWith('recurringevents')
   })
 
   it('shows a load-failure banner when localClient.list rejects', async () => {

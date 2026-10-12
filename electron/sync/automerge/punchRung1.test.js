@@ -15,6 +15,7 @@ import { makeSignalingPair } from './punchTestSupport.js'
 import { materializePunchIdentity, ensurePunchIdentity } from './punchIdentity.js'
 import { rememberPunchMemory } from './peerAddressBook.js'
 import { attemptRung1 } from './punchRung1.js'
+import { rosterDevice } from './rosterTestSupport.js'
 
 const noop = Object.assign(() => {}, { error() {}, trace() {}, newScope: () => noop })
 const components = { logger: { forComponent: () => noop } }
@@ -44,6 +45,7 @@ const upgraderFor = (remote) => ({
 function trustPeer(db, peerId, revoked = false) {
   db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at, revoked_at, libp2p_peer_id) VALUES (?, ?, 'approved', ?, ?, ?)")
     .run(`dev-${peerId}`, peerId, '2026-10-01T00:00:00.000Z', revoked ? '2026-10-02T00:00:00.000Z' : null, peerId)
+  rosterDevice(db, `dev-${peerId}`, peerId)
 }
 
 async function makeDevice(name, signaling) {

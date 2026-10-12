@@ -32,30 +32,31 @@ const rowActionsFlex = { display: 'flex', flexWrap: 'nowrap', gap: 6, justifyCon
 
 function DayRow({ day, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
-  const [label, setLabel] = useState(day.label)
+  // Empty when the label is just the weekday's name, so changing the weekday renames it too (audit A2).
+  const [label, setLabel] = useState(day.label === DOW[day.day_of_week] ? '' : day.label)
   const [dow, setDow] = useState(day.day_of_week)
   const [saving, setSaving] = useState(false)
 
   async function save() {
-    if (!label.trim()) return
     setSaving(true)
-    await onSave(day.id, { label: label.trim(), day_of_week: Number(dow), sort_order: Number(dow) })
+    // A blank label is the weekday's own name (consistency audit A2).
+    await onSave(day.id, { label: label.trim() || DOW[Number(dow)], day_of_week: Number(dow), sort_order: Number(dow) })
     setSaving(false); setEditing(false)
   }
 
   if (editing) {
     return (
       <tr style={{ background: 'var(--surface-elevated)' }}>
-        <td style={S.td}><input autoFocus value={label} onChange={e => setLabel(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input} /></td>
         <td style={S.td}>
-          <select value={dow} onChange={e => setDow(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input}>
+          <select autoFocus value={dow} onChange={e => setDow(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input}>
             {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
           </select>
         </td>
+        <td style={S.td}><input value={label} placeholder="Same as the weekday" onChange={e => setLabel(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input} /></td>
         <td style={{ ...S.td, textAlign: 'right' }}>
           <div style={rowActionsFlex}>
             <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
-            <button className="press-97" onClick={() => { setLabel(day.label); setDow(day.day_of_week); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
+            <button className="press-97" onClick={() => { setLabel(day.label === DOW[day.day_of_week] ? '' : day.label); setDow(day.day_of_week); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
           </div>
         </td>
       </tr>
@@ -77,9 +78,9 @@ function DayRow({ day, role, onSave, onDelete }) {
           aria-label={`Edit ${day.label}`}
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
           style={{ cursor: 'pointer' }}
-        >{day.label}</span>
+        >{DOW[day.day_of_week]}</span>
       </td>
-      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{DOW[day.day_of_week]}</td>
+      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{day.label && day.label !== DOW[day.day_of_week] ? day.label : '—'}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button
           onClick={e => { e.stopPropagation(); onDelete(day.id) }}
@@ -131,9 +132,9 @@ export default function DaysScreen({ campId, role, onNavigate }) {
   const fileRef = useRef()
 
   async function addDay(values) {
-    const label = String(values.label ?? '').trim()
-    if (!label) return false
+    // Pick the weekday; the label defaults to its name and is only typed for a custom one (audit A2).
     const dow = Number(values.day_of_week)
+    const label = String(values.label ?? '').trim() || DOW[dow]
     return await add({ label, dayOfWeek: dow, sortOrder: dow })
   }
 
@@ -299,21 +300,21 @@ export default function DaysScreen({ campId, role, onNavigate }) {
     <>
     <div style={enterStyle}>
     <SetupScreenShell
+      screenKey="days"
+      onNavigate={onNavigate}
       countLabel={`${days.length} day${days.length !== 1 ? 's' : ''}`}
       role={role}
       actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
       fileInputRef={fileRef}
       onFileChange={onFileChange}
-      nextLabel="Time Blocks →"
-      onNext={() => onNavigate('timeblocks')}
       error={error}
     >
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-                <th style={S.th}>Day</th>
-                <th style={S.th}>Day of Week</th>
+                <th style={S.th}>Weekday</th>
+                <th style={S.th}>Label</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
@@ -337,8 +338,8 @@ export default function DaysScreen({ campId, role, onNavigate }) {
                       screens (Groups/Tiers/TimeBlocks/Electives). */}
                   <InlineAddRow
                     fields={[
-                      { key: 'label', type: 'text', placeholder: 'Monday', required: true },
                       { key: 'day_of_week', type: 'select', default: 1, options: DOW.map((d, i) => ({ value: i, label: d })) },
+                      { key: 'label', type: 'text', placeholder: 'Same as the weekday' },
                     ]}
                     onAdd={addDay}
                     adding={adding}

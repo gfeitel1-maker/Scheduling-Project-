@@ -115,7 +115,7 @@ describe('T332 fold-in — truth-in-UI removal state for admin/founder targets',
     const { token } = await handlers.login({ name: 'Founder', pin: '135790' })
 
     const result = handlers.revokeDevice({ token, deviceId: ordinaryDeviceId })
-    expect(result).toEqual({ deviceId: ordinaryDeviceId, revoked: true })
+    expect(result).toEqual({ deviceId: ordinaryDeviceId, revoked: true, fleetWide: true })
 
     const row = deviceRow(ordinaryDeviceId)
     expect(row.revoked_at).toEqual(expect.any(String))

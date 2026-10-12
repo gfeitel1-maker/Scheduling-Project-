@@ -203,4 +203,18 @@ describe('InlineAddRow', () => {
     await waitFor(() => expect(input.value).toBe(''))
     expect(document.activeElement).toBe(elsewhere)
   })
+
+  // Consistency audit 2026-10-12 A2: a row with no required field (Days: weekday has a default, the label
+  // is optional) must not create a record just because focus passed through it.
+  it('an untouched row does not commit on blur, even with no required fields', async () => {
+    const onAdd = vi.fn(() => Promise.resolve(true))
+    const fields = [{ key: 'day', type: 'select', default: 1, options: [{ value: 1, label: 'Monday' }, { value: 2, label: 'Tuesday' }] }, { key: 'label', type: 'text', placeholder: 'Optional' }]
+    render(<><table><tbody><InlineAddRow fields={fields} onAdd={onAdd} /></tbody></table><button>elsewhere</button></>)
+    fireEvent.blur(screen.getByPlaceholderText('Optional'), { relatedTarget: screen.getByText('elsewhere') })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(onAdd).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByDisplayValue('Monday'), { target: { value: '2' } })
+    fireEvent.blur(screen.getByPlaceholderText('Optional'), { relatedTarget: screen.getByText('elsewhere') })
+    await waitFor(() => expect(onAdd).toHaveBeenCalledTimes(1))
+  })
 })

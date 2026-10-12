@@ -13,7 +13,7 @@ import { isRemovalRefusal, isRemovedFromCamp, markRemovedFromCamp } from './self
 import * as A from '@automerge/automerge'
 import { createJoinTagAdvertiser } from './joinTagDiscovery.js'
 import { startTransport } from './transport.js'
-import { projectAll } from '../../automerge/projector.js'
+import { projectAll, projectEntity } from '../../automerge/projector.js'
 import { reconcileAndRecordConflicts } from '../../automerge/reconcileForProjection.js'
 import { synthesizeOpEvents } from './docDiffEvents.js'
 import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../../auth/connectionAuth.js'
@@ -25,7 +25,8 @@ import { createBoundPeerTrust } from './peerIdentity.js'
 import { rememberPeerAddress, redialTrustedPeers } from './peerAddressBook.js'
 import { forgetRevokedPeer } from './punchIdentity.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
-import { sharesGenesis } from '../../automerge/campDocument.js'
+import { sharesGenesis, applyWrite, hasAnyRecord } from '../../automerge/campDocument.js'
+import { buildRosterWrites, verifyPresentedRosterEntry, presentedEntryWrites, readOwnRosterEntry } from '../../automerge/deviceRoster.js'
 import { joinProof, verifyJoinProof, rejoinCampProof } from '../joinCode.js'
 import { createHostHandoff } from '../../auth/hostHandoff.js'
 import { createHandoffWire } from './hostHandoffWire.js'
@@ -542,14 +543,22 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   // already-logged-in device presenting a live token). `pairing_request`/
   // `login` are 5d-2 and are not handled here; any other message type is
   // already rejected by authGate.js before this is even called.
-  // Assigned once wireMutualAuth runs below; read lazily by onAuthenticate and setAuthToken.
+  // Assigned once wireMutualAuth runs below; read lazily by onAuthenticate.
   let mutualAuth = null
   async function onAuthenticate(msg, { fromPeerId }) {
     // T162: peerId binding now happens INSIDE evaluateAuthenticate
     // (bindOrVerifyPeerIdentity) — recordLibp2pPeerId's unconditional
     // overwrite is no longer called here, since it would let a reinstalled/
     // impostor device bypass the mismatch check.
-    const result = evaluateAuthenticate(db, { token: msg.token, device_id: msg.device_id, peerId: fromPeerId, appliedTombstones: msg.appliedTombstones })
+    // Merged only into a document that already holds the camp: a device that has not yet received its camp (a joiner mid-join) has an
+    // empty, genesis-less doc, and writing a lone entry into it would stop it ever unifying with the camp's.
+    const heldDoc = getCurrentDoc(db)
+    if (msg.roster_entry && heldDoc && hasAnyRecord(heldDoc, 'camps') && !db.prepare('SELECT 1 FROM roster_cache WHERE peer_id = ?').get(fromPeerId) && verifyPresentedRosterEntry(db, msg.roster_entry, { deviceId: msg.device_id, peerId: fromPeerId })) {
+      let doc = heldDoc
+      for (const write of presentedEntryWrites(msg.roster_entry)) doc = applyWrite(doc, write)
+      await applyLocalDoc(doc, 'device_roster')
+    }
+    const result = evaluateAuthenticate(db, { device_id: msg.device_id, peerId: fromPeerId, appliedTombstones: msg.appliedTombstones })
     if (result.ok) {
       // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md, Decision 2): record
       // this peer's OWN reported schema version — the authoritative signal for isPeerSyncCompatible
@@ -566,7 +575,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
       // T331 gate B support: record THIS peer's authenticated device id, so isPeerRevoked above
       // can resolve a later revocation against the exact device that proved itself at this moment
       // — never the client-supplied msg.device_id directly (result.verified.deviceId is the
-      // value evaluateAuthenticate itself validated the token against).
+      // value evaluateAuthenticate itself matched against the signed roster).
       peerDeviceIds.set(String(fromPeerId), result.verified.deviceId)
       // Authenticate back, so the admission is mutual without waiting on a re-discovery.
       mutualAuth?.reciprocate(String(fromPeerId))
@@ -682,7 +691,20 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     // The camp's verified purge tombstones travel with the login reply, so a device re-pairing after
     // being offline through a purge can apply them to its own document BEFORE it merges (Pair again).
     const tombstones = result.ok ? db.prepare('SELECT id, entity, version, sig FROM tombstones').all() : []
+    // T376 (docs/adr/2026-10-12-shared-signed-device-roster.md): the Host enrolls the device it just logged in into the
+    // signed roster, binding its device id to the Noise-proven peer id of THIS connection (never a client claim). Done
+    // before the reply so the camp document the joiner receives already carries its own entry. A non-Host device has no
+    // signing key and writes nothing; an already-rostered device is skipped.
+    if (result.ok) await enrollInRoster(msg.device_id, fromPeerId)
     return result.ok ? { ...result, hostDeviceId: deviceId, hostSchemaVersion: getHandshakeSchemaVersion(), tombstones } : result
+  }
+
+  async function enrollInRoster(enrolledDeviceId, peerId) {
+    const writes = buildRosterWrites(db, { deviceId: enrolledDeviceId, peerId })
+    if (!writes) return
+    let doc = getCurrentDoc(db)
+    for (const write of writes) doc = applyWrite(doc, write)
+    await applyLocalDoc(doc, 'device_roster')
   }
 
   // The planned host handoff (docs/adr/2026-10-09-host-succession-simple.md). `transport` is assigned
@@ -808,10 +830,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   })
 
   // Stage 5d-2b production wiring: this is what turns "nothing calls
-  // authenticateWith outside tests" into a real running node. Only fires at
-  // all once a token exists (`setAuthToken` below) — until then a
-  // discovered peer is simply not dialed, matching mutualAuth.js's own
-  // documented behavior for the not-logged-in-yet case. `peerDiscovery`
+  // authenticateWith outside tests" into a real running node. `peerDiscovery`
   // being unset (every existing test, and any caller that dials directly)
   // means `onPeerDiscovery` never fires, so this is a pure no-op for them.
   // T208 (docs/work/tickets/T208-discovery-seam-has-no-local-trust-filter.md). The
@@ -844,10 +863,9 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   // symmetrically on both sides, so in practice neither client ever gets far enough to
   // dial the other in the first place: wireMutualAuth runs the identical predicate on
   // every node, so client A's createBoundPeerTrust(peerB) and client B's
-  // createBoundPeerTrust(peerA) both return false before either token is sent. That
+  // createBoundPeerTrust(peerA) both return false before either side authenticates. That
   // symmetry, not the absence of a row, is why this limitation predates T208 and is
   // unchanged by it.
-  let authToken = null
   // T212 (docs/work/tickets/T212-wan-connectivity-measurement.md): the env read is deliberately
   // HERE, not inside connectivityEvents.js or mutualAuth.js — both stay dependency-free and
   // unit-testable with an injected emitter. Default (unset) keeps addresses classified, never
@@ -882,9 +900,50 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     }
     onAuthRejected?.(peerId, reply)
   }
+  // `onlyEntity` scopes the projection to one entity: projectAll delete-reconciles every table, which would drop
+  // SQLite rows the document does not hold. A roster write must touch roster state only.
+  async function applyLocalDoc(newDoc, onlyEntity = null) {
+    // A local write cannot create a conflict on its own, but the document it
+    // is built on may already carry one — and projectAll now refuses a
+    // document with an unrecorded conflict. Reconciling here keeps that
+    // assertion a guard against a missing code path rather than something a
+    // legitimate local edit can trip over.
+    const doc = reconcileForProjection(newDoc)
+    setCurrentDoc(db, doc)
+    try {
+      if (onlyEntity) projectEntity(db, doc, onlyEntity)
+      else projectAll(db, doc)
+      tearDownRevokedConnectedPeers()
+      runRendezvousRotation(db, { deviceId, broadcast: null })
+      onProjected?.(doc)
+    } catch (err) {
+      onProjectionError?.(err, doc, null)
+      console.error(`syncNode: local projection failed — SQLite left at last-good: ${err?.message ?? err}`)
+    }
+    // Propagate via the SYNC PROTOCOL, not a whole-document push.
+    //
+    // This used to be `transport.broadcastDoc(A.save(newDoc))`, which is the
+    // mechanism Stage 5 already found and documented as not reliably
+    // deliverable: a frame the peer's admission gate rejects does not throw
+    // on the sender, so a push can vanish with nothing observable on either
+    // side. Stage 5f removed it from initial-sync for exactly that reason and
+    // replaced it with generateSyncMessage/receiveSyncMessage — but left it
+    // here, where it stayed invisible because in-process tests wrote from one
+    // device at a time.
+    //
+    // The integration harness made it visible: scenario 08 (two clients each
+    // writing a different field of the same activity) lost the second write
+    // ~80% of the time, with both clients connected, admitted, and healthy.
+    // Using the same acknowledged, incremental exchange the rest of this
+    // module uses makes the two write paths — this one and broadcastLocalDoc
+    // — the same mechanism, which is the point: there is no longer a second,
+    // weaker way for a local write to reach a peer.
+    syncAllAuthenticatedPeers()
+  }
+
   mutualAuth = wireMutualAuth(
     { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },
-    { deviceId, getToken: () => authToken, onRejected: handleAuthRejected, isSelfRemoved: () => isRemovedFromCamp(db), isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion, getAppliedTombstones }
+    { deviceId, onRejected: handleAuthRejected, isSelfRemoved: () => isRemovedFromCamp(db), isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion, getAppliedTombstones, getRosterEntry: () => readOwnRosterEntry(getCurrentDoc(db), deviceId) }
   )
 
   return {
@@ -917,17 +976,6 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     // Fires when this device's reachable-peer set changes (admission or
     // disconnect). main.js pushes a fresh sync status to the renderer from it.
     onPeersChanged: (cb) => { peersChangedListeners.push(cb) },
-    // Caller (main.js) supplies this device's own current valid session
-    // token whenever it obtains or renews one (self-issued for a Host,
-    // received from login/pairing for a Client) — see mutualAuth.js's own
-    // doc comment for why a missing token just means "not dialed yet,"
-    // never an error.
-    // A token that arrives after peers were already discovered (a joined device's node starts
-    // before the renderer hands over its session) re-runs those peers' attempts at once.
-    setAuthToken: (token) => {
-      authToken = token
-      if (token) mutualAuth?.retryPeersAwaitingToken()
-    },
     // Exposed for adversarial-input tests (sending raw bytes that are not a
     // valid Automerge doc); not part of the normal edit/broadcast flow.
     sendDocTo: transport.sendDocTo,
@@ -953,43 +1001,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     // updates the shared doc and debounces a broadcast (see broadcastLocalDoc below); calling
     // projectAll per field-op here would be the "full delete-reconcile on every keystroke"
     // performance trap Stage 5f deliberately avoids for real local writes.
-    applyLocal: async (newDoc) => {
-      // A local write cannot create a conflict on its own, but the document it
-      // is built on may already carry one — and projectAll now refuses a
-      // document with an unrecorded conflict. Reconciling here keeps that
-      // assertion a guard against a missing code path rather than something a
-      // legitimate local edit can trip over.
-      const doc = reconcileForProjection(newDoc)
-      setCurrentDoc(db, doc)
-      try {
-        projectAll(db, doc)
-        tearDownRevokedConnectedPeers()
-        runRendezvousRotation(db, { deviceId, broadcast: null })
-        onProjected?.(doc)
-      } catch (err) {
-        onProjectionError?.(err, doc, null)
-        console.error(`syncNode: local projection failed — SQLite left at last-good: ${err?.message ?? err}`)
-      }
-      // Propagate via the SYNC PROTOCOL, not a whole-document push.
-      //
-      // This used to be `transport.broadcastDoc(A.save(newDoc))`, which is the
-      // mechanism Stage 5 already found and documented as not reliably
-      // deliverable: a frame the peer's admission gate rejects does not throw
-      // on the sender, so a push can vanish with nothing observable on either
-      // side. Stage 5f removed it from initial-sync for exactly that reason and
-      // replaced it with generateSyncMessage/receiveSyncMessage — but left it
-      // here, where it stayed invisible because in-process tests wrote from one
-      // device at a time.
-      //
-      // The integration harness made it visible: scenario 08 (two clients each
-      // writing a different field of the same activity) lost the second write
-      // ~80% of the time, with both clients connected, admitted, and healthy.
-      // Using the same acknowledged, incremental exchange the rest of this
-      // module uses makes the two write paths — this one and broadcastLocalDoc
-      // — the same mechanism, which is the point: there is no longer a second,
-      // weaker way for a local write to reach a peer.
-      syncAllAuthenticatedPeers()
-    },
+    applyLocal: (newDoc) => applyLocalDoc(newDoc),
     // Stage 5f item 2 (Stage 5f-2: now via the sync protocol, not a whole-doc push). The broadcast
     // half of a REAL local write. liveDoc.recordLocalWrite already applies the write to the shared
     // doc and debounces a save; main.js wires this function in as liveDoc's broadcast callback

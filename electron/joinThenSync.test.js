@@ -34,6 +34,7 @@ import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { createEmptyDoc, applyWrite } from './automerge/campDocument.js'
 import { seedAllFromSqlite } from './automerge/seed.js'
 import { ensureHostSigningKey } from './auth/localAuth.js'
+import { buildRosterWrites } from './automerge/deviceRoster.js'
 import { signAuthFields } from './auth/authSignature.js'
 import { makeHandlers } from './main.js'
 import { createAutomergeSyncStarter } from './sync/automerge/syncStarter.js'
@@ -91,7 +92,8 @@ beforeEach(async () => {
   hostFile = path.join(os.tmpdir(), `shoresh-jts-host-${Date.now()}-${Math.random()}.sqlite`)
   hostDb = openLocalDb(hostFile)
   hostDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(CAMP_ID, 'Test Camp')
-  ensureHostSigningKey(hostDb)
+  const hostKey = ensureHostSigningKey(hostDb)
+  hostDb.prepare('UPDATE camps SET signing_public_key = ?').run(hostKey.public_key)
   insertUser(hostDb, { name: 'Director', pin: '1234', role: 'admin' })
 
   joiner = openTemplatedDb()
@@ -114,9 +116,11 @@ beforeEach(async () => {
     peerDiscovery: [bus(CAMP_TAG)],
   })
   await host.setJoinCode?.(code)
-  // A real Host self-issues its device token at start (syncStarter does this).
-  const { issueDeviceToken } = await import('./auth/localAuth.js')
-  host.setAuthToken(issueDeviceToken(hostDb, 'host-device'))
+  // A real Host enrolls itself in the signed device roster at bootstrap (main.js bootstrapCamp), so every device it
+  // pairs can admit it with no Host-issued token (docs/adr/2026-10-12-shared-signed-device-roster.md).
+  let hostDoc = host.getDoc()
+  for (const w of buildRosterWrites(hostDb, { deviceId: 'host-device', peerId: host.peerId })) hostDoc = applyWrite(hostDoc, w)
+  await host.applyLocal(hostDoc)
 
   // The joined device's persistent node: the REAL starter, with only discovery swapped for the bus
   // and listening on loopback.

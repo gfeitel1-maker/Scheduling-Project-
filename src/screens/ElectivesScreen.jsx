@@ -174,6 +174,8 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
 
   return (
     <SetupScreenShell
+      screenKey="electives"
+      onNavigate={onNavigate}
       countLabel={`${sets.length} elective set${sets.length !== 1 ? 's' : ''}`}
       error={error}
     >

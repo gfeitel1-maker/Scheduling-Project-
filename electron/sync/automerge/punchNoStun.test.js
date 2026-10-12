@@ -41,7 +41,7 @@ const noop = Object.assign(() => {}, { error() {}, trace() {}, newScope: () => n
 
 describe('production punch start path configures no STUN or TURN', () => {
   it('the transport options carry no iceServers', async () => {
-    const startSyncNode = vi.fn(async () => ({ broadcastLocalDoc() {}, onPeersChanged() {}, setAuthToken() {}, stop: async () => {} }))
+    const startSyncNode = vi.fn(async () => ({ broadcastLocalDoc() {}, onPeersChanged() {}, stop: async () => {} }))
     const [signaling] = makeSignalingPair()
     const starter = createAutomergeSyncStarter({
       deviceId, db, userDataPath, docCipher: null,

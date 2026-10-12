@@ -9,6 +9,7 @@ import Database from 'better-sqlite3'
 import { initSchema } from '../../db/localDb.js'
 import { rememberMappedPeerAddress } from './peerAddressBook.js'
 import { attemptRung1 } from './punchRung1.js'
+import { rosterDevice } from './rosterTestSupport.js'
 
 const PEER = { peerId: 'peer-b', deviceId: 'dev-b' }
 
@@ -51,6 +52,7 @@ describe('ladder order and strict escalation', () => {
     const db = new Database(':memory:')
     initSchema(db)
     db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at, libp2p_peer_id) VALUES ('dev-b', 'b', 'approved', '2026-10-01T00:00:00.000Z', 'peer-b')").run()
+    rosterDevice(db, 'dev-b', 'peer-b')
     rememberMappedPeerAddress(db, 'peer-b', '/ip4/34.120.1.7/tcp/50000/p2p/peer-b')
     const dial = vi.fn(async () => ({ remotePeer: { toString: () => 'peer-b' }, close: async () => {} }))
     const connectFromMemory = vi.fn()

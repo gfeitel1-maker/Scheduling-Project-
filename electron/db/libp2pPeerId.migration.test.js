@@ -215,7 +215,9 @@ describe('libp2p_peer_id in connectionAuth.js is an admission concern, never a r
     // it returns only a rejection shape, never anything that grants a role.
     const blocks = connectionAuthSrc.match(/if \(typeof peerId === 'string'[\s\S]*?\n {2}\}/g)
     expect(blocks).not.toBeNull()
-    expect(blocks.length).toBeGreaterThanOrEqual(2)
+    // T376: evaluateAuthenticate admits on the signed device roster and no longer TOFU-binds, so evaluateLogin is the one
+    // remaining call site.
+    expect(blocks.length).toBeGreaterThanOrEqual(1)
     for (const block of blocks) {
       expect(block).toMatch(/bindOrVerifyPeerIdentity/)
       expect(block).not.toMatch(/role\s*[:=]/)

@@ -509,6 +509,8 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
 
   return (
     <SetupScreenShell
+      screenKey="specialevents"
+      onNavigate={onNavigate}
       countLabel={`${rows.length} special event${rows.length !== 1 ? 's' : ''}`}
       error={error}
     >

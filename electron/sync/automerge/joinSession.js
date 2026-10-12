@@ -367,13 +367,9 @@ export async function startJoinSession({
         setCurrentDoc(db, cleaned)
         preMergeDoc = A.clone(cleaned)
       }
-      // Hand the token to the node so its ordinary mutual-auth path can run.
-      // Then authenticate immediately rather than waiting for mDNS to
-      // re-announce this Host: wireMutualAuth leaves a peer un-dialed while
-      // there is no token, and the next announce could be tens of seconds
-      // away — which the director would experience as the join hanging after
-      // a successful sign-in.
-      node.setAuthToken(reply.token)
+      // Authenticate immediately rather than waiting for mDNS to re-announce this Host: the next
+      // announce could be tens of seconds away, which the director would experience as the join
+      // hanging after a successful sign-in.
       // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md): this authenticate
       // call is what lets the HOST learn THIS device's schema version (syncNode.js's onAuthenticate
       // records it into peerSchemaVersions) — without this field the Host would treat a freshly-

@@ -71,8 +71,13 @@ export default function InlineAddRow({ fields, onAdd, adding, trailingCells = nu
   // controls within the row must not commit a half-typed row). Copied from the
   // Days AddDayRow prototype — the rowRef.contains(relatedTarget) guard is
   // subtle and correct.
+  // Blur only commits a row the director actually changed: a row with no required field (Days: the
+  // weekday has a default, the label is optional) must not create a record just because focus passed
+  // through it. Enter and "+ Add" are explicit and commit the defaults too.
+  const dirty = fields.some((f) => String(values[f.key] ?? '') !== String(fieldDefault(f) ?? ''))
+
   function onRowBlur(e) {
-    if (!canAdd) return
+    if (!canAdd || !dirty) return
     if (rowRef.current && rowRef.current.contains(e.relatedTarget)) return
     commit({ refocus: false })
   }
@@ -119,7 +124,7 @@ export default function InlineAddRow({ fields, onAdd, adding, trailingCells = nu
           className="press-97"
           onClick={() => commit()}
           disabled={!canAdd}
-          style={canAdd ? { ...S.btnSecondary } : { ...S.btnSecondary, ...S.buttonDisabled }}
+          style={canAdd ? { ...S.btnSecondary, whiteSpace: 'nowrap' } : { ...S.btnSecondary, whiteSpace: 'nowrap', ...S.buttonDisabled }}
         >{adding ? 'Adding…' : '+ Add'}</button>
       </td>
     </tr>

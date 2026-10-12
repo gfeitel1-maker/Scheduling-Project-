@@ -239,10 +239,11 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     // `camp_authority_log` added to MODELED_ENTITIES/GENESIS_ENTITIES — see campDocument.js's
     // GENESIS_B64 comment. Owner-accepted regeneration (pre-production, no live camps).
     // FIFTEENTH REGENERATION (T350): `special_day_placements` added — see campDocument.js.
+    // SIXTEENTH REGENERATION (T376): `device_roster` added — see campDocument.js.
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        '001c00af79146805a237424072ad3afccf4dfb52ba6b317ab91ea42d001e0551',
+        '26c87931cdc3cd8a9314d3a5fbb3834367d321a7eb545e0e61f46a79333214ee',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole

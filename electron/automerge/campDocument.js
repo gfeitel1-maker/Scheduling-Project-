@@ -102,7 +102,7 @@ export const DEFERRED_ENTITIES = new Set()
 // already required by the ADR's own "never trust a self-report" rule — so a separate `revoke-vote`
 // kind is redundant with 'revoke', not a stricter check. Behaviorally identical to the ADR's
 // three-kind vocabulary; documented here as the deliberate simplification it is.
-const EXTRA_MODELED_ENTITIES = ['camps', 'users', 'tombstones', 'camp_authority_log']
+const EXTRA_MODELED_ENTITIES = ['camps', 'users', 'tombstones', 'camp_authority_log', 'device_roster']
 
 export const MODELED_ENTITIES = new Set(
   [...DIRECT_CAMP_ENTITIES, ...Object.keys(PARENT_SCOPED_ENTITIES), ...EXTRA_MODELED_ENTITIES].filter(
@@ -296,6 +296,7 @@ const GENESIS_ENTITIES = [
   'cohorts',
   'day_overrides',
   'days_of_operation',
+  'device_roster',
   'elective_assignment_runs',
   'elective_assignments',
   'elective_bundle_periods',
@@ -401,8 +402,14 @@ const GENESIS_ENTITIES = [
 // fourteenth bytes before the entry was added), same acceptance: pre-production, every paired
 // device re-pairs, existing `.automerge` files may be discarded. New pinned head:
 // 001c00af79146805a237424072ad3afccf4dfb52ba6b317ab91ea42d001e0551
+// SIXTEENTH REGENERATION (T376, docs/adr/2026-10-12-shared-signed-device-roster.md): `device_roster` added to
+// EXTRA_MODELED_ENTITIES/MODELED_ENTITIES above, so it needed adding to GENESIS_ENTITIES (alphabetically, after
+// `days_of_operation`, before `elective_assignment_runs`) and GENESIS_B64 regenerated. An APPEND: no existing key
+// changes meaning. Same recipe (confirmed to reproduce the fifteenth bytes before the entry was added), same
+// acceptance: pre-production, every paired device re-pairs, existing `.automerge` files may be discarded. New
+// pinned head: 26c87931cdc3cd8a9314d3a5fbb3834367d321a7eb545e0e61f46a79333214ee
 const GENESIS_B64 =
-  'hW9Kg/bptLIA2wMBECWl3YlnQBZYZHRLlRX3P0UBABwAr3kUaAWiN0JAcq06/M9N+1K6azF6uR6kLQAeBVEGAQIDAhMCIwZAAlYCBx3mAiECIwo0AUICVgKAAQJ/AH8BfzB/1P6C1QZ/AH8HbZHdbiIxDIWvaNWWIkClP1Ifat8gCskZJiITRzkJ23n7VWYWCKhXE3/22Mc+f561ye7ksgO3Rg9R6ZJ7SS6PysvhaUKDjlxNLwLWu3DgWw2RlLMIuRYfMfJxhlzULx+N9JIyX60elZyQkrPgxuqRSjolEUlnJ+ETHlUDlCbdIQwIWaUS+PZLgh8XuC/BeqiI5MRyd8+zQ+L6jvLrAkwvzkBJ1yHVjdZ3mWa8GFNSQriBMaHDDK+zUwmqc8HWht83VEpGUgw6spd2DSKrqwevLecSp3qMQ5IS+TIH9JK5md/ZDVB7L+bIh4lw2Tl4+9/E9RzEJCcEHQyWnfuBVXPpw9z2yYuZfOCWpoctHleZ2wvKGKLXGVxd0F/gyHdGGKe9qi5Hrw0mmzYtniR/tKQRvmw4V+cx8z+721DRSAQXk7UvTY/nLMOeWQK4KETiZ9V2Puuo8GN8Yd1xNyWmzRs6l58P0ST+ATAAfgECGwF+ZB0RATAwADAAMAAA'
+  'hW9Kg1CiO2cA4gMBECWl3YlnQBZYZHRLlRX3P0UBJsh5Mc3DzYqTFNOl+7ODQ2fTIafrVF4OYfRqeTMyFO4GAQIDAhMCIwZAAlYCBx3tAiECIwo0AUICVgKAAQJ/AH8BfzF/1P6C1QZ/AH8HbZHhbiIxDIR/0aotIEDl2pPunfoIUUhmISIbR5lk2337U3YPCOh+bfzZa489X6/aZDe47MCd0X1UuuSTJJdH5eX4MqFeR66nFwHrXTjyvYZIylmEXIvPGPk8Qy7ql89GTpIyV1aPSgak5Cy4tXqkkk5JRNLZSVhZDM5AJWFG+oRHVQSlSXcMPUJWqQS+/yfBjys8lGA9VERyYrl/5NkhcfNA+fsKzEmqBuk6pLrf5iHTjBdjSkoIdzAmdJjhbXYqQXUu2Nrwzx2VkpEUg448SbsGkdXNkVXLucRQj3FMUiLf5oBeMrfzO7se6uDFnPk0ES47B2//WbqZg5hkQNDBYNm5H1g1lz7NbV+8mMkV7mhOsMXjJnN3RRl99DqD6yv6Bs78xQjjtFfV8+i1wWTTtsWT5I+WNMKXDef6Mmb+Z38fKhqJ4GKy9q3p8ZqlPzBLABeFSPys2i5nHRV+jC+sO+6nxLR5Q+fyyyGaxF8xAH4BAhwBfmMeEQExMQAxADEAAA=='
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))
@@ -690,6 +697,10 @@ export function recordFieldKeys(doc, entity, entityId) {
 // instead, the one place applyOneWriteInto needs it to gate a write by field name.
 export const CAMP_AUTHORITY_LOG_FIELDS = ['kind', 'target_device_id', 'target_peer_id', 'signer_device_id', 'signature']
 
+// device_roster (T376) likewise has no PROJECTIONS entry and no backing SQL table: its verified state lives in the
+// device-local roster_cache (projector.js's upsertDeviceRosterEntity). Its allowed fields are listed here.
+export const DEVICE_ROSTER_FIELDS = ['device_id', 'device_peer_id', 'added_at', 'added_by_device_id', 'sig']
+
 // Per-batch key index (applyWrites). A delete must find every key of one record in the entity's
 // flat collection and in the two marks collections; listing a whole collection per delete made a
 // Replace re-import (one batch deleting every setup record) O(deletes x keys) inside one
@@ -727,7 +738,7 @@ function noteKey(batch, collName, key, groupOf) {
 // applyWrite and applyWrites share one implementation rather than two copies —
 // provenance/authorship/tombstone semantics drift the moment there are two.
 function applyOneWriteInto(d, { entity, entity_id, field, value, source, author_user_id }, batch = null) {
-  const fields = entity === 'camp_authority_log' ? CAMP_AUTHORITY_LOG_FIELDS : PROJECTIONS[entity].fields
+  const fields = entity === 'camp_authority_log' ? CAMP_AUTHORITY_LOG_FIELDS : entity === 'device_roster' ? DEVICE_ROSTER_FIELDS : PROJECTIONS[entity].fields
   // Lazy top-up (see genesis comment above): a document persisted before `entity` existed in
   // MODELED_ENTITIES (or a genesis-cloned doc whose frozen entity list predates it) has no
   // collection for it yet. Create it here rather than assuming createEmptyDoc() already did —

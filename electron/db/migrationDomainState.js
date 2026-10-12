@@ -348,6 +348,9 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // v95 (F2) adds time_blocks.events_only, default 0: every existing block stays schedulable, so what an
   // existing camp MEANS is unaffected. No appendOp, no backfill.
   95,
+  // v96 (T376) creates roster_cache, an empty device-local cache re-derived from the signed device_roster
+  // document collection. Schema-only: no appendOp, no backfill, never modeled into the document.
+  96,
 ])
 
 /** True if applying `version` can change what the camp means. */

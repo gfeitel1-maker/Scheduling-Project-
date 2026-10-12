@@ -63,7 +63,6 @@ beforeEach(() => {
     },
     getPeers: () => [],
     isPeerAuthenticated: () => false,
-    setAuthToken: () => {},
   }
 })
 afterEach(() => { try { db.close() } catch { /* already closed */ } })

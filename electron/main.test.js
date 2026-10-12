@@ -244,18 +244,16 @@ describe('chooseMode: host role follows key presence, not the stored mode', () =
     expect(handlers.chooseMode({ mode: 'host' })).toEqual({ mode: 'client' })
   })
 
-  it('a demoted device hands the token it was given to the libp2p node', async () => {
+  it('a device with no host signing key is demoted to client', async () => {
     seedCamp()
     db.prepare('DELETE FROM host_signing_key').run()
-    const setAuthToken = vi.fn()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const handlers = makeHandlers(db, deviceId, {
-      getAutomergeSyncNode: () => ({ setAuthToken, getPeers: () => [], isPeerAuthenticated: () => false }),
+      getAutomergeSyncNode: () => ({ getPeers: () => [], isPeerAuthenticated: () => false }),
     })
 
     expect(handlers.chooseMode({ mode: 'host', token: 'stored-valid' })).toEqual({ mode: 'client' })
 
-    expect(setAuthToken).toHaveBeenCalledWith('stored-valid')
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('no host signing key'))
     warn.mockRestore()
   })
@@ -298,16 +296,6 @@ describe('chooseMode: client path', () => {
     })
     expect(lastCreatedSyncClient.onOpApplied).toHaveBeenCalled()
   })
-
-  it('hands a returning device\'s token to the libp2p node so it can authenticate to peers', async () => {
-    const setAuthToken = vi.fn()
-    const handlers = makeHandlers(db, deviceId, {
-      getAutomergeSyncNode: () => ({ setAuthToken, getPeers: () => [], isPeerAuthenticated: () => false }),
-    })
-    await handlers.chooseMode({ mode: 'client', token: 'a-verified-token' })
-
-    expect(setAuthToken).toHaveBeenCalledWith('a-verified-token')
-  })
 })
 
 describe('getSyncStatus: client tri-state', () => {
@@ -320,8 +308,7 @@ describe('getSyncStatus: client tri-state', () => {
   function handlersWithPeers(peers, authedPeers = []) {
     return makeHandlers(db, deviceId, {
       getAutomergeSyncNode: () => ({
-        setAuthToken: vi.fn(),
-        getPeers: () => peers,
+                getPeers: () => peers,
         isPeerAuthenticated: (p) => authedPeers.includes(p),
       }),
     })
@@ -2775,7 +2762,8 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
     db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('revoke-target-2', 'MacBook', new Date().toISOString())
 
     const result = handlers.revokeDevice({ token: adminToken, deviceId: 'revoke-target-2', reason: 'lost' })
-    expect(result).toEqual({ deviceId: 'revoke-target-2', revoked: true })
+    // No signed admin grant for this device in this fixture, so the removal is local only (T376 fleetWide).
+    expect(result).toEqual({ deviceId: 'revoke-target-2', revoked: true, fleetWide: false })
 
     const row = db.prepare('SELECT revoked_at, revocation_reason, pairing_status FROM devices WHERE id = ?').get('revoke-target-2')
     expect(row.revoked_at).toEqual(expect.any(String))
@@ -2803,7 +2791,7 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
     await handlers.chooseMode({ mode: 'client' })
 
     const result = handlers.revokeDevice({ token: adminToken, deviceId: 'revoke-target-client' })
-    expect(result).toEqual({ deviceId: 'revoke-target-client', revoked: true })
+    expect(result).toEqual({ deviceId: 'revoke-target-client', revoked: true, fleetWide: false })
 
     const row = db.prepare('SELECT revoked_at, pairing_status FROM devices WHERE id = ?').get('revoke-target-client')
     expect(row.revoked_at).toEqual(expect.any(String))
@@ -2824,7 +2812,7 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
     const revokePeer = vi.fn()
     const handlers = makeHandlers(db, deviceId, {
       getAutomergeSyncNode: () => ({
-        setAuthToken: vi.fn(), getPeers: () => [], isPeerAuthenticated: () => false, revokePeer,
+        getPeers: () => [], isPeerAuthenticated: () => false, revokePeer,
       }),
     })
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
@@ -2848,7 +2836,7 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
     await seedCampAndUser({ name: 'AdminRevokerAddr', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {
       getAutomergeSyncNode: () => ({
-        setAuthToken: vi.fn(), getPeers: () => [], isPeerAuthenticated: () => false, revokePeer: vi.fn(),
+        getPeers: () => [], isPeerAuthenticated: () => false, revokePeer: vi.fn(),
       }),
     })
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
@@ -3873,7 +3861,7 @@ describe('getSyncStatus: host/host-not-syncing derivation (T268 round 2, Finding
     await seedCampAndUser()
     const handlers = makeHandlers(db, deviceId, {
       userDataPath: tmpUserDataPath(),
-      getAutomergeSyncNode: () => ({ setAuthToken: vi.fn(), getPeers: () => [], isPeerAuthenticated: () => false }),
+      getAutomergeSyncNode: () => ({ getPeers: () => [], isPeerAuthenticated: () => false }),
       getAutomergeStartupAttempted: () => true,
     })
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })

@@ -68,6 +68,10 @@ function tableRowCounts(db) {
       counts.authority_cache = db.prepare('SELECT COUNT(*) AS n FROM authority_cache').get().n
       continue
     }
+    if (entity === 'device_roster') {
+      counts.roster_cache = db.prepare('SELECT COUNT(*) AS n FROM roster_cache').get().n
+      continue
+    }
     counts[entity] = db.prepare(`SELECT COUNT(*) AS n FROM ${entity}`).get().n
   }
   return counts

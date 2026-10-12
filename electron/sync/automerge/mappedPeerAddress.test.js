@@ -12,6 +12,7 @@ import {
   rememberPeerAddress, rememberMappedPeerAddress, loadMappedPeerAddress, forgetPeerAddress,
   PEER_LAST_ADDRESSES_MAX_PER_PEER, MAPPED_ADDRESS_MAX_AGE_MS,
 } from './peerAddressBook.js'
+import { rosterDevice } from './rosterTestSupport.js'
 
 const files = []
 afterEach(() => {
@@ -23,6 +24,7 @@ function freshDb() {
   const db = new Database(file)
   initSchema(db)
   db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at, libp2p_peer_id) VALUES ('d1', 'd1', 'approved', '2026-10-01T00:00:00.000Z', 'peer-1')").run()
+  rosterDevice(db, 'd1', 'peer-1')
   return db
 }
 const rows = (db) => db.prepare('SELECT multiaddr FROM peer_last_addresses WHERE peer_id = ? ORDER BY multiaddr').all('peer-1').map((r) => r.multiaddr)
