@@ -60,7 +60,7 @@ export function deriveImportedBundleId(electiveSetId, activityId, dayId, blockId
 // camper the same choice for the whole double period
 // (docs/adr/2026-09-29-linked-elective-bundles.md). Only choices the set holds
 // now are linked; a choice the director adds later is linked by hand.
-async function writeSpanBundles(db, syncClient, slots, blockOrder, authorUserId) {
+async function writeSpanBundles(db, syncClient, slots, blockOrder, authorUserId, onRowCreated) {
   const spans = new Map()
   const blockAt = new Map([...blockOrder].map(([id, i]) => [i, id]))
   const byCell = new Map(slots.map((s) => [`${s.group_id}|${s.day_id}|${s.time_block_id}`, s]))
@@ -88,11 +88,13 @@ async function writeSpanBundles(db, syncClient, slots, blockOrder, authorUserId)
         await writeFields(syncClient, 'elective_bundles', bundleId, {
           elective_set_id: setId, activity_id: choice.id, name: `${choice.name ?? 'Choice'} — ${day}`.trim(), scope_mode: 'all',
         }, authorUserId)
+        onRowCreated?.('elective_bundles', bundleId)
       }
       for (const blockId of blockIds) {
         const periodId = `${bundleId}:${blockId}`
         if (exists('elective_bundle_periods', periodId)) continue
         await writeFields(syncClient, 'elective_bundle_periods', periodId, { bundle_id: bundleId, day_id: dayId, time_block_id: blockId }, authorUserId)
+        onRowCreated?.('elective_bundle_periods', periodId)
       }
     }
   }
@@ -104,7 +106,7 @@ async function writeSpanBundles(db, syncClient, slots, blockOrder, authorUserId)
  * @param {{campId: string, authorUserId: string, placements: Array}} args
  * @returns {Promise<{created: boolean, snapshotId: string|null, allWeeksArchived?: boolean, unresolvedCount: number, unresolvedNames: string[]}>}
  */
-export async function materializeImportedVersion(db, syncClient, { campId, authorUserId, placements, sourceFileName = null, onSnapshotCreated = null }) {
+export async function materializeImportedVersion(db, syncClient, { campId, authorUserId, placements, sourceFileName = null, onSnapshotCreated = null, onRowCreated = null }) {
   if (!placements || placements.length === 0) {
     return { created: false, snapshotId: null, unresolvedCount: 0, unresolvedNames: [] }
   }
@@ -156,7 +158,8 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     return { created: false, snapshotId: null, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
   }
 
-  await writeSpanBundles(db, syncClient, slots, maps.blockOrder, authorUserId)
+  // Reported as each is written, like the versions below, so undo owns them (T219).
+  await writeSpanBundles(db, syncClient, slots, maps.blockOrder, authorUserId, onRowCreated)
 
   // The director lands on Generated, so the imported week must be findable
   // there as well as on Manual: one identical version per candidate route.

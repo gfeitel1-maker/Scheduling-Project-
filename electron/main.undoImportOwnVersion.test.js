@@ -110,3 +110,51 @@ describe('a version saved before the version step failed', () => {
     expect(reported).toEqual(saved)
   })
 })
+
+// T219: a double-period elective writes a bundle per choice after the commit. Those bundles belong to
+// the import too, so undo removes them with the set (a bundle holds a hard FK to its set, so a bundle
+// left behind would keep the set and every import-minted choice on its account).
+describe('undo of an import that linked a double-period elective', () => {
+  it('removes the elective set, its choices and the bundles the import wrote', async () => {
+    const run = await handlers.ingestCommit({
+      token,
+      captureInverse: true,
+      approved: { groups: ['Otters 1'], tiers: [], days_of_operation: ['Monday'], time_blocks: ['9:00-10:00', '10:00-11:00'], activities: [] },
+      links: {},
+      confirmedElectiveSets: [{ name: 'Chugim', choices: ['Pottery', 'Drama'] }],
+      placements: ['9:00-10:00', '10:00-11:00'].map((b) => ({ groupName: 'Otters 1', dayName: 'Monday', blockLabel: b, activityName: 'Chugim', electiveSetName: 'Chugim', choices: ['Pottery', 'Drama'] })),
+      sourceFileName: 'week.txt',
+    })
+    expect(run.version?.created).toBe(true)
+    // Positive control: the import did link the span.
+    expect(count('elective_sets')).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(2)
+
+    const res = await handlers.ingestUndo({ token, importRunId: run.importRunId, client_write_id: randomUUID(), invertibleOps: [], createdEntityIds: [] })
+
+    expect(res.kept).toEqual([])
+    expect(count('elective_sets')).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_set_activities').get().n).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundle_periods').get().n).toBe(0)
+  })
+})
+
+describe('undo of an import that created an elective', () => {
+  it('removes the elective set and the choices it minted', async () => {
+    const run = await handlers.ingestCommit({
+      token,
+      captureInverse: true,
+      approved: { groups: ['Otters 1'], tiers: [], days_of_operation: ['Monday'], time_blocks: ['9:00-10:00'], activities: [] },
+      links: {},
+      confirmedElectiveSets: [{ name: 'Chugim', choices: ['Pottery', 'Drama'] }],
+      placements: [{ groupName: 'Otters 1', dayName: 'Monday', blockLabel: '9:00-10:00', activityName: 'Chugim', electiveSetName: 'Chugim', choices: ['Pottery', 'Drama'] }],
+      sourceFileName: 'week.txt',
+    })
+    expect(count('elective_sets')).toBe(1)
+    const res = await handlers.ingestUndo({ token, importRunId: run.importRunId, client_write_id: randomUUID(), invertibleOps: [], createdEntityIds: [] })
+    expect(res.kept).toEqual([])
+    expect(count('elective_sets')).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_set_activities').get().n).toBe(0)
+  })
+})

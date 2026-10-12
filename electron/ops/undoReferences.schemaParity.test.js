@@ -324,9 +324,9 @@ describe('fixed_events has no incoming references', () => {
 })
 
 describe('U2_DELETABLE_ENTITIES stays in sync with INGESTIBLE_ENTITIES', () => {
-  it('is exactly INGESTIBLE_ENTITIES plus fixed_events, the four special-day entities, the F6 elective entities and schedule_weeks (a first import creates Week 1)', () => {
+  it('is exactly INGESTIBLE_ENTITIES plus fixed_events, the four special-day entities, the F6 elective entities, the T219 double-period bundles and schedule_weeks (a first import creates Week 1)', () => {
     const special = ['special_days', 'special_day_time_blocks', 'special_day_slots', 'special_day_placements']
-    expect([...U2_DELETABLE_ENTITIES].sort()).toEqual([...INGESTIBLE_ENTITIES, 'fixed_events', ...special, 'elective_sets', 'elective_set_activities', 'schedule_weeks'].sort())
+    expect([...U2_DELETABLE_ENTITIES].sort()).toEqual([...INGESTIBLE_ENTITIES, 'fixed_events', ...special, 'elective_sets', 'elective_set_activities', 'elective_bundles', 'elective_bundle_periods', 'schedule_weeks'].sort())
   })
 })
 

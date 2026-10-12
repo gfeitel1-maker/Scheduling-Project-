@@ -48,7 +48,7 @@ import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.
 // could reference it is already gone, so one upfront referential pass
 // (referencesInto, run once per candidate before any delete) is sufficient.
 const U2_DELETE_ORDER = Object.freeze([
-  'elective_set_activities', 'elective_sets', 'special_day_placements', 'special_day_slots', 'special_day_time_blocks', 'special_days', 'fixed_events', 'schedule_weeks', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
+  'elective_bundle_periods', 'elective_bundles', 'elective_set_activities', 'elective_sets', 'special_day_placements', 'special_day_slots', 'special_day_time_blocks', 'special_days', 'fixed_events', 'schedule_weeks', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
 ])
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
@@ -870,6 +870,9 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
           fieldSnapshot[field] = latest ? latest.seq : null
         }
         outcome.createdEntityIds.push({ ...entry, fieldSnapshot })
+        // Undo reads the run record (T372), which commitPlan wrote before these existed:
+        // without this an undone import left its elective sets and their choices behind.
+        if (outcome.importRunId) recordRunCreated(db, outcome.importRunId, entry.entity, entry.entity_id)
       }
     }
     // Soft warning, never a thrown error — see commitElectiveCandidates'
@@ -3384,6 +3387,19 @@ export function recordRunVersion(db, runId, id, name) {
   rec.ownSnapshots = [...(rec.ownSnapshots ?? []).filter((v) => v.id !== id), { id, name }]
 }
 
+// T219: a row the version step created after the commit (an imported double period's elective
+// bundles), recorded with the same field snapshot commitPlan takes, so undo deletes it unless edited since.
+export function recordRunCreated(db, runId, entity, entity_id) {
+  const rec = undoableRuns.get(db)?.get(runId)
+  if (!rec || !U2_DELETABLE_ENTITIES.has(entity)) return
+  const fieldSnapshot = {}
+  for (const field of PROJECTIONS[entity]?.fields ?? []) {
+    const latest = latestOp(db, entity, entity_id, field)
+    fieldSnapshot[field] = latest ? latest.seq : null
+  }
+  rec.createdEntityIds = [...rec.createdEntityIds.filter((e) => !(e.entity === entity && e.entity_id === entity_id)), { entity, entity_id, fieldSnapshot }]
+}
+
 /**
  * Undo an import by run id alone. The rows and field snapshots come from what the run recorded
  * server-side; nothing the caller sends can widen the set. An unknown run (never committed with
@@ -3630,7 +3646,11 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], ownSnapsh
     for (const { entity, entity_id } of [...candidateSet.values()]) {
       if (entity !== 'elective_sets') continue
       const joins = joinsBySet.get(entity_id) ?? []
-      const blockers = referencesInto(db, entity, entity_id, new Set(joins.map((j) => `elective_set_activities:${j}`)))
+      // T219: the import's own bundles on this set go with it, so they do not hold it.
+      const ownBundles = [...candidateSet.values()]
+        .filter((c) => c.entity === 'elective_bundles' && db.prepare('SELECT elective_set_id FROM elective_bundles WHERE id = ?').get(c.entity_id)?.elective_set_id === entity_id)
+        .map((c) => `elective_bundles:${c.entity_id}`)
+      const blockers = referencesInto(db, entity, entity_id, new Set([...joins.map((j) => `elective_set_activities:${j}`), ...ownBundles]))
       if (blockers.length === 0) continue
       kept.push({
         entity, entity_id, name: nameOf(entity, entity_id),

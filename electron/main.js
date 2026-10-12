@@ -35,7 +35,7 @@ import { tierForField } from '../src/utils/ruleProvenance.js'
 import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from './ops/deleteRecord.js'
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
 import { listOpenReconciliationDecisions, dismissOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
-import { commitIngest, undoImportRun, recordRunVersion, listImportEvidence, listCompoundCellDecisions, listActivityAliases } from './ops/ingest.js'
+import { commitIngest, undoImportRun, recordRunVersion, recordRunCreated, listImportEvidence, listCompoundCellDecisions, listActivityAliases } from './ops/ingest.js'
 import { materializeImportedVersion, cleanSourceFileName } from './ops/materializeImportedVersion.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { mergeActivity, previewActivityMerge } from './ops/mergeActivity.js'
@@ -644,6 +644,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         campId: camp.id, authorUserId: session.userId, placements, sourceFileName: cleanSourceFileName(sourceFileName),
         // Undo of this import removes the versions it saved, and does not keep its rows on their account.
         onSnapshotCreated: (id, name) => { if (outcome.importRunId) recordRunVersion(db, outcome.importRunId, id, name) },
+        // T219: the elective bundles it links a double period with go with the import on undo.
+        onRowCreated: (entity, id) => { if (outcome.importRunId) recordRunCreated(db, outcome.importRunId, entity, id) },
       }).then((version) => {
         outcome.version = version
         return outcome
