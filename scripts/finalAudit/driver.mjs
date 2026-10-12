@@ -39,7 +39,7 @@ window.__inp=(sel)=>[...document.querySelectorAll(sel)].filter(__vis)[0];
 window.__main=()=>{const t=document.body.innerText;const i=t.indexOf('Log out');return i>=0?t.slice(i+7):t};
 true`
 
-let app = null, pid = null
+let app = null, pid = null, BUILD_SHA = null
 const results = []
 
 function launch() {
@@ -94,7 +94,8 @@ async function step(id, title, fn) {
   if (ONLY && !ONLY.has(String(id).replace(/[a-z]$/, ''))) return true
   const t = Date.now(); let status = 'PASS', note = ''
   log(`STEP ${id} ${title}`)
-  try { note = (await fn()) || '' } catch (e) { status = 'FAIL'; note = e.message }
+  // A step throws { skip } when its feature is not in the build under test (featureIn).
+  try { note = (await fn()) || '' } catch (e) { if (e?.skip) { status = 'SKIP'; note = e.skip } else { status = 'FAIL'; note = e.message } }
   const files = app ? [await shot(`s${id}`)] : []
   results.push({ id, title, status, ms: Date.now() - t, note: String(note), shots: files })
   log(`  -> ${status} (${((Date.now() - t) / 1000).toFixed(1)}s) ${String(note).slice(0, 600)}`)
@@ -117,9 +118,11 @@ async function main() {
     await waitFor(`const n=document.getElementById('bootstrap-camp-name'); if(!n) return false; __set(n, ${JSON.stringify(CAMP)}); __set(document.getElementById('bootstrap-admin-name'), ${JSON.stringify(ADMIN)}); __set(document.getElementById('bootstrap-admin-pin'), ${JSON.stringify(PIN)}); return true`, 10000, 'bootstrap form')
     await sleep(300); await click('Create camp')
     await waitFor(`return document.body.innerText.includes('Log out') && document.body.innerText.includes(${JSON.stringify(CAMP)})`, 60000, 'shell with camp name')
-    return 'build ' + await ev(`return (document.body.innerText.match(/v\\d+\\.\\d+\\.\\d+ · [0-9a-f]{7,} · [0-9-]+/)||['?'])[0]`)
+    const build = await ev(`return (document.body.innerText.match(/v\\d+\\.\\d+\\.\\d+ · [0-9a-f]{7,} · [0-9-]+/)||['?'])[0]`)
+    BUILD_SHA = (build.match(/· ([0-9a-f]{7,}) ·/) || [])[1] || null
+    return 'build ' + build
   })
-  await (await import('./steps.mjs')).run({ step, ev, waitFor, click, nav, text, shot, setFile, sleep, log, app: () => app, CAMPB, DL, RUN, relaunch, ADMIN, PIN, signInIfAsked, UD, REPO })
+  await (await import('./steps.mjs')).run({ step, ev, waitFor, click, nav, text, shot, setFile, sleep, log, app: () => app, CAMPB, DL, RUN, relaunch, adopt, ADMIN, PIN, signInIfAsked, UD, REPO, PORT, buildSha: () => BUILD_SHA })
   finish()
 }
 
@@ -131,6 +134,23 @@ async function relaunch() {
   if (alive) throw new Error(`pid ${pid} still alive 30s after SIGTERM`)
   launch(); await attach()
   return exitMs
+}
+
+// The app restarted ITSELF (app.relaunch keeps argv, so the new process has the same debugging
+// port): wait for the old pid to exit, find the new one by that port argument, and re-attach.
+async function adopt(timeoutMs = 120000) {
+  const t = Date.now(); try { app.close() } catch {}
+  while (Date.now() - t < timeoutMs) { try { process.kill(pid, 0) } catch { break } await sleep(250) }
+  const { execFileSync } = await import('node:child_process')
+  let next = null
+  while (!next && Date.now() - t < timeoutMs) {
+    try { next = execFileSync('pgrep', ['-n', '-f', `--remote-debugging-port=${PORT}`], { encoding: 'utf8' }).trim().split('\n').map(Number).find((n) => n && n !== pid) } catch {}
+    if (!next) await sleep(500)
+  }
+  if (!next) throw new Error(`no relaunched process with --remote-debugging-port=${PORT} within ${timeoutMs / 1000}s`)
+  log(`adopted relaunched pid=${next} (was ${pid})`); pid = next
+  await attach()
+  return Date.now() - t
 }
 
 function finish() {
