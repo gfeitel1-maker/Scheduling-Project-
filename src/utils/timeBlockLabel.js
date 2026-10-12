@@ -68,3 +68,20 @@ export function timeBlockLabel(block) {
   const { name, time } = blockLabelParts(block)
   return time ? `${name} (${time})` : name
 }
+
+// A time block as a director reads it anywhere a name stands alone: the 12-hour range when the
+// block is named after its own times ("13:35-14:15" -> "1:35 PM – 2:15 PM"), else its name. Same
+// rule as the row headers (blockLabelParts). Owner, 2026-10-12: "all times need the am pm fix".
+export function blockDisplayName(block) {
+  if (!block) return null
+  return blockLabelParts(block).name || block.name || null
+}
+
+// A moment's clock time, always 12-hour: "2:13 PM". Never the browser locale's default, which can
+// be 24-hour.
+export function formatClock12(date) {
+  const d = date instanceof Date ? date : new Date(date)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+}
+

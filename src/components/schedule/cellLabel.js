@@ -1,3 +1,5 @@
+import { blockDisplayName } from '../../utils/timeBlockLabel.js'
+
 // T59. The accessible name of a schedule cell (spec §0 predicate 6: "screen-
 // reader navigation reports row/column position and the span extent of merged
 // cells"). aria-rowspan gives a machine the extent; this gives it to a person.
@@ -25,7 +27,7 @@ export function cellAccessibleName({ subject, blockNames = [], column }) {
 export function blockNamesForSpan(timeBlocks, blockIndex, rowSpan = 1) {
   return timeBlocks
     .slice(blockIndex, blockIndex + Math.max(1, rowSpan))
-    .map(b => b.name)
+    .map(b => blockDisplayName(b))
 }
 
 // T107 item 2 — the ordered TAIL block ids a span covers (head excluded), for

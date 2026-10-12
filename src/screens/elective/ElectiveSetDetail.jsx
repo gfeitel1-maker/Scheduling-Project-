@@ -30,6 +30,7 @@ import { useLatestTimeout } from '../../hooks/useLatestTimeout'
 import AssignmentPanel from './assignment/AssignmentPanel.jsx'
 import BundleEditor from './BundleEditor.jsx'
 import { deriveBundlePickerCells } from './assignment/deriveBundlePickerCells.js'
+import { blockDisplayName } from '../../utils/timeBlockLabel.js'
 
 const repository = createSetupCrudRepository({ localClient })
 // createActivityHelper.js's createActivity (and populateElectiveSet, which
@@ -430,7 +431,7 @@ export default function ElectiveSetDetail({
       localClient.list('elective_bundle_periods'),
       localClient.list('elective_bundle_tiers'),
     ])
-    setAllBundleNames((allBundles || []).map((b) => b.name).filter(Boolean))
+    setAllBundleNames((allBundles || []).map((b) => b.name).filter(Boolean)) // time-guard: key (bundle names)
     const setBundlesRows = (allBundles || []).filter((b) => b.elective_set_id === set.id)
     const bundleIds = new Set(setBundlesRows.map((b) => b.id))
     setBundles(setBundlesRows)
@@ -515,7 +516,7 @@ export default function ElectiveSetDetail({
     const day = days.find((d) => d.id === cell.day_id)
     const block = timeBlocks.find((b) => b.id === cell.time_block_id)
     const dayLabel = day?.label ?? day?.name ?? cell.day_id
-    const blockName = block?.name ?? cell.time_block_id
+    const blockName = blockDisplayName(block) ?? cell.time_block_id
     return `${forActivity.name} — ${dayLabel}, ${blockName}`
   }
 

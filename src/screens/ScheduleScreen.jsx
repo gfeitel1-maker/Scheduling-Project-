@@ -50,6 +50,7 @@ import ManualBuildView from '../components/schedule/ManualBuildView'
 import ActivityPalette from '../components/schedule/ActivityPalette'
 import { isActivityEligibleForGroup } from '../engine/eligibility'
 import { filterFreeChoiceActivities } from '../engine/freeChoiceActivities'
+import { blockDisplayName } from '../utils/timeBlockLabel.js'
 
 // dnd-kit's own announcer describes droppable IDs, which after T58 are one
 // container rather than 480 cells — it would say "over droppable
@@ -654,7 +655,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
     return [
       groups.find(g => g.id === s.group_id)?.name,
       days.find(d => d.id === s.day_id)?.label,
-      timeBlocks.find(b => b.id === s.time_block_id)?.name,
+      blockDisplayName(timeBlocks.find(b => b.id === s.time_block_id)),
     ].filter(Boolean).join(' · ')
   }
 
@@ -816,7 +817,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
     const group = groups.find(g => g.id === hit.groupId)
     const day = days.find(d => d.id === hit.dayId)
     const block = timeBlocks.find(b => b.id === hit.blockId)
-    return [group?.name, day?.label, block?.name].filter(Boolean).join(', ') || hit.cellKey
+    return [group?.name, day?.label, blockDisplayName(block)].filter(Boolean).join(', ') || hit.cellKey
   }
 
   // Drives the static-ghost drop preview: whether the currently-hovered target

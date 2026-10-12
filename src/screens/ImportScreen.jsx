@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { formatBlockTime12h } from '../ingest/blockTimeText.js'
 import { unresolvedPlacementsNotice, electiveLinkNotices } from '../ingest/unresolvedPlacementsNotice'
 import { leftOutPlacements } from '../ingest/leftOutPlacements'
 import { localClient } from '../localClient'
@@ -2158,7 +2159,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
                         border: '1px solid var(--border)', color: 'var(--text-secondary)',
                       }}
                     >
-                      {name}
+                      {entity === 'time_blocks' ? formatBlockTime12h(name) : name}
                     </span>
                   ))}
                 </div>

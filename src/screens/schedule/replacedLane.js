@@ -2,7 +2,7 @@
 // content of a replaced day, as plain data. The grid lane and the exporters
 // both read it, so screen text and printed text cannot drift. Pure; no IPC.
 
-import { timeRangeLabel } from '../../utils/timeBlockLabel.js'
+import { timeRangeLabel, blockDisplayName } from '../../utils/timeBlockLabel.js'
 
 // dayId -> replacement for this week's bindings. An orphan binding (another
 // week, a day not in `days`, a special day that no longer exists) replaces
@@ -46,7 +46,7 @@ export function replacedCellLabel({ replacement, groupId, blockId, actMap }) {
 export function replacedLaneRows({ replacement, groupId, actMap }) {
   return replacement.blocks.map(b => ({
     blockId: b.id,
-    blockName: b.name,
+    blockName: blockDisplayName(b),
     time: timeRangeLabel(b),
     ...replacedCellLabel({ replacement, groupId, blockId: b.id, actMap }),
   }))

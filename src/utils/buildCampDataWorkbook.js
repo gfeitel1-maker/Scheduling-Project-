@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet } from './exportSanitize.js'
-import { formatTime12 } from './timeBlockLabel.js'
+import { formatTime12, blockDisplayName } from './timeBlockLabel.js'
 
 // T292 S1 — the read-only camp-data-document builder. Pattern-matches
 // exportWorkbook.js's structure (aoaToSanitizedSheet as the ONLY sheet
@@ -357,7 +357,7 @@ export function buildCampDataWorkbook({ entities = {}, campName = '', asOf = new
     locationNameById: new Map(locations.map((l) => [l.id, l.name])),
     dayNameById: new Map(daysOfOperation.map((d) => [d.id, d.label])),
     daySortById: new Map(daysOfOperation.map((d) => [d.id, d.sort_order ?? 0])),
-    timeBlockNameById: new Map(timeBlocks.map((t) => [t.id, t.name])),
+    timeBlockNameById: new Map(timeBlocks.map((t) => [t.id, blockDisplayName(t)])),
     timeBlockSortById: new Map(timeBlocks.map((t) => [t.id, t.sort_order ?? 0])),
     weekNameById: new Map(scheduleWeeks.map((w) => [w.id, w.name])),
     weekSortById: new Map(scheduleWeeks.map((w) => [w.id, w.sort_order ?? 0])),

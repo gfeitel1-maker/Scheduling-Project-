@@ -5,6 +5,7 @@ import { isActivityEligibleForGroup } from '../../engine/eligibility'
 import { createActivity } from './createActivityHelper'
 import { occupantFields, readOccupant, occupantWriteKind, SLOT_OCCUPANT_FIELDS } from './slotOccupant.js'
 import { resolveElectiveOfferingLocations } from '../../engine/electiveOccupancy.js'
+import { blockDisplayName } from '../../utils/timeBlockLabel.js'
 
 // T91: collect the covered tail rows of a span head being replaced, via a
 // single walk that covers BOTH span representations identically (owner
@@ -944,7 +945,7 @@ export function useSlotMutations({
     const day = days.find(d => d.id === dayId)
     const block = timeBlocks.find(b => b.id === blockId)
     pushUndo({
-      description: `Placed ${activity.name} → ${group?.name ?? groupId} ${day?.label ?? dayId} ${block?.name ?? blockId}`,
+      description: `Placed ${activity.name} → ${group?.name ?? groupId} ${day?.label ?? dayId} ${blockDisplayName(block) ?? blockId}`,
       undo: async () => {
         await runMutation({
           keys: [key],

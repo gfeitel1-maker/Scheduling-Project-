@@ -1,3 +1,4 @@
+import { formatTime12 } from './timeBlockLabel.js'
 // Names carried inside a saved version, and the restore-time remap that uses them.
 //
 // A Replace import mints new ids for groups/days/blocks/activities, so a version
@@ -18,7 +19,7 @@ export function attachNames(slot, { groups = [], days = [], timeBlocks = [], act
     names: {
       group: byId(groups, slot.group_id)?.name ?? null,
       day: byId(days, slot.day_id)?.label ?? null,
-      block: block?.name ?? null,
+      block: block?.name ?? null, // time-guard: key (rebinds the block on restore)
       block_start: block?.start_time ?? null,
       block_end: block?.end_time ?? null,
       activity: slot.activity_id ? byId(activities, slot.activity_id)?.name ?? null : null,
@@ -84,7 +85,7 @@ export function remapSnapshotSlots(slots, { groups, days, timeBlocks, activities
     if (!b.problem && b.id !== s.time_block_id && n.block_start && n.block_end) {
       const live = timeBlocks.find((r) => r.id === b.id)
       if (norm(live.start_time) !== norm(n.block_start) || norm(live.end_time) !== norm(n.block_end)) {
-        blockProblem = `block moved to ${live.start_time}`
+        blockProblem = `block moved to ${formatTime12(live.start_time)}`
       }
     }
     const problems = [

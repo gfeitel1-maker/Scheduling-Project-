@@ -12,7 +12,7 @@ export function RangeLines({ block }) {
 
 export default function BlockRowLabel({ block }) {
   const { name, time } = blockLabelParts(block)
-  const nameIsRange = time === '' && name !== (block?.name ?? '')
+  const nameIsRange = time === '' && name !== (block?.name ?? '') // time-guard: key
   return (
     <>
       <span className="block-name">{nameIsRange ? <RangeLines block={block} /> : name}</span>

@@ -19,6 +19,7 @@ import { hasOrderingEvidence } from '../../../engine/rankKind.js'
 // finding in the first place. Precedented: AssignmentPanel.jsx already imports
 // this pure module from electron/ops the same way.
 import { makeCamperIdentityResolver } from '../../../../electron/ops/camperElectiveIdentity.js'
+import { blockDisplayName } from '../../../utils/timeBlockLabel.js'
 
 // Q5 (director-facing terminology) was ruled by the owner 2026-09-29: "start a
 // new version". "Revision" implies editing the same run, which contradicts
@@ -96,7 +97,7 @@ export function occurrenceLabel({ occurrenceId, activityId, activities = [], occ
   const occurrence = occurrences.find((o) => o.id === occurrenceId)
   const day = days.find((d) => d.id === occurrence?.day_id)
   const dayName = day?.label ?? day?.name
-  const blockName = timeBlocks.find((t) => t.id === occurrence?.time_block_id)?.name
+  const blockName = blockDisplayName(timeBlocks.find((t) => t.id === occurrence?.time_block_id))
   const when = dayName && blockName ? `${dayName}, ${blockName}` : dayName || blockName || null
   const who = activityName || occurrenceId
   return when ? `${who} — ${when}` : who
@@ -405,7 +406,7 @@ export function conflictFindingMessage(finding, { days = [], timeBlocks = [] } =
   const { locationName, dayId, blockId, capacity, occupants = [] } = finding
   const day = days.find((d) => d.id === dayId)
   const dayName = day?.label ?? day?.name ?? null
-  const blockName = timeBlocks.find((t) => t.id === blockId)?.name ?? null
+  const blockName = blockDisplayName(timeBlocks.find((t) => t.id === blockId))
   const when = dayName && blockName ? `${dayName}, ${blockName}` : dayName || blockName || null
   const names = [...new Set(occupants.map((o) => o.label).filter(Boolean))]
   const activities = names.length > 0 ? joinEnglishList(names) : `${occupants.length} activities`

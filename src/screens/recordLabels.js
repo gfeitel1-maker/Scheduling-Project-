@@ -119,6 +119,7 @@ export function formatMoment(timestamp) {
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    hour12: true,
   })
 }
 
