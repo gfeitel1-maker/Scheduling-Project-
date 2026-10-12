@@ -11,7 +11,17 @@ export async function run(h) {
   const listNames = async (screen) => {
     await nav(screen)
     await waitFor(`return /\\d+ (FIXED|RECURRING) EVENTS?/.test(__main())`, 20000, `${screen} list`)
-    return ev(`return [...document.querySelectorAll('tr')].filter(__vis).map(r=>[...r.querySelectorAll('td')].map(td=>td.innerText.trim())).filter(c=>c.length>=3)`)
+    // One entry per event per DAY, [name, day, block, divisions], whether the screen groups an event's
+    // days into one row (T377) or not. Every grouped row is expanded; its header row is skipped, and a
+    // day row's name comes from its "Edit NAME on DAY" label (its first cell shows the day).
+    await ev(`for (const b of [...document.querySelectorAll('button[aria-label^="Show each day of"]')].filter(__vis)) b.click(); return true`)
+    await sleep(400)
+    return ev(`return [...document.querySelectorAll('tr')].filter(__vis).flatMap(r=>{
+      if (r.querySelector('button[aria-label^="Hide each day of"],button[aria-label^="Show each day of"]')) return []
+      const c=[...r.querySelectorAll('td')].map(td=>td.innerText.trim()); if (c.length<3) return []
+      const m=(r.querySelector('[role=button][aria-label^="Edit "]')?.getAttribute('aria-label')||'').match(/^Edit (.+) on (.+)$/)
+      return [m ? [m[1], c[1], c[2], c[3]] : c]
+    })`)
   }
   // Which groups the FILE gives a lunch, per day (CIT has none in campB).
   const fileLunch = () => {
