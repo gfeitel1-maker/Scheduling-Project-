@@ -2,9 +2,9 @@
 //
 // Sessions are stateless signed tokens (electron/auth/localAuth.js), so the renderer's stored token
 // would verify again after a restart. Turning at-rest encryption off promises to sign everyone out,
-// so it records the moment it happened in a small device-local file. verifySessionToken then
-// rejects every user session issued before it. Device tokens (sync admission) are not sessions and
-// are unaffected. A file, not a table: the database is being rewritten at that moment, and this
+// so it records the moment it happened in a small device-local file. isSessionEnded (checked by
+// authorize() and the verifySession IPC) then rejects every user session issued before it. Device
+// tokens are not sessions and are unaffected. A file, not a table: the database is being rewritten at that moment, and this
 // fact belongs to this device alone, like the at-rest key.
 import fs from 'node:fs'
 import path from 'node:path'
