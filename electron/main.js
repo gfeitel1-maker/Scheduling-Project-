@@ -3550,6 +3550,7 @@ if (isElectronEntryPoint()) {
   let mainWindow = null
   // T368: set once a quit starts (SIGTERM, menu, verify:packaged), so a renderer dying or an
   // activate during the quit never brings a window back and holds the process past its bound.
+  // Never reset: nothing in this app cancels a quit once started (the will-quit veto always re-quits).
   let appQuitting = false
   app.on('before-quit', () => { appQuitting = true })
 
@@ -4283,6 +4284,7 @@ if (isElectronEntryPoint()) {
   })
   app.on('will-quit', createWillQuitHandler({ app, cleanup: async () => {
     quitFlush()
+    appQuitting = true // also here, in case a quit path reaches will-quit without before-quit
     // T347 (S1): a no-op unless SHORESH_PUNCH_ENABLED wired the punch transport. Started BEFORE the
     // awaited node stop because Electron does not await this handler: its synchronous prefix closes
     // every open pc immediately, and libdatachannel's cleanup() (without which the process cannot

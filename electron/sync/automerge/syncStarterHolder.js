@@ -23,9 +23,6 @@ export function createSyncStarterHolder(makeStarter) {
   }
 
   async function shutdown() {
-    // A start still in flight would land its node after the stop below; let it settle first
-    // (the will-quit race bounds the whole teardown, so a hung start cannot block quit).
-    if (starting) await starting.catch(() => {})
     const punch = starter.shutdownPunch().catch((err) => { console.error(`automerge sync: punch shutdown failed: ${err?.message ?? err}`) })
     const node = starter.getNode()
     if (node) {
@@ -104,7 +101,17 @@ export function createSyncStarterHolder(makeStarter) {
     start,
     shutdown,
     // The quit path's shutdown: no start may follow it (a db swap reuses shutdown and starts again).
-    close: async () => { closed = true; await shutdown() },
+    close: async () => {
+      closed = true
+      // The punch transport's native cleanup is what lets the process exit, so it is released
+      // FIRST, before anything is awaited. Then a start still in flight is let settle (will-quit's
+      // 5s race bounds this) so its node is stopped too; shutdown() releases punch again in case
+      // that start brought it up.
+      const punch = starter.shutdownPunch().catch((err) => { console.error(`automerge sync: punch shutdown failed: ${err?.message ?? err}`) })
+      if (starting) await starting.catch(() => {})
+      await shutdown()
+      await punch
+    },
     replace,
     swap,
     acquireSwitch,
