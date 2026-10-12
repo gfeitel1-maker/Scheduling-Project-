@@ -267,7 +267,7 @@ describe('T376 R3 — a computer never made an admin cannot remove a device flee
       await seedCampAndAdmin(hostDb, { campId, deviceId: 'device-f', name: 'Director', pin: '135790' })
       const pub = hostDb.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key
       mintGenesisEntry(hostDb, { founderDeviceId: 'device-f', founderPeerId: f.peerId.toString() })
-      const clientIdentity = await ensureDeviceIdentity(clientDb)
+      await ensureDeviceIdentity(clientDb)
 
       clientDb.prepare('INSERT INTO camps (id, name, signing_public_key) VALUES (?, ?, ?)').run(campId, 'E2E Camp', pub)
       for (const u of hostDb.prepare('SELECT * FROM users').all()) {
