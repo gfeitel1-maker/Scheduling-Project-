@@ -35,7 +35,7 @@ import { tierForField } from '../src/utils/ruleProvenance.js'
 import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from './ops/deleteRecord.js'
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
 import { listOpenReconciliationDecisions, dismissOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
-import { commitIngest, undoImportRun, listImportEvidence, listCompoundCellDecisions, listActivityAliases } from './ops/ingest.js'
+import { commitIngest, undoImportRun, recordRunVersions, listImportEvidence, listCompoundCellDecisions, listActivityAliases } from './ops/ingest.js'
 import { materializeImportedVersion, cleanSourceFileName } from './ops/materializeImportedVersion.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { mergeActivity, previewActivityMerge } from './ops/mergeActivity.js'
@@ -644,6 +644,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         campId: camp.id, authorUserId: session.userId, placements, sourceFileName: cleanSourceFileName(sourceFileName),
       }).then((version) => {
         outcome.version = version
+        // Undo of this import removes the versions it saved, and does not keep its rows on their account.
+        if (outcome.importRunId) recordRunVersions(db, outcome.importRunId, version?.snapshotIds)
         return outcome
       }).catch((err) => {
         console.error('materializeImportedVersion failed (non-fatal, catalog import still succeeded)', err)
