@@ -60,6 +60,14 @@ describe('R1. a device presents its own Host-signed roster entry', () => {
     await waitFor(() => !!b.domainRow('activities', 'r1-edit'), 5000)
   }, 120000)
 
+  it('PRODUCTION SENDER: the normal dial/connect wiring alone presents the entry (no hand-driven authenticateWith) and admits both ways', async () => {
+    const { d, b } = await newcomerUnknownToB()
+    await waitFor(() => b.node.isPeerAuthenticated(d.node.peerId) && d.node.isPeerAuthenticated(b.node.peerId), 15000)
+    expect(inCache(b, d.deviceId)).toBe(true)
+    await d.write({ entity: 'activities', entity_id: 'r1-wired-edit', field: 'name', value: 'x' })
+    await waitFor(() => !!b.domainRow('activities', 'r1-wired-edit'), 5000)
+  }, 120000)
+
 })
 
 // A stranger never auto-authenticates (it has no camp, so it trusts nobody), so each attempt below is the only one.
