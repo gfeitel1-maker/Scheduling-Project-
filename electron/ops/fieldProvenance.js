@@ -24,7 +24,7 @@
 // The two agree by construction: `appendOp` passes the op's own `source` into
 // the document on every local write, and `seedDocFromSqlite` carries existing
 // op-log provenance in at seed time.
-import { latestOp, DELETE_FIELD } from './operations.js'
+import { latestOp, DELETE_FIELD, UNDO_DELETE_PREFIX_MIRROR } from './operations.js'
 import { isHumanEdited, readRecord } from '../automerge/campDocument.js'
 import { latestOpForEntity } from './restore.js'
 import { getDocIfLoaded } from '../sync/automerge/liveDoc.js'
@@ -97,4 +97,4 @@ export function isHumanDeleted(db, entity, entityId) {
 }
 
 // Mirrors UNDO_DELETE_PREFIX in ingest.js (not imported: ingest.js imports this module).
-const UNDO_DELETE_PREFIX = 'undo-import:'
+const UNDO_DELETE_PREFIX = UNDO_DELETE_PREFIX_MIRROR

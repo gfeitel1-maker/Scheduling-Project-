@@ -12,9 +12,6 @@ import {
   beginDeferredDocWrites, commitDeferredDocWrites, discardDeferredDocWrites,
 } from '../sync/automerge/liveDoc.js'
 // Moved to campScopedEntities.js (parent-scoped entities slice) — see that file's comment for why:
-// Mirrors UNDO_DELETE_PREFIX in ingest.js (which imports this module).
-const UNDO_DELETE_PREFIX = 'undo-import:'
-
 // campDocument.js needs these too and cannot import them from here without a circular dependency.
 // Re-exported unchanged so every existing importer of these three from operations.js is unaffected.
 export { BULK_REPLACE_ENTITIES, MAX_BULK_REPLACE_ROWS, validateBulkReplaceRows } from './campScopedEntities.js'
@@ -64,6 +61,10 @@ import { BULK_REPLACE_ENTITIES, validateBulkReplaceRows } from './campScopedEnti
 // reserved-sentinel approach above), so it's trivially distinguishable from
 // a genuine projected field.
 export const DELETE_FIELD = '__deleted__'
+
+// Mirrors UNDO_DELETE_PREFIX in ingest.js (which imports this module); pinned equal by
+// undoDeletePrefixParity.test.js.
+export const UNDO_DELETE_PREFIX_MIRROR = 'undo-import:'
 
 // The single serialization boundary for a field-level op's `value`.
 //
@@ -337,7 +338,7 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
     // own defaulting — and the two can never disagree.
     // T375: an undo of an import deletes with source 'human' (Trash names the director) but is not
     // a rejection; the document is told 'undo' so other devices do not read it as one.
-    const docSource = field === DELETE_FIELD && String(op.client_write_id ?? '').startsWith(UNDO_DELETE_PREFIX) ? 'undo' : op.source
+    const docSource = field === DELETE_FIELD && String(op.client_write_id ?? '').startsWith(UNDO_DELETE_PREFIX_MIRROR) ? 'undo' : op.source
     const outcome = recordLocalWrite(db, { entity, entity_id, field, value: storedValue, source: docSource, author_user_id: op.author_user_id, op_id: op.id }, op)
     op[DOCUMENT_OUTCOME] = MODELED_ENTITIES.has(entity) ? outcome : 'not-modeled'
   } catch (err) {
