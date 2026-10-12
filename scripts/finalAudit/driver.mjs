@@ -64,6 +64,22 @@ async function routeDownloads() {
   return mainEval(`(()=>{const r=process.getBuiltinModule('module').createRequire('/x.js'); const {session}=r('electron'); const s=session.defaultSession; if(globalThis.__dlHooked) return 'already'; globalThis.__dlHooked=1; s.on('will-download',(e,item)=>{ item.setSavePath(r('path').join(${JSON.stringify(DL)}, Date.now()+'-'+item.getFilename())) }); return 'hooked'})()`)
 }
 async function attach() { app = await connect(PORT, 120000); await app.send('Page.enable').catch(() => {}); try { log('downloads: ' + await routeDownloads()) } catch (e) { log('downloads hook failed: ' + e.message) } return app }
+// ev/text/waitFor/click for one CDP connection; the main app's are below, extra peers get their own (launchPeer).
+function ctxFor(conn) {
+  const cev = async (expr, to = 20000) => { await conn().evaluate(HELPERS, to, false); return conn().evaluate(`(async()=>{${expr}})()`, to, false) }
+  const ctext = async () => { try { return await cev('return __main()', 10000) } catch (e) { return `<unreadable: ${e.message}>` } }
+  const cwait = async (expr, timeout, what) => {
+    const t = Date.now(); let last
+    while (Date.now() - t < timeout) {
+      try { const v = await cev(expr, 15000); if (v) return v } catch (e) { last = e.message }
+      await sleep(700)
+    }
+    const seen = (await ctext()).replace(/\s+/g, ' ').slice(0, 700)
+    throw new Error(`timed out after ${timeout / 1000}s waiting for ${what}${last ? ` (last error: ${last})` : ''}. Screen: "${seen}"`)
+  }
+  const cclick = (label, exact = true, timeout = 20000) => cwait(`return __click(${JSON.stringify(label)}, ${exact})`, timeout, `"${label}"`)
+  return { ev: cev, text: ctext, waitFor: cwait, click: cclick, nav: async (label) => { await cclick(label, true, 20000); await sleep(800) } }
+}
 async function ev(expr, to = 20000) { await app.evaluate(HELPERS, to, false); return app.evaluate(`(async()=>{${expr}})()`, to, false) }
 async function text() { try { return await ev('return __main()', 10000) } catch (e) { return `<unreadable: ${e.message}>` } }
 async function waitFor(expr, timeout, what) {
@@ -131,7 +147,7 @@ async function main() {
     BUILD_SHA = (build.match(/· ([0-9a-f]{7,}) ·/) || [])[1] || null
     return 'build ' + build
   })
-  await (await import('./steps.mjs')).run({ step, ev, waitFor, click, nav, text, shot, setFile, sleep, log, app: () => app, CAMPB, DL, RUN, relaunch, adopt, ADMIN, PIN, signInIfAsked, UD, REPO, PORT, buildSha: () => BUILD_SHA })
+  await (await import('./steps.mjs')).run({ step, ev, waitFor, click, nav, text, shot, setFile, sleep, log, app: () => app, CAMPB, DL, RUN, relaunch, adopt, launchPeer, quitMain, FORCE: new Set(arg('force', '').split(',').filter(Boolean)), ADMIN, PIN, signInIfAsked, UD, REPO, PORT, buildSha: () => BUILD_SHA })
   finish()
 }
 
@@ -162,7 +178,39 @@ async function adopt(timeoutMs = 120000) {
   return Date.now() - t
 }
 
+// Another packaged instance on its own userData and port (multi-device steps). Refuses a busy port
+// like the main one; stopped and its userData removed by stop() or at finish.
+const peers = []
+async function launchPeer(label, port) {
+  for (const p of [port, port + 1]) if (await portBusy(p)) throw new Error(`peer ${label}: port ${p} is already in use`)
+  const ud = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'shoresh-pkg-smoke-'))
+  const out = fs.openSync(path.join(RUN, `app-${label}.log`), 'a')
+  const child = spawn(APP, [`--remote-debugging-port=${port}`], { env: { ...process.env, SHORESH_SMOKE_USERDATA: ud }, detached: true, stdio: ['ignore', out, out] })
+  child.unref()
+  log(`peer ${label} launched pid=${child.pid} port=${port} userData=${ud}`)
+  let conn = null
+  const stop = async () => {
+    try { conn?.close() } catch {}
+    try { process.kill(child.pid, 'SIGTERM') } catch {}
+    const t = Date.now(); while (Date.now() - t < 15000) { try { process.kill(child.pid, 0) } catch { break } await sleep(250) }
+    try { process.kill(child.pid, 'SIGKILL') } catch {}
+    try { fs.rmSync(ud, { recursive: true, force: true }) } catch {}
+  }
+  peers.push(stop)
+  conn = await connect(port, 120000)
+  const shotPeer = async (name) => { const f = path.join(SHOTS, `${String(results.length + 1).padStart(2, '0')}-${label}-${name}.png`); try { await conn.shot(f) } catch (e) { log(`  peer screenshot failed: ${e.message}`) } }
+  return { label, pid: child.pid, ud, stop, shot: shotPeer, ...ctxFor(() => conn) }
+}
+
+// Quit the main instance (SIGTERM) and wait for it to exit; later steps then have no main app.
+async function quitMain() {
+  const t = Date.now(); process.kill(pid, 'SIGTERM'); try { app.close() } catch {}
+  while (Date.now() - t < 30000) { try { process.kill(pid, 0) } catch { return Date.now() - t } await sleep(250) }
+  throw new Error(`pid ${pid} still alive 30s after SIGTERM`)
+}
+
 function finish() {
+  for (const stop of peers) stop().catch(() => {})
   log('\nRESULTS')
   for (const r of results) log(`${String(r.id).padEnd(4)} ${r.status.padEnd(4)} ${(r.ms / 1000).toFixed(1).padStart(6)}s  ${r.title}${r.note ? ' — ' + r.note.slice(0, 500) : ''}  [${r.shots.join(', ')}]`)
   fs.writeFileSync(path.join(RUN, 'results.json'), JSON.stringify(results, null, 1))
@@ -170,7 +218,16 @@ function finish() {
   if (process.argv.includes('--keep')) { log(`--keep: app left running pid=${pid} port=${PORT} userData=${UD}`); fs.writeFileSync(path.join(RUN, 'kept.json'), JSON.stringify({ pid, UD })); process.exit(0) }
   try { process.kill(pid, 'SIGTERM') } catch {}
   log(`run dir ${RUN}; userData ${UD} (removed)`)
-  setTimeout(() => { try { fs.rmSync(UD, { recursive: true, force: true }) } catch {} ; process.exit(results.some((r) => r.status === 'FAIL') ? 1 : 0) }, 3000)
+  // Remove userData only once the app has exited (it writes on the way out, which re-created the
+  // folder when this ran on a fixed 3s timer), SIGKILLing after 20s.
+  const t = Date.now()
+  const tick = () => {
+    let alive = true; try { process.kill(pid, 0) } catch { alive = false }
+    if (alive && Date.now() - t < 20000) return setTimeout(tick, 250)
+    if (alive) try { process.kill(pid, 'SIGKILL') } catch {}
+    setTimeout(() => { try { fs.rmSync(UD, { recursive: true, force: true }) } catch {} ; process.exit(results.some((r) => r.status === 'FAIL') ? 1 : 0) }, 500)
+  }
+  tick()
 }
 
 main().catch((e) => { log('FATAL ' + e.stack); finish() })
