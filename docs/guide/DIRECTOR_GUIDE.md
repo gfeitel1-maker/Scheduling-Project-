@@ -3,7 +3,7 @@ title: "Shoresh director guide"
 document_type: guide
 authority: descriptive
 status: active
-date: 2026-10-09
+date: 2026-10-12
 created: 2026-10-09
 archive_when: never — refreshed when the screens it describes change
 ---
@@ -74,6 +74,24 @@ How to run your camp's schedule in Shoresh, step by step. Bold words are exactly
 
 [shot: import/preview]
 
+### Import a file again
+
+You can import the same file, or an updated copy of it, onto a camp that already has setup. Shoresh asks you to choose **Keep them** or **Replace them**, as above.
+
+- **Keep them** adds the import alongside what you have.
+- **Replace them** clears the items listed under it first. If you have a schedule on **Manual Build** or **Generated Schedule**, the choice says it is "saved as a version first". Shoresh saves it as a version named **Before replace** followed by the date and time, so you can still get that week back from your versions.
+- Records you deleted yourself stay deleted. See [Things you delete stay deleted](#things-you-delete-stay-deleted).
+
+<!-- shot: import/keep-or-replace -->
+
+### One-day files and whole-camp days
+
+- **A file with one day in it.** If the file is a single-day schedule with no days of the week across the top, Shoresh says **This looks like a single-day schedule**. It won't import it as your weekly schedule. Click **Build this special day** to make it a special day instead (see [Special days](#7-special-days)). If the file's name or title names a weekday, such as "Color War Wednesday", Shoresh places the day on that weekday. If it names none or more than one, the day is left not placed, with a note saying why. You can also pick a week and a weekday from the two dropdowns on that card.
+- **A day for the whole camp inside a weekly file.** Under **Trips and Group Days**, a day that covers every group is listed with two buttons, **Special day** and **Events**, and a dropdown for the week. Neither is chosen for you. Choose **Special day** to replace that whole day for every group. The other cells that day are hidden, not deleted, and come back if you unplace it. Leave it undecided and it comes in as an all-camp event and replaces nothing.
+- **A camp with no weeks yet.** Dropdowns offer **Week 1 (new)**. Shoresh creates Week 1 when you finish the import.
+
+<!-- shot: import/one-day-file-card -->
+
 ### Answer the review questions
 
 1. You'll see **Reconciling** your file name and a bar: **X of Y questions answered**.
@@ -83,10 +101,55 @@ How to run your camp's schedule in Shoresh, step by step. Bold words are exactly
    - **Use this setup** — everything is decided.
    - **Apply N decisions** — some answered, the rest kept for later.
    - **Add to camp** — first import, nothing answered yet.
-5. Changed your mind? Click **Undo this import** within 5 minutes.
+5. Changed your mind? Click **Undo this import**. See [Undo this import](#undo-this-import).
 6. Click **Continue**.
 
 [shot: reconcile/questions]
+
+### Flags for things the file doesn't say
+
+Sometimes a file lists activities without saying how important they are, or how often they should run. Shoresh flags them and you choose:
+
+- **Low is fine** — the activities you keep count as low priority.
+- **Leave as is** — the activities you keep are scheduled once a week.
+
+Each flag counts the activities it covers. Your answer is remembered (see [What Shoresh has learned](#what-shoresh-has-learned)).
+
+<!-- shot: reconcile/unknown-field-flags -->
+
+### Undo this import
+
+Right after the import finishes, **Undo this import** appears next to **Continue**, with a countdown in the last minute. You have five minutes, and only while you stay on that screen. Leave the screen, close Shoresh or reload it, and the button is gone for good. The import itself stays.
+
+Undo removes what the import added: its records, the elective sets it made, and the versions it saved (the ones named **Imported from** and your file's name). The result tells you what happened, for example "Removed 12 records the import created." Some things are kept on purpose:
+
+- **changed since import** — something you or another device edited after the import. Undo won't throw your edits away.
+- **still in use** — a record something else still points to, including one a saved schedule version uses.
+
+Because undo is not a deletion, importing the same file again brings the removed records back.
+
+<!-- shot: reconcile/undo-receipt -->
+
+### What Shoresh has learned
+
+At the bottom of the sidebar, beside **Backup now** and **Restore from backup…**, click **What Shoresh has learned**. Shoresh remembers the answers you give during an import and offers them again the next time you import. After about three similar answers it starts to spot patterns:
+
+- **Remembered** — an answer you gave, with who gave it and when.
+- **Suggested** — Shoresh offers the answer, and you still confirm.
+- **Applies automatically** — Shoresh applies it and tells you each time. Some kinds only ever say **Pre-selects for you** or **Always asks you**, because only you can decide them.
+- **Still asks** — not enough agreement yet.
+
+Answers are grouped by kind (for example **Classification** and **Values**). Use **Search answers and examples** to find one, and open a row to change or forget an answer. Only people with import permission can change them. Everyone else can look.
+
+What you answer is shared with your other computers in the camp. A few older answers live on one computer only. They sit under **Remembered on this computer only**, and can't be changed there.
+
+Nothing here changes a schedule you have already imported.
+
+<!-- shot: learned/what-shoresh-has-learned -->
+
+### Things you delete stay deleted
+
+If you delete a record (a group, a day, an event, an elective set) and later import the same file again, the record doesn't come back. That holds on every computer in the camp, not just the one where you deleted it. This is different from **Undo this import**, which is not a deletion and lets the import bring those records back.
 
 ### Come back to open questions later
 
@@ -267,6 +330,14 @@ Either way the cell shows the set name and count, e.g. "Chugim (4)".
 
 Shortcut: type `Chugim: Archery, Drama` and press Enter to make a new set and place it in one go.
 
+### Double-period electives
+
+If a last-year file holds the same elective set in two back-to-back periods for a group, it imports as one session. The grid shows it as one cell, with no split or extend controls. Shoresh also links each choice in the set across both periods, so a camper who gets Archery gets it for the whole span.
+
+- A gap between the two periods, such as lunch or an event, keeps them as separate electives.
+- If different groups hold the same elective across different periods, Shoresh can't link them. It says so after the import, and each period is chosen separately.
+- A choice you add to the set later is not linked automatically.
+
 ---
 
 ## 7. Special days
@@ -284,6 +355,17 @@ Shortcut: type `Chugim: Archery, Drama` and press Enter to make a new set and pl
 2. Click **Copy time blocks** to start with your regular blocks — or **Empty** to start blank.
 
 This is a one-time copy. Later changes to your time blocks won't follow.
+
+### Bring recurring events
+
+After you copy time blocks, and again when you place the day on a weekday, Shoresh may ask **Also bring N recurring events from <day>?** with a tick box for each event, all ticked.
+
+1. Untick any you don't want.
+2. Click **Bring** to add them to the day, or **Skip**.
+
+Events that every group has on every day are copied over automatically and aren't asked about. If the day is placed on more than one weekday, nothing is offered. You'll see a note to add them by hand. If lunches differ by weekday, you'll see "Lunch waves differ by weekday — place this day to bring them" until you place it.
+
+<!-- shot: special-day/bring-recurring-events -->
 
 ### Fill it in
 
@@ -371,6 +453,24 @@ The confirmation says it too: "Anything erased since then may reappear until oth
 
 Your best protection is still a second computer joined to the camp — it keeps a full copy all the time.
 
+### Encryption
+
+Shoresh stores your camp's information encrypted on each computer. This is on from the start. You don't have to do anything.
+
+Turning it off is rarely needed, and only a director can do it. It affects only the computer you do it on.
+
+1. Click the **Settings** gear, then **LAN & Devices**.
+2. Scroll to **Encryption on this computer** and click **Turn off encryption…**.
+3. Read the warning. Camper information and PIN protection become readable by anyone who can open the files on this computer. Other paired computers keep their own encryption until you turn it off on each of them. **Older backups made while encryption was on can no longer be opened afterwards.**
+4. Type `DISABLE ENCRYPTION` where it says **Type DISABLE ENCRYPTION to confirm**. The red **Turn off encryption** button stays grey until it matches. **Cancel** leaves everything as it was.
+5. Click **Turn off encryption**.
+
+Shoresh saves the latest changes, makes a safety copy, unlocks the information and checks the result. It then signs everyone out and restarts, and you'll see "Encryption is off. Shoresh is restarting." The safety copy is deleted once it has checked.
+
+If anything goes wrong you'll see "Encryption is still on." with the reason, and Shoresh restarts in a few seconds. Nothing is lost.
+
+<!-- shot: devices/turn-off-encryption -->
+
 ---
 
 ## 9. Adding a device
@@ -381,7 +481,7 @@ Both computers must be on the **same Wi-Fi**. VPN and phone hotspots won't work.
 
 1. Open the **Settings** gear → **LAN & Devices**.
 2. Click **Add a device**.
-3. Note the camp code shown. It's the same every time.
+3. Note the camp code shown. Shoresh makes a new code each time you click **Add a device**, and it stops working when you click **Stop adding devices**.
 
 ![Device Manager showing the camp code under Add a device](img/device-manager-code-showing.jpg)
 
@@ -478,6 +578,29 @@ What each line means:
 3. If both schedules are started, **Export which?** asks you to pick one. (It asks every time.)
 4. The file downloads with one sheet per day and an **All Groups** sheet.
 5. A day replaced by a special day prints as that special day's grid and notes, labelled with the week and weekday.
+
+### Download a worksheet, edit it, import it back
+
+You can also take your camp's setup out to Excel, change it, and bring it back.
+
+1. Click **Download worksheet**. It's on the home screen, and on the import screen under **Drop schedule here**.
+2. Open the file in Excel. It has a sheet each for Programs, Age Divisions, Groups, Days, Time Blocks, Activities, Fixed Events and Locations. The first column, **shoresh_id**, is how Shoresh recognises each row. Leave it alone. **Status** on the last column is only information.
+3. Edit the cells you want. A blank cell leaves the current value as it is. To empty a value on purpose, type `<clear>` in the cell.
+4. To import it, drop the file onto **Drop schedule here**. Shoresh reads it as a worksheet it made and shows what changed. Fixed Events and Locations are brought back in on their own screens.
+
+Rows you change are updated, not duplicated. A worksheet made for a different camp or program is refused. So is a worksheet missing its hidden information sheet. Download a fresh one if you see that message.
+
+#### Locations
+
+The **Locations** sheet has the columns **name**, **capacity** and **kind**.
+
+1. Change a capacity in the sheet and save it.
+2. Open **Locations** in the sidebar and click **Import from Excel** at the bottom.
+3. Pick the file. The location with that id gets the new capacity. A rename works the same way.
+
+A row with an id Shoresh doesn't know is added as a new location. A row with no id changes a location only if exactly one has that name. If two share a name, it's added as new, so a capacity never lands on the wrong one.
+
+<!-- shot: worksheet/locations-sheet -->
 
 Before the season ends, export your final schedule to keep a copy (steps above). Then continue to [End of season](#11-end-of-season-clear-elective-choices).
 
