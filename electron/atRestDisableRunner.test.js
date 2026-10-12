@@ -124,4 +124,20 @@ describe('boundedSyncStop (the runner\'s sync stop: close() raced against 10s)',
     const main = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'main.js'), 'utf8')
     expect(main).toMatch(/shutdownSync: \(\) => boundedSyncStop\(\(\) => syncStarterHolder\.close\(\), 10000\)/)
   })
+
+  // Security review (#979): encryption is already off when the cut-off is recorded. A failure there
+  // must not be reported as "encryption stays on"; it is reported as off, with the sign-out warning.
+  it('a failure to record the sign-out after a successful disable still reports encryption off', async () => {
+    const order = []
+    const runner = createAtRestDisableRunner({
+      flushDoc: () => {}, shutdownSync: async () => {}, suspendDocSaves: () => {}, closeDb: () => {},
+      listDbPaths: () => [], disable: () => ({ disabled: true, warnings: [] }),
+      endSessions: () => { throw new Error('disk full') },
+      restart: (ms) => order.push(`restart:${ms}`), log: () => {},
+    })
+    const res = await runner()
+    expect(res).toMatchObject({ ok: true, restarting: true })
+    expect(res.warnings.join(' ')).toMatch(/sign in|signed in/i)
+    expect(order).toEqual(['restart:1500'])
+  })
 })

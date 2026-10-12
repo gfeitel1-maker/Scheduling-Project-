@@ -180,6 +180,21 @@ describe('turning encryption off signs everyone out', () => {
     setSessionsValidAfter(0)
   })
 
+  // Security review (#979): the cut-off ends sessions used ON this device. A paired device presents
+  // its host-minted camp token over the network to be admitted; that is not a session here, and
+  // rejecting it would cut every peer off from syncing with this device.
+  it('the network admission path still accepts a token issued before the disable', async () => {
+    const dir = await tmp()
+    setAtRestDisableRunner(await realRunner(dir))
+    const { handlers, token } = await loginAs('Director', '135790')
+    const peerToken = (await loginAs('Staffer', '246810')).token
+    await handlers.disableAtRestEncryption({ token, phrase: DISABLE_PHRASE })
+    const { verifySessionToken, setSessionsValidAfter } = await import('./auth/localAuth.js')
+    expect(handlers.verifySession({ token: peerToken }).valid).toBe(false)
+    expect(verifySessionToken(db, peerToken)).not.toBeNull()
+    setSessionsValidAfter(0)
+  })
+
   it('a disable that fails changes nothing, so it signs nobody out', async () => {
     const dir = await tmp()
     setAtRestDisableRunner(await realRunner(dir, { disableFails: true }))

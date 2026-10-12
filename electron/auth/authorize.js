@@ -1,4 +1,4 @@
-import { verifySessionToken } from './localAuth.js'
+import { verifySessionToken, isSessionEnded } from './localAuth.js'
 import { PERMISSIONS } from './permissions.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { deviceTrustStatus, deviceTrustReason } from './deviceTrust.js'
@@ -19,7 +19,7 @@ import { deviceTrustStatus, deviceTrustReason } from './deviceTrust.js'
 export function authorize({ db, token, action, resourceId }) {
   void resourceId
   const session = verifySessionToken(db, token)
-  if (!session) {
+  if (!session || isSessionEnded(session)) {
     return deny(db, action, undefined, 'invalid_token', null, null, null)
   }
 

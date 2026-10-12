@@ -22,6 +22,7 @@ export default function DisableEncryptionPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [done, setDone] = useState(false)
+  const [warnings, setWarnings] = useState([])
 
   async function confirm() {
     setBusy(true)
@@ -32,6 +33,7 @@ export default function DisableEncryptionPanel() {
         // Every session on this device has ended (the main process no longer accepts it), so the
         // stored one is forgotten too and the relaunch opens on sign-in.
         try { localStorage.removeItem('shoresh-token') } catch { /* storage unavailable: the main process still refuses it */ }
+        setWarnings(Array.isArray(res.warnings) ? res.warnings : [])
         setDone(true)
       }
       else setError(reasonFor(res))
@@ -50,6 +52,7 @@ export default function DisableEncryptionPanel() {
         rarely needed and cannot be undone from here.
       </p>
       {done && <p style={styles.flag}>Encryption is off. Shoresh is restarting.</p>}
+      {done && warnings.map((w) => <p key={w} style={styles.flag}>{w}</p>)}
       {!done && !open && (
         <button type="button" style={S.btnDanger} onClick={() => setOpen(true)}>Turn off encryption…</button>
       )}

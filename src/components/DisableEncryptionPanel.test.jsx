@@ -70,6 +70,14 @@ describe('DisableEncryptionPanel', () => {
     vi.unstubAllGlobals()
   })
 
+  it('shows a warning that came with a successful disable, never hides it', async () => {
+    localClient.disableAtRestEncryption.mockResolvedValue({ ok: true, restarting: true, warnings: ['Encryption is off, but this computer could not sign everyone out. Sign out and sign in again.'] })
+    const user = await openConfirm()
+    await user.type(screen.getByLabelText(/type DISABLE ENCRYPTION/i), 'DISABLE ENCRYPTION')
+    await user.click(screen.getByRole('button', { name: /^turn off encryption$/i }))
+    expect(await screen.findByText(/could not sign everyone out/i)).toBeTruthy()
+  })
+
   it('surfaces a failed disable and says encryption is still on', async () => {
     localClient.disableAtRestEncryption.mockResolvedValue({ ok: false, error: 'rekey_failed', message: 'disk I/O error', restarting: true })
     const user = await openConfirm()

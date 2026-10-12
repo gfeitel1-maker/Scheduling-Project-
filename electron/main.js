@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, encryptingDatabaseCtor, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
-import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, isHostDevice, issueDeviceToken } from './auth/localAuth.js'
+import { createUser, verifySessionToken, isSessionEnded, attemptLogin, ensureHostSigningKey, isHostDevice, issueDeviceToken } from './auth/localAuth.js'
 import { promoteToAdmin } from './ops/promoteToAdmin.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
 import { listPendingConflicts, latestOpSeq } from './ops/operations.js'
@@ -1775,6 +1775,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
   function verifySession({ token } = {}) {
     const session = verifySessionToken(db, token)
+    if (isSessionEnded(session)) return { valid: false }
     // Finding 2 fix: a 'device' token (issueDeviceToken) proves connection
     // admission only and carries no userId — reject it explicitly here too,
     // rather than relying on the userRow lookup below incidentally missing

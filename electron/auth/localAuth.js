@@ -454,10 +454,17 @@ function issueTokenForThisDevice(db, userId, deviceId) {
 // mirroring the "validate before touching properties" pattern already used
 // for this function's `.` split. `exp` is enforced here — new behavior, see
 // docs/superpowers/specs/2026-07-25-device-trust-revocation-design.md.
-// Every user session issued before this time is no longer valid on this device (see
-// electron/sessionsValidAfter.js: turning at-rest encryption off signs everyone out).
+// Every user session issued before this time is no longer valid ON this device (see
+// electron/sessionsValidAfter.js: turning at-rest encryption off signs everyone out). Checked by
+// the local-session paths only (authorize() and the verifySession IPC), never by verifySessionToken
+// itself: a paired device presents its camp token over the network to be admitted for sync, and
+// that is not a session here (Security review, #979).
 let sessionsValidAfter = 0
 export function setSessionsValidAfter(ms) { sessionsValidAfter = Number.isFinite(ms) ? ms : 0 }
+export function isSessionEnded(session) {
+  if (!session || session.type === 'device' || !(sessionsValidAfter > 0)) return false
+  return !(typeof session.iat === 'number' && session.iat > sessionsValidAfter)
+}
 
 export function verifySessionToken(db, token) {
   if (typeof token !== 'string') return null
@@ -517,7 +524,6 @@ export function verifySessionToken(db, token) {
 
   if (!sigOk) return null
   if (Date.now() > exp) return null
-  if (type !== 'device' && sessionsValidAfter > 0 && !(typeof payload.iat === 'number' && payload.iat > sessionsValidAfter)) return null
 
   return {
     userId: type === 'device' ? null : userId,
@@ -525,6 +531,7 @@ export function verifySessionToken(db, token) {
     campId: typeof campId === 'string' ? campId : null,
     type,
     jti: jti ?? null,
+    iat: typeof payload.iat === 'number' ? payload.iat : null,
   }
 }
 
