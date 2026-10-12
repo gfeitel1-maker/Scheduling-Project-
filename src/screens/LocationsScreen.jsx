@@ -5,7 +5,7 @@ import { provenanceDotStyles } from '../components/setup/provenanceDotStyles.js'
 import * as XLSX from 'xlsx'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import { aoaToSanitizedSheet, readEntitySheet } from '../utils/exportSanitize.js'
-import { parseLocationsSheetRows } from '../utils/importLocationsSheet.js'
+import { parseLocationsSheetRows, resolveLocationImportRow } from '../utils/importLocationsSheet.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { createScheduleRepository } from '../data/scheduleRepository'
@@ -21,7 +21,6 @@ import SetupScreenShell from '../components/setup/SetupScreenShell'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
-import { resolveRowAction } from '../ingest/resolveRowAction.js'
 import { CapacityStepper } from '../components/CapacityStepper'
 import {
   activeNearDuplicateGroups,
@@ -728,6 +727,10 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
     reader.readAsArrayBuffer(file); e.target.value = ''
   }
 
+  function importProvidedKeys() {
+    return new Set(['capacity', ...(importMapping?.roles?.kind != null ? ['kind'] : [])])
+  }
+
   async function confirmImport() {
     setImporting(true)
     try {
@@ -738,16 +741,11 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
           capacity: row.capacity,
           ...(row.kind ? { kind: row.kind } : {}),
         }),
-        findExisting: (seen, row) => seen.find((s) => String(s.name ?? '').toLowerCase() === row.name.toLowerCase()),
-        buildChangedFields: (existing, row) => {
-          const candidateFields = { capacity: row.capacity, kind: row.kind ?? null }
-          // Code Reviewer HIGH+MEDIUM: `kind` only counts as provided when its column was
-          // actually bound — a sheet without a kind column (capacity is required, always
-          // bound) must never reset an existing location's kind to null.
-          const providedKeys = new Set(['capacity', ...(importMapping?.roles?.kind != null ? ['kind'] : [])])
-          const resolution = resolveRowAction(row.name, candidateFields, new Map([[row.name.toLowerCase(), existing]]), providedKeys)
-          return resolution.action === 'update' ? resolution.changedFields : null
-        },
+        // T256: id-matched (resolveLocationImportRow). `kind` only counts as provided
+        // when its column was actually bound — a sheet without a kind column must never
+        // reset an existing location's kind to null.
+        findExisting: (seen, row) => resolveLocationImportRow(row, seen, importProvidedKeys()).existing,
+        buildChangedFields: (existing, row) => resolveLocationImportRow(row, [existing], importProvidedKeys()).changedFields,
       })
       setImportResult({ added, updated, unchanged, skipped, stoppedAt }); setImportStep('done')
     } finally {
