@@ -12,7 +12,7 @@ const UNLIMITED_CAPACITY = Number.MAX_SAFE_INTEGER
 // and findBlankCapacities so the two can never disagree about which rows the
 // solver considers — a divergence here would report a row the solver ignores,
 // or stay silent on one it uses.
-const isConfirmed = (sa) => (sa.status ?? 'confirmed') === 'confirmed'
+export const isConfirmed = (sa) => (sa.status ?? 'confirmed') === 'confirmed'
 
 export function buildOfferings({ occurrences = [], setActivities = [], activities = [] } = {}) {
   const activityById = new Map(activities.map((a) => [a.id, a]))

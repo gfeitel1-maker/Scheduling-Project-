@@ -25,3 +25,16 @@ export function overlappingBlockPeers(timeBlocks) {
   }
   return peers
 }
+
+// T219: the blocks (in the given day order) that start exactly when the block before them ends.
+// An imported elective spans two blocks only across such a seam: a time gap, or a missing time,
+// keeps two periods separate, so two chugim around a break are never fused into one.
+export function blocksThatContinue(orderedBlocks) {
+  const out = new Set()
+  for (let i = 1; i < (orderedBlocks || []).length; i++) {
+    const end = minutes(orderedBlocks[i - 1].end_time)
+    const start = minutes(orderedBlocks[i].start_time)
+    if (end != null && end === start) out.add(orderedBlocks[i].id)
+  }
+  return out
+}

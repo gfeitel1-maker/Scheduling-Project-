@@ -1,9 +1,9 @@
 ---
 title: "Linked multi-period elective bundles — storage shape and the per-tier choice-id/rank collision"
 document_type: adr
-status: proposed
+status: accepted
 authority: normative
-implementation_state: not-started
+implementation_state: in-progress
 date: 2026-09-29
 task_class: database-sync
 governing_docs:
@@ -33,7 +33,9 @@ affects:
 
 ## Status
 
-Proposed, 2026-09-29, architect. This settles the one open architectural decision the design spec
+**Accepted 2026-10-11** under the owner's delegated authority, relayed by the keeper with the T219 re-aim: "the GO accepts the 2026-09-29 linked-elective-bundles ADR for import." The schedule import now writes one bundle per choice for an elective held in adjacent blocks (T219).
+
+_Prior: proposed, 2026-09-29, by the architect; accepted 2026-10-11 (above)._ As proposed: This settles the one open architectural decision the design spec
 (`docs/work/specs/2026-09-29-t301-linked-elective-bundles-design.md`) left for the ADR, plus two
 collisions found while tracing the decision to ground truth that the spec did not name. Awaiting
 owner approval (GOVERNANCE_INDEX database/sync row: **ADR + migration/rollback plan**). Slice 1

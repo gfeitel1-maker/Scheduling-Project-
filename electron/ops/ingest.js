@@ -48,7 +48,7 @@ import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.
 // could reference it is already gone, so one upfront referential pass
 // (referencesInto, run once per candidate before any delete) is sufficient.
 const U2_DELETE_ORDER = Object.freeze([
-  'elective_set_activities', 'elective_sets', 'special_day_placements', 'special_day_slots', 'special_day_time_blocks', 'special_days', 'fixed_events', 'schedule_weeks', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
+  'elective_bundle_periods', 'elective_bundles', 'elective_set_activities', 'elective_sets', 'special_day_placements', 'special_day_slots', 'special_day_time_blocks', 'special_days', 'fixed_events', 'schedule_weeks', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
 ])
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
@@ -870,6 +870,9 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
           fieldSnapshot[field] = latest ? latest.seq : null
         }
         outcome.createdEntityIds.push({ ...entry, fieldSnapshot })
+        // Undo reads the run record (T372), which commitPlan wrote before these existed:
+        // without this an undone import left its elective sets and their choices behind.
+        if (outcome.importRunId) recordRunCreated(db, outcome.importRunId, entry.entity, entry.entity_id)
       }
     }
     // Soft warning, never a thrown error — see commitElectiveCandidates'
@@ -3384,6 +3387,19 @@ export function recordRunVersion(db, runId, id, name) {
   rec.ownSnapshots = [...(rec.ownSnapshots ?? []).filter((v) => v.id !== id), { id, name }]
 }
 
+// T219: a row the version step created after the commit (an imported double period's elective
+// bundles), recorded with the same field snapshot commitPlan takes, so undo deletes it unless edited since.
+export function recordRunCreated(db, runId, entity, entity_id) {
+  const rec = undoableRuns.get(db)?.get(runId)
+  if (!rec || !U2_DELETABLE_ENTITIES.has(entity)) return
+  const fieldSnapshot = {}
+  for (const field of PROJECTIONS[entity]?.fields ?? []) {
+    const latest = latestOp(db, entity, entity_id, field)
+    fieldSnapshot[field] = latest ? latest.seq : null
+  }
+  rec.createdEntityIds = [...rec.createdEntityIds.filter((e) => !(e.entity === entity && e.entity_id === entity_id)), { entity, entity_id, fieldSnapshot }]
+}
+
 /**
  * Undo an import by run id alone. The rows and field snapshots come from what the run recorded
  * server-side; nothing the caller sends can widen the set. An unknown run (never committed with
@@ -3560,6 +3576,18 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], ownSnapsh
       candidateSet.set(`${entity}:${entity_id}`, { entity, entity_id })
     }
 
+    // T219: a bundle kept for any reason keeps its periods, or it survives with no periods (inert).
+    const keptBundleIds = new Set(kept.filter((k) => k.entity === 'elective_bundles').map((k) => k.entity_id))
+    if (keptBundleIds.size > 0) {
+      for (const [key, { entity, entity_id }] of [...candidateSet]) {
+        if (entity !== 'elective_bundle_periods') continue
+        const parent = db.prepare('SELECT bundle_id FROM elective_bundle_periods WHERE id = ?').get(entity_id)?.bundle_id
+        if (!keptBundleIds.has(parent)) continue
+        candidateSet.delete(key)
+        kept.push({ entity, entity_id, name: nameOf('elective_bundles', parent), parent_id: parent, reason: 'parent_kept' })
+      }
+    }
+
     // A saved schedule version that names a row would restore with a blank cell; keep the row and say so.
     // The versions this import saved itself do not count: they go with the import (deleted below),
     // unless the director has renamed one since, which makes it theirs.
@@ -3627,10 +3655,19 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], ownSnapsh
       if (!joinsBySet.has(setId)) joinsBySet.set(setId, [])
       joinsBySet.get(setId).push(entity_id)
     }
+    const bundlesBySet = new Map()
+    for (const { entity, entity_id } of candidateSet.values()) {
+      if (entity !== 'elective_bundles') continue
+      const setId = db.prepare('SELECT elective_set_id FROM elective_bundles WHERE id = ?').get(entity_id)?.elective_set_id
+      if (!bundlesBySet.has(setId)) bundlesBySet.set(setId, [])
+      bundlesBySet.get(setId).push(entity_id)
+    }
     for (const { entity, entity_id } of [...candidateSet.values()]) {
       if (entity !== 'elective_sets') continue
       const joins = joinsBySet.get(entity_id) ?? []
-      const blockers = referencesInto(db, entity, entity_id, new Set(joins.map((j) => `elective_set_activities:${j}`)))
+      // T219: the import's own bundles on this set go with it, so they do not hold it.
+      const ownBundles = (bundlesBySet.get(entity_id) ?? []).map((b) => `elective_bundles:${b}`)
+      const blockers = referencesInto(db, entity, entity_id, new Set([...joins.map((j) => `elective_set_activities:${j}`), ...ownBundles]))
       if (blockers.length === 0) continue
       kept.push({
         entity, entity_id, name: nameOf(entity, entity_id),
@@ -3683,11 +3720,12 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], ownSnapsh
             device_id,
             parent_op_id: null,
             client_write_id: rowClientWriteId,
-            // Deliberate, per the ADR: a director-attributable delete, not an
-            // import teardown and not ambiguous NULL/legacy. On
-            // fixed_events this engages rejectedSlotKeys' reimport
-            // suppression — a reimport of the same source file will not
-            // silently resurrect what the director just undid.
+            // A director-attributable delete (Trash, history), not an import
+            // teardown and not ambiguous NULL/legacy. It is NOT a rejection:
+            // its UNDO_DELETE_PREFIX client_write_id keeps isHumanDeleted from
+            // reading it as one, so a re-import of the same file brings the
+            // rows back, as on a first import (keeper ruling 2026-10-11:
+            // undo is "as if the import never happened").
             source: 'human',
           })
           // import_evidence residual cleanup, same transaction, same row.

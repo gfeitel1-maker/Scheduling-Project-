@@ -240,6 +240,22 @@ describe('commitTrayState', () => {
     expect(tray.receipt.detail).toEqual(['Kept — still in use: Tug (in a saved schedule version)'])
   })
 
+  // T219: an edited imported bundle is kept with its periods; neither reads as "used by 0 records".
+  it('says an edited row was changed since import, and a kept bundle kept its periods', () => {
+    const period = (i) => ({ entity: 'elective_bundle_periods', entity_id: `p-${i}`, name: 'Pottery double', parent_id: 'b1', reason: 'parent_kept' })
+    const tray = commitTrayState({
+      notices: [],
+      undoCapable: true,
+      undoState: {
+        status: 'used', isLive: false, isPending: false, total: 4, deleted: [], skipped: [],
+        kept: [{ entity: 'elective_bundles', entity_id: 'b1', name: 'Pottery double', reason: 'edited_since_import' }, period(1), period(2)],
+      },
+    })
+    expect(tray.receipt.detail).toEqual([
+      'Kept — still in use: Pottery double (changed since import); Pottery double: its 2 periods were kept with it',
+    ])
+  })
+
   it('collapses the periods and cells kept with a day into one plain line, with no raw ids', () => {
     const cell = (i) => ({ entity: 'special_day_slots', entity_id: `uuid-${i}`, name: 'Among Us', parent_id: 'd1', reason: 'parent_kept' })
     const period = (i) => ({ entity: 'special_day_time_blocks', entity_id: `tb-${i}`, name: 'Among Us', parent_id: 'd1', reason: 'parent_kept' })

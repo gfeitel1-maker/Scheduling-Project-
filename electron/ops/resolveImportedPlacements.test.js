@@ -130,3 +130,36 @@ describe('resolveImportedPlacements', () => {
     })
   })
 })
+
+// T219: an elective printed in adjacent blocks of one day for one group is ONE
+// session spanning those blocks (head + tails), the way an activity span is.
+describe('resolveImportedPlacements — spanning electives (T219)', () => {
+  const m = () => ({
+    ...maps({
+      groups: [['Bunk 1', 'g1'], ['Bunk 2', 'g2']],
+      days: [['Monday', 'd1']],
+      blocks: [['9:00', 'b1'], ['10:00', 'b2'], ['11:00', 'b3'], ['12:00', 'b4']],
+      electiveSets: [['Chugim', 'set1']],
+    }),
+    blockOrder: new Map([['b1', 0], ['b2', 1], ['b3', 2], ['b4', 3]]),
+    blockContinues: new Set(['b2', 'b3', 'b4']),
+  })
+  const at = (groupName, blockLabel) => ({ groupName, dayName: 'Monday', blockLabel, activityName: 'Chugim', electiveSetName: 'Chugim' })
+  const heads = (slots) => slots.map((s) => [s.group_id, s.time_block_id, s.is_span_head])
+
+  it('marks adjacent blocks of one set as head then tails', () => {
+    const { slots } = resolveImportedPlacements([at('Bunk 1', '10:00'), at('Bunk 1', '9:00'), at('Bunk 1', '11:00')], m())
+    expect(heads(slots).sort()).toEqual([['g1', 'b1', true], ['g1', 'b2', false], ['g1', 'b3', false]])
+  })
+
+  it('a gap starts a new session; other groups and single blocks are untouched', () => {
+    const { slots } = resolveImportedPlacements([at('Bunk 1', '9:00'), at('Bunk 1', '11:00'), at('Bunk 1', '12:00'), at('Bunk 2', '9:00')], m())
+    expect(heads(slots).sort()).toEqual([['g1', 'b1', undefined], ['g1', 'b3', true], ['g1', 'b4', false], ['g2', 'b1', undefined]])
+  })
+
+  it('a time gap between two blocks (lunch, a break) keeps two chugim separate', () => {
+    const gap = { ...m(), blockContinues: new Set(['b2', 'b4']) } // b3 starts after b2 ends
+    const { slots } = resolveImportedPlacements([at('Bunk 1', '10:00'), at('Bunk 1', '11:00')], gap)
+    expect(heads(slots).sort()).toEqual([['g1', 'b2', undefined], ['g1', 'b3', undefined]])
+  })
+})

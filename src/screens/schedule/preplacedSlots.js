@@ -8,7 +8,8 @@ export function derivePreplacedSlots(storedSlots, activities) {
     ...storedSlots
       .filter(s => s.activity_id && lockedActIds.has(s.activity_id) && !s.is_released && !s.is_fixed_event)
       .map(s => ({ ...at(s), activityId: s.activity_id })),
-    ...storedSlots.filter(s => s.elective_set_id).map(s => ({ ...at(s), electiveSetId: s.elective_set_id })),
+    // T219: a double-period elective's tails keep is_span_head: false through Generate.
+    ...storedSlots.filter(s => s.elective_set_id).map(s => ({ ...at(s), electiveSetId: s.elective_set_id, ...(s.is_span_head === false ? { isSpanHead: false } : {}) })),
     ...storedSlots.filter(s => s.event_id).map(s => ({ ...at(s), eventId: s.event_id })),
   ]
 }

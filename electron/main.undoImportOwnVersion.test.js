@@ -110,3 +110,113 @@ describe('a version saved before the version step failed', () => {
     expect(reported).toEqual(saved)
   })
 })
+
+// T219: a double-period elective writes a bundle per choice after the commit. Those bundles belong to
+// the import too, so undo removes them with the set (a bundle holds a hard FK to its set, so a bundle
+// left behind would keep the set and every import-minted choice on its account).
+describe('undo of an import that linked a double-period elective', () => {
+  it('removes the elective set, its choices and the bundles the import wrote', async () => {
+    const run = await handlers.ingestCommit({
+      token,
+      captureInverse: true,
+      approved: { groups: ['Otters 1'], tiers: [], days_of_operation: ['Monday'], time_blocks: ['9:00-10:00', '10:00-11:00'], activities: [] },
+      links: {},
+      confirmedElectiveSets: [{ name: 'Chugim', choices: ['Pottery', 'Drama'] }],
+      placements: ['9:00-10:00', '10:00-11:00'].map((b) => ({ groupName: 'Otters 1', dayName: 'Monday', blockLabel: b, activityName: 'Chugim', electiveSetName: 'Chugim', choices: ['Pottery', 'Drama'] })),
+      sourceFileName: 'week.txt',
+    })
+    expect(run.version?.created).toBe(true)
+    // Positive control: the import did link the span.
+    expect(count('elective_sets')).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(2)
+
+    const res = await handlers.ingestUndo({ token, importRunId: run.importRunId, client_write_id: randomUUID(), invertibleOps: [], createdEntityIds: [] })
+
+    expect(res.kept).toEqual([])
+    expect(count('elective_sets')).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_set_activities').get().n).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundle_periods').get().n).toBe(0)
+  })
+})
+
+describe('undo of an import that created an elective', () => {
+  it('removes the elective set and the choices it minted', async () => {
+    const run = await handlers.ingestCommit({
+      token,
+      captureInverse: true,
+      approved: { groups: ['Otters 1'], tiers: [], days_of_operation: ['Monday'], time_blocks: ['9:00-10:00'], activities: [] },
+      links: {},
+      confirmedElectiveSets: [{ name: 'Chugim', choices: ['Pottery', 'Drama'] }],
+      placements: [{ groupName: 'Otters 1', dayName: 'Monday', blockLabel: '9:00-10:00', activityName: 'Chugim', electiveSetName: 'Chugim', choices: ['Pottery', 'Drama'] }],
+      sourceFileName: 'week.txt',
+    })
+    expect(count('elective_sets')).toBe(1)
+    const res = await handlers.ingestUndo({ token, importRunId: run.importRunId, client_write_id: randomUUID(), invertibleOps: [], createdEntityIds: [] })
+    expect(res.kept).toEqual([])
+    expect(count('elective_sets')).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_set_activities').get().n).toBe(0)
+  })
+})
+
+// Red Hat #6: a bundle the director edited since the import is theirs and stays; its periods are
+// its substance, so they stay with it rather than leaving an inert bundle with no periods.
+describe('undo after the director edited an imported bundle', () => {
+  it('keeps the edited bundle with all its periods', async () => {
+    const run = await handlers.ingestCommit({
+      token,
+      captureInverse: true,
+      approved: { groups: ['Otters 1'], tiers: [], days_of_operation: ['Monday'], time_blocks: ['9:00-10:00', '10:00-11:00'], activities: [] },
+      links: {},
+      confirmedElectiveSets: [{ name: 'Chugim', choices: ['Pottery'] }],
+      placements: ['9:00-10:00', '10:00-11:00'].map((b) => ({ groupName: 'Otters 1', dayName: 'Monday', blockLabel: b, activityName: 'Chugim', electiveSetName: 'Chugim', choices: ['Pottery'] })),
+      sourceFileName: 'week.txt',
+    })
+    const bundle = db.prepare('SELECT id FROM elective_bundles').get()
+    appendOp(db, { entity: 'elective_bundles', entity_id: bundle.id, field: 'name', value: 'Pottery double', author_user_id: null, device_id: deviceId, source: 'human' })
+
+    const res = await handlers.ingestUndo({ token, importRunId: run.importRunId, client_write_id: randomUUID(), invertibleOps: [], createdEntityIds: [] })
+
+    expect(res.kept).toContainEqual(expect.objectContaining({ entity: 'elective_bundles', entity_id: bundle.id, reason: 'edited_since_import' }))
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundle_periods WHERE bundle_id = ?').get(bundle.id).n).toBe(2)
+  })
+})
+
+// Keeper ruling: undo means "as if the import never happened". Undo then a re-import of the same
+// file behaves like a first import; only a director's own delete is a tombstone.
+describe('undo, then re-import the same file', () => {
+  const doubleChug = () => handlers.ingestCommit({
+    token,
+    captureInverse: true,
+    approved: { groups: ['Otters 1'], tiers: [], days_of_operation: ['Monday'], time_blocks: ['9:00-10:00', '10:00-11:00', '11:00-11:30'], activities: [] },
+    links: {},
+    confirmedElectiveSets: [{ name: 'Chugim', choices: ['Pottery', 'Drama'] }],
+    fixedEvents: [{ name: 'Mifkad', time_block: '11:00-11:30', days: ['Monday'], scope: { is_all_groups: true, groups: [] } }],
+    placements: ['9:00-10:00', '10:00-11:00'].map((b) => ({ groupName: 'Otters 1', dayName: 'Monday', blockLabel: b, activityName: 'Chugim', electiveSetName: 'Chugim', choices: ['Pottery', 'Drama'] })),
+    sourceFileName: 'week.txt',
+  })
+
+  it('relinks the double period and brings the fixed event back', async () => {
+    // The camp's group, day and periods exist before this import, so undo leaves them and the
+    // re-import resolves to the SAME ids: the case where an undo delete could act as a tombstone.
+    await handlers.ingestCommit({
+      token,
+      approved: { groups: ['Otters 1'], tiers: [], days_of_operation: ['Monday'], time_blocks: ['9:00-10:00', '10:00-11:00', '11:00-11:30'], activities: [] },
+      links: {},
+    })
+    const first = await doubleChug()
+    // Positive control: the first import linked the span and created the event.
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(2)
+    expect(count('fixed_events')).toBe(1)
+    const res = await handlers.ingestUndo({ token, importRunId: first.importRunId, client_write_id: randomUUID(), invertibleOps: [], createdEntityIds: [] })
+    expect(res.kept).toEqual([])
+    expect(count('fixed_events')).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(0)
+
+    await doubleChug()
+
+    expect(count('fixed_events')).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(2)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundle_periods').get().n).toBe(4)
+  })
+})

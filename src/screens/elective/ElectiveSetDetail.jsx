@@ -18,6 +18,7 @@ import { parseTextGrid } from '../../ingest/textGrid'
 import { workbookToPages } from '../../ingest/sheetGrid'
 import { parseGridSchedule } from '../../ingest/parseGridSchedule'
 import { populateElectiveSet } from '../../ingest/electiveSetPopulate'
+import { solvableBundles } from './assignment/solvableBundles.js'
 import { markElectivePermissionTier } from '../../ingest/electivePermissionTier'
 import { filterFreeChoiceActivities } from '../../engine/freeChoiceActivities'
 import { clearElectivePermissionOnRemoval } from '../../ingest/electivePermissionClear'
@@ -1001,9 +1002,7 @@ export default function ElectiveSetDetail({
         onAddActivity={createAndAddOffering}
         onError={setError}
         onNavigate={onNavigate}
-        bundles={bundles}
-        bundlePeriods={bundlePeriods}
-        bundleTiers={bundleTiers}
+        {...solvableBundles({ bundles, bundlePeriods, bundleTiers, offerings })}
         catalogBundleNames={allBundleNames}
         incomingFile={preferenceHandoff}
       />

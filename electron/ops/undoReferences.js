@@ -196,6 +196,8 @@ export const U2_DELETABLE_ENTITIES = Object.freeze(
     'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities', 'fixed_events',
     'special_days', 'special_day_time_blocks', 'special_day_slots', 'special_day_placements',
     'elective_sets', 'elective_set_activities', 'schedule_weeks',
+    // T219: an imported double period's bundles (recordRunCreated), deleted before their set.
+    'elective_bundles', 'elective_bundle_periods',
   ])
 )
 

@@ -19,13 +19,16 @@ import { resolveElectiveOfferingLocations } from '../../engine/electiveOccupancy
 // first non-match. Pure, no state.
 // ADR 2026-08-22 §4 (Events overlay placement Slice 1) — which content
 // reference a row carries, for span-chain purposes. Electives are
-// deliberately excluded: they never span (no call site needs to resolve
-// elective_set_id through this), so a row with only elective_set_id set
-// resolves to null here, same as a fully-empty row — collectSpanTails'
-// guard below then returns [] for it, exactly as before this generalization.
+// deliberately excluded: a director-placed elective never spans, so a row
+// with only elective_set_id set resolves to null here, same as a fully-empty
+// row — collectSpanTails' guard below then returns [] for it. An IMPORTED
+// double-period elective does span (T219, head + tails); moving or clearing
+// its head does not carry the tails, which the orphan repair below then
+// turns into single elective cells, keeping the set.
 // The occupant columns a span CHAIN can be threaded through — everything
 // refField resolves. Named separately from SLOT_OCCUPANT_FIELDS because
-// elective_set_id occupies a cell but never threads a chain.
+// elective_set_id occupies a cell but threads no chain a gesture moves (T219's
+// imported elective spans are read-only chains; see refField above).
 const CHAIN_CONTENT_FIELDS = ['activity_id', 'event_id']
 
 function refField(row) {
@@ -97,7 +100,7 @@ function spanStopsAt(row, headActivityId, activities) {
 // collapsing to a null activity_id.
 //
 // Reads the full OCCUPANT set, not refField: refField is chain-scoped and
-// deliberately excludes elective_set_id (electives never thread a chain), but
+// deliberately excludes elective_set_id (no gesture moves an elective chain), but
 // an elective still OCCUPIES its cell. Red Hat (T109 review): placing an
 // elective writes occupantFields(), which nulls the sibling content columns and
 // never touches is_span_head — so an elective dropped on a cell that was

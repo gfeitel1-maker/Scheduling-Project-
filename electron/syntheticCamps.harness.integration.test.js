@@ -59,6 +59,7 @@ import { resolvePriorityForGeneration } from '../src/ingest/resolvePriorityForGe
 import { resolveFixedEventGroupIds, resolveFixedEventDayIds } from '../src/engine/fixedEventScope.js'
 import { computeOverlaps } from '../src/utils/computeOverlaps.js'
 import buildSchedule from '../src/engine/buildSchedule.js'
+import { derivePreplacedSlots } from '../src/screens/schedule/preplacedSlots.js'
 import { isActivityEligibleForGroup } from '../src/engine/eligibility.js'
 
 const DIR = path.join(process.cwd(), 'docs/work/specs/samples/synthetic')
@@ -786,6 +787,68 @@ describe.skipIf(!process.env.SYNTHETIC_REPRO)('repro', () => {
     })
     const generate = { placed: act.filter((s) => s.activityId).length, unfillable: act.filter((s) => s.flags?.UNFILLABLE).length, spanRuns }
     console.log('REPRO ' + JSON.stringify({ blocks: [...blockName.values()], events, activities: acts, questions: imp.report.decisions.map((x) => `${x.kind}:${x.entity}:${x.entityName}`), generate }, null, 1))
+    d.close()
+  })
+})
+
+// T219: an elective printed in two adjacent blocks (a double period) lands as ONE session:
+// a head + tail in the imported version, each choice linked across both periods by a
+// bundle, and Generate keeps the span.
+describe('a double-period elective imports as one span (T219)', () => {
+  it('lands head + tail with a bundle per choice, and Generate keeps it', async () => {
+    const { d, id } = seedCamp('t219')
+    const imp = importFile(d, id, fs.readFileSync(path.join(DIR, 'repro/r9-double-period-elective.txt'), 'utf8'), { answerFor: CONFIRM_ALL })
+    const writeClient = {
+      async write({ entity, entity_id, field, value, author_user_id }) {
+        return { status: 'applied', op: appendOp(d, { entity, entity_id, field, value, author_user_id, device_id: deviceId }) }
+      },
+    }
+    await materializeImportedVersion(d, writeClient, { campId: id, authorUserId: userId, placements: imp.placements, sourceFileName: 'r9.txt' })
+    const snap = d.prepare("SELECT s.slots FROM schedule_snapshots s JOIN schedule_templates t ON t.id = s.template_id WHERE t.kind = 'manual' AND t.camp_id = ? ORDER BY s.created_at DESC LIMIT 1").get(id)
+    const slots = JSON.parse(snap.slots)
+    const blockName = new Map(d.prepare('SELECT id, name FROM time_blocks WHERE camp_id = ?').all(id).map((b) => [b.id, normalizeTimeLabel(b.name) ?? b.name]))
+    const electiveCells = slots.filter((s) => s.elective_set_id)
+    // Positive control: the list cells became elective cells at all (2 groups x 2 blocks).
+    expect(electiveCells).toHaveLength(4)
+    expect(electiveCells.map((s) => s.is_span_head).sort()).toEqual([false, false, true, true])
+    const setId = electiveCells[0].elective_set_id
+
+    const choices = d.prepare('SELECT a.name FROM elective_set_activities esa JOIN activities a ON a.id = esa.activity_id WHERE esa.elective_set_id = ?').all(setId).map((r) => r.name).sort()
+    expect(choices).toEqual(['Drama', 'Pottery'])
+    const bundles = d.prepare('SELECT id FROM elective_bundles WHERE elective_set_id = ?').all(setId)
+    expect(bundles).toHaveLength(2)
+    for (const b of bundles) {
+      const periods = d.prepare('SELECT time_block_id FROM elective_bundle_periods WHERE bundle_id = ?').all(b.id)
+      expect(periods.map((p) => blockName.get(p.time_block_id)).sort()).toEqual([...new Set(electiveCells.map((s) => blockName.get(s.time_block_id)))].sort())
+    }
+
+    // Generate, with the imported cells as the stored slots Generate keeps.
+    const input = scheduleInput(d, id)
+    const gen = buildSchedule({ ...input, preplacedSlots: derivePreplacedSlots(slots, input.activities) })
+    const generated = gen.slots.filter((s) => s.type === 'elective' && s.electiveSetId === setId)
+    expect(generated).toHaveLength(4)
+    expect(generated.map((s) => s.is_span_head).sort()).toEqual([false, false, true, true])
+    d.close()
+  })
+})
+
+// T219 (keeper ruling): two chugim with a time gap between them are two sessions, never one span.
+describe('two chugim around a break stay two sessions (T219)', () => {
+  it('marks no span and links nothing when the periods do not meet', async () => {
+    const { d, id } = seedCamp('t219-break')
+    const imp = importFile(d, id, fs.readFileSync(path.join(DIR, 'repro/r10-two-chugim-around-a-break.txt'), 'utf8'), { answerFor: CONFIRM_ALL })
+    const writeClient = {
+      async write({ entity, entity_id, field, value, author_user_id }) {
+        return { status: 'applied', op: appendOp(d, { entity, entity_id, field, value, author_user_id, device_id: deviceId }) }
+      },
+    }
+    await materializeImportedVersion(d, writeClient, { campId: id, authorUserId: userId, placements: imp.placements, sourceFileName: 'r10.txt' })
+    const snap = d.prepare("SELECT s.slots FROM schedule_snapshots s JOIN schedule_templates t ON t.id = s.template_id WHERE t.kind = 'manual' AND t.camp_id = ? ORDER BY s.created_at DESC LIMIT 1").get(id)
+    const electiveCells = JSON.parse(snap.slots).filter((s) => s.elective_set_id)
+    // Positive control: the list cells are elective cells (2 groups x 2 periods).
+    expect(electiveCells).toHaveLength(4)
+    expect(electiveCells.every((s) => s.is_span_head === undefined)).toBe(true)
+    expect(d.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(0)
     d.close()
   })
 })

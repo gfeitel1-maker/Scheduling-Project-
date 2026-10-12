@@ -94,8 +94,9 @@ export default function ManualBuildView({
     // The tail of a fixed event span — covered by the head's grid-row span.
     if (slot?.is_fixed_event && geometry.isFixedEventTail(selectedGroup, day.id, block.id)) return null
 
-    // The tail of a merged activity span — covered by the head's grid-row span.
-    if (slot?.activity_id && !slot.is_fixed_event && geometry.isActivityTail(selectedGroup, day.id, block.id)) return null
+    // The tail of a merged activity span, or of an imported double-period elective (T219):
+    // covered by the head's grid-row span.
+    if ((slot?.activity_id || slot?.elective_set_id) && !slot.is_fixed_event && geometry.isActivityTail(selectedGroup, day.id, block.id)) return null
 
     if (slot?.is_fixed_event) {
       const rowSpan = geometry.getFixedEventRowSpan(selectedGroup, day.id, block.id)

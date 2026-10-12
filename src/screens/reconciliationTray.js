@@ -130,13 +130,15 @@ function receiptFor({ deleted = [], skipped = [], kept = [] } = {}) {
   if (R > 0) {
     const items = keptOwn.map((k) => {
       if (k.reason === 'used_in_saved_version') return `${k.name ?? 'record'} (in a saved schedule version)`
+      if (k.reason === 'edited_since_import') return `${k.name ?? 'record'} (changed since import)`
       const n = k.referencedByCount ?? 0
       return `${k.name ?? 'record'} (used by ${n} other ${recordWord(n)})`
     })
     const byDay = new Map()
     for (const k of keptWithDay) {
       const g = byDay.get(k.parent_id) ?? { name: k.name, periods: 0, cells: 0, placements: 0 }
-      if (k.entity === 'special_day_time_blocks') g.periods++
+      // A kept day's periods, or (T219) a kept elective bundle's periods.
+      if (k.entity === 'special_day_time_blocks' || k.entity === 'elective_bundle_periods') g.periods++
       else if (k.entity === 'special_day_slots') g.cells++
       else g.placements++
       byDay.set(k.parent_id, g)

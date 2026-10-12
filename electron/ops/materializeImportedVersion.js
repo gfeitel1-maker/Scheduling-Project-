@@ -17,6 +17,8 @@ import { normalizeName } from '../../src/ingest/preview.js'
 import { resolveImportedPlacements, describeUnresolved } from './resolveImportedPlacements.js'
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
 import { defaultWeekId, defaultWeekFields } from '../../src/ingest/defaultWeek.js'
+import { blocksThatContinue } from '../../src/engine/blockOverlap.js'
+import { isHumanDeleted } from './fieldProvenance.js'
 
 // The renderer supplies the file name; it becomes a stored version name, so it
 // is coerced to a bare, bounded string at the boundary.
@@ -49,13 +51,97 @@ export function nameMap(db, table, campId, nameColumn = 'name') {
   return map
 }
 
+// T219: one bundle per (set, choice, day, span blocks). Content-keyed, so a
+// re-import, or a second group with the same span, converges on one row.
+export function deriveImportedBundleId(electiveSetId, activityId, dayId, blockIds) {
+  return `elective-bundle-import:${electiveSetId}:${activityId}:${dayId}:${blockIds.join(',')}`
+}
+
+// T219: an imported elective span (head + tails from markElectiveSpans) links
+// each of the set's choices across the span's periods, so the solver gives a
+// camper the same choice for the whole double period
+// (docs/adr/2026-09-29-linked-elective-bundles.md). Only choices the set holds
+// now are linked; a choice the director adds later is linked by hand.
+async function writeSpanBundles(db, syncClient, slots, blockOrder, blockContinues, authorUserId, onRowCreated) {
+  const blockAt = new Map([...blockOrder].map(([id, i]) => [i, id]))
+  // Each group's runs of consecutive blocks holding a set on a day, marked or not.
+  const runsBySetDay = new Map() // `${set}|${day}` -> [[blockId, ...], ...]
+  const cellsByGroupSetDay = new Map()
+  for (const s of slots) {
+    if (!s.elective_set_id || !blockOrder.has(s.time_block_id)) continue
+    const k = `${s.elective_set_id}|${s.day_id}|${s.group_id}`
+    if (!cellsByGroupSetDay.has(k)) cellsByGroupSetDay.set(k, new Set())
+    cellsByGroupSetDay.get(k).add(blockOrder.get(s.time_block_id))
+  }
+  for (const [k, positions] of cellsByGroupSetDay) {
+    const setDay = k.slice(0, k.lastIndexOf('|'))
+    const sorted = [...positions].sort((x, y) => x - y)
+    const runs = runsBySetDay.get(setDay) ?? []
+    let run = [sorted[0]]
+    for (let i = 1; i <= sorted.length; i++) {
+      if (i < sorted.length && sorted[i] === run[run.length - 1] + 1 && blockContinues.has(blockAt.get(sorted[i]))) { run.push(sorted[i]); continue }
+      runs.push(run.map((p) => blockAt.get(p)))
+      if (i < sorted.length) run = [sorted[i]]
+    }
+    runsBySetDay.set(setDay, runs)
+  }
+  // A span is linked only when every group's run touching it IS it: bundles of one choice that
+  // share a period are refused by the solver (bundleOverlap.js), and a bundle's periods name no group.
+  const spans = []
+  const unlinked = []
+  for (const [setDay, runs] of runsBySetDay) {
+    const multi = [...new Map(runs.filter((r) => r.length > 1).map((r) => [r.join(','), r])).values()]
+    if (multi.length === 0) continue
+    const consistent = multi.every((span) => runs.every((r) => !r.some((b) => span.includes(b)) || r.join(',') === span.join(',')))
+    const [setId, dayId] = setDay.split('|')
+    if (consistent) for (const blockIds of multi) spans.push({ setId, dayId, blockIds })
+    else unlinked.push({ setId, dayId })
+  }
+  const setName = db.prepare('SELECT name FROM elective_sets WHERE id = ?')
+  const dayLabel = db.prepare('SELECT label FROM days_of_operation WHERE id = ?')
+  const unlinkedSpans = unlinked.map(({ setId, dayId }) => ({ electiveSetName: setName.get(setId)?.name ?? null, dayName: dayLabel.get(dayId)?.label ?? null }))
+  if (spans.length === 0) return { unlinkedSpans }
+  const choices = db.prepare(`SELECT esa.activity_id AS id, a.name AS name FROM elective_set_activities esa
+    LEFT JOIN activities a ON a.id = esa.activity_id WHERE esa.elective_set_id = ? ORDER BY esa.activity_id`)
+  const exists = (table, id) => Boolean(db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id))
+  // A bundle or period the director deleted keeps its delete in the op log under the same derived
+  // id: that is the tombstone, so a re-import of the same file never brings it back. Undo's own
+  // deletes are not tombstones (isHumanDeleted, the rule fixed events use too).
+  const deleted = (table, id) => !exists(table, id) && isHumanDeleted(db, table, id)
+  try {
+    for (const { setId, dayId, blockIds } of spans) {
+      const day = dayLabel.get(dayId)?.label ?? ''
+      for (const choice of choices.all(setId)) {
+        const bundleId = deriveImportedBundleId(setId, choice.id, dayId, blockIds)
+        if (deleted('elective_bundles', bundleId)) continue
+        if (!exists('elective_bundles', bundleId)) {
+          await writeFields(syncClient, 'elective_bundles', bundleId, {
+            elective_set_id: setId, activity_id: choice.id, name: [choice.name ?? 'Choice', day].filter(Boolean).join(' — '), scope_mode: 'all',
+          }, authorUserId)
+          onRowCreated?.('elective_bundles', bundleId)
+        }
+        for (const blockId of blockIds) {
+          const periodId = `${bundleId}:${blockId}`
+          if (exists('elective_bundle_periods', periodId) || deleted('elective_bundle_periods', periodId)) continue
+          await writeFields(syncClient, 'elective_bundle_periods', periodId, { bundle_id: bundleId, day_id: dayId, time_block_id: blockId }, authorUserId)
+          onRowCreated?.('elective_bundle_periods', periodId)
+        }
+      }
+    }
+  } catch (err) {
+    // The version is already saved; the link is what failed, and the director is told.
+    return { unlinkedSpans, linkFailed: String(err?.message ?? err) }
+  }
+  return { unlinkedSpans }
+}
+
 /**
  * @param {import('better-sqlite3').Database} db
  * @param {{write: Function}} syncClient
  * @param {{campId: string, authorUserId: string, placements: Array}} args
  * @returns {Promise<{created: boolean, snapshotId: string|null, allWeeksArchived?: boolean, unresolvedCount: number, unresolvedNames: string[]}>}
  */
-export async function materializeImportedVersion(db, syncClient, { campId, authorUserId, placements, sourceFileName = null, onSnapshotCreated = null }) {
+export async function materializeImportedVersion(db, syncClient, { campId, authorUserId, placements, sourceFileName = null, onSnapshotCreated = null, onRowCreated = null }) {
   if (!placements || placements.length === 0) {
     return { created: false, snapshotId: null, unresolvedCount: 0, unresolvedNames: [] }
   }
@@ -80,6 +166,7 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     await writeFields(syncClient, 'schedule_weeks', weekId, defaultWeekFields(campId), authorUserId)
   }
 
+  const orderedBlocks = db.prepare('SELECT id, start_time, end_time FROM time_blocks WHERE camp_id = ? ORDER BY sort_order IS NULL, sort_order, start_time, id').all(campId)
   const maps = {
     activityIdByName: nameMap(db, 'activities', campId),
     fixedEventIdByName: nameMap(db, 'fixed_events', campId),
@@ -89,6 +176,12 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     groupIdByName: nameMap(db, 'groups', campId),
     dayIdByName: nameMap(db, 'days_of_operation', campId, 'label'),
     blockIdByName: nameMap(db, 'time_blocks', campId),
+    // T219: the day's block order, and which blocks begin exactly when the one before ends,
+    // so an elective held in back-to-back blocks resolves as one span and two chugim around a
+    // break stay two. sort_order is the order the engine and the grid sort by; start_time then
+    // id only break ties they leave undefined.
+    blockOrder: new Map(orderedBlocks.map((b, i) => [b.id, i])),
+    blockContinues: blocksThatContinue(orderedBlocks),
   }
 
   const { slots, unresolved } = resolveImportedPlacements(placements, maps)
@@ -134,6 +227,11 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     onSnapshotCreated?.(id, name)
   }
 
-  if (!snapshotId) return { created: false, snapshotId: null, unchanged: true, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
-  return { created: true, snapshotId, versionName: name, electiveCellCount: slots.filter((slot) => slot.elective_set_id).length, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
+  // After the versions, so a failed link cannot cost the version. Each row is reported as it is
+  // written, like the versions, so undo owns it (T219).
+  const links = await writeSpanBundles(db, syncClient, slots, maps.blockOrder, maps.blockContinues, authorUserId, onRowCreated)
+  const linkReport = { ...(links.unlinkedSpans.length ? { unlinkedSpans: links.unlinkedSpans } : {}), ...(links.linkFailed ? { linkFailed: links.linkFailed } : {}) }
+
+  if (!snapshotId) return { created: false, snapshotId: null, unchanged: true, ...linkReport, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
+  return { created: true, snapshotId, versionName: name, ...linkReport, electiveCellCount: slots.filter((slot) => slot.elective_set_id).length, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
 }

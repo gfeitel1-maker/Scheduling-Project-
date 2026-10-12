@@ -1,14 +1,16 @@
 ---
 title: T219-multi-day-catalog-linkage
 document_type: ticket
-status: parked
+status: completed
 created: 2026-09-18
 archive_when: multi-day/double-period offering linkage is modeled or explicitly rejected
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: [docs/adr/2026-09-17-individual-elective-scheduling.md]
 ---
 
-# T219 — multi-day catalog linkage (design-stage)
+# T219 — multi-day catalog linkage
+
+_Prior: everything above "Re-aimed and shipped (2026-10-11)" at the end of this ticket is the design-stage history. That section describes what was built._
 
 Spun off from T195 (offering-grid import). T195's `parseGridScheduleMenu` detects known glyph
 markers on a cell's raw activity name (e.g. a double-period marker) and surfaces them in
@@ -125,3 +127,34 @@ The owner's ruling, verbatim: "defer the sample sheet". Status is `parked`, not 
 reshaped scope and exit condition above stand unchanged and nothing downstream reads
 `linkageMarkers` today, so deferring costs nothing; the ticket resumes only when the owner chooses
 to.
+
+## Re-aimed and shipped (2026-10-11)
+
+**The premise was stale.** `parseGridScheduleMenu` and `populateElectiveGrid`, the offering-grid path and its `linkageMarkers`, had no production caller; only tests called them. Wiring the markers would have shipped a feature no director could reach. That path is deleted in this PR, in a separate commit.
+
+Activity spans were already handled in the live import: F5 (#910, #941) infers `span_blocks` from any mark (a repeated name, a blank tail, a merged cell), and Generate places those spans contiguously.
+
+**What was missing:** an elective printed across adjacent blocks became independent per-block cells. A camper could then get a different choice in each half of a double period, and the grid showed two cells.
+
+**Scope as built** (keeper GO, delegated owner authority):
+- The marks are open. Any run of the same elective set in consecutive blocks of one day, for one group, is one session. It doesn't matter whether the run came from a repeated list or from an F5 blank tail or merge.
+- `markElectiveSpans` (in `electron/ops/resolveImportedPlacements.js`) marks those slots head and tails in the imported version.
+- `materializeImportedVersion` writes one `elective_bundles` row per choice the set holds, with an `elective_bundle_periods` row per block. Ids are derived, so a re-import converges.
+- The grid draws the head across its tails (`src/screens/schedule/gridGeometry.js`).
+- Generate keeps the tails (`src/screens/schedule/preplacedSlots.js` and `src/engine/buildSchedule.js`).
+- `docs/adr/2026-09-29-linked-elective-bundles.md` is accepted for import.
+- Fresh camps only: no migration and no backfill.
+
+**Keeper rulings on Red Hat's low items (2026-10-11):**
+- Adjacency is by time: a block continues the one before only when it starts exactly as that one ends (`blocksThatContinue` in `src/engine/blockOverlap.js`). So two chugim around a break, a lunch, or an event period stay two sessions (repro `docs/work/specs/samples/synthetic/repro/r10-two-chugim-around-a-break.txt`).
+- A bundle or period the director deleted keeps its delete op under the same derived id. That op is the tombstone, so a re-import of the same file does not bring it back.
+- The concurrent-import name conflict is T375.
+
+**Known limit:** only choices the set holds at import are linked. A choice the director adds later is linked by hand in the set's detail view.
+
+Pinned by:
+- `electron/ops/resolveImportedPlacements.test.js`
+- `electron/ops/materializeImportedVersion.test.js`
+- `src/screens/schedule/gridGeometry.test.js`
+- `src/engine/electiveSpanGenerate.test.js`
+- the T219 case in `electron/syntheticCamps.harness.integration.test.js` (repro `docs/work/specs/samples/synthetic/repro/r9-double-period-elective.txt`)
