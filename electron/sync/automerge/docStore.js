@@ -21,7 +21,20 @@ export function docPath(userDataDir, campId) {
 // unchanged, so this seam is inert until a caller injects the cipher (which main.js/liveDoc will,
 // once the key is wired). The passthrough on the read side (docCipher.decrypt) also means a legacy
 // plaintext file still loads and is re-written encrypted on the next save.
+// T345: while the device key is being shredded (or after a disable, until the restart) NO document may be
+// written: a late save would re-encrypt the decrypted document under a key that no longer exists. The gate
+// is here, at the one place bytes are written, so callers that bypass liveDoc (the purge support command)
+// are covered too.
+let docSavesSuspended = false
+export function suspendDocSaves(suspended) {
+  docSavesSuspended = Boolean(suspended)
+}
+export const docSavesAreSuspended = () => docSavesSuspended
+
 export function saveDoc(userDataDir, campId, doc, cipher = null) {
+  if (docSavesSuspended) {
+    throw Object.assign(new Error('The camp document cannot be saved while encryption is being turned off.'), { code: 'doc_saves_suspended' })
+  }
   const targetPath = docPath(userDataDir, campId)
   fs.mkdirSync(path.dirname(targetPath), { recursive: true })
 

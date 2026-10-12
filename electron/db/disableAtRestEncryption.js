@@ -14,7 +14,7 @@ import { makeDocCipher, isEncrypted } from './docCipher.js'
 import { OPT_OUT_FILE } from './atRestEncryption.js'
 import { isPlaintextSqliteFile, readTableCounts, decryptEncryptedToPlaintext, rawKeyPragma } from './sqliteCipher.js'
 import {
-  writeJournal, atomicWrite, syncFile, syncDir, rollbackDisable, swapStaged, allPlain, finishDisable, stagedPathFor, backupPathFor,
+  writeJournal, atomicWrite, verifyPlainContent, sha256Hex, syncFile, syncDir, rollbackDisable, swapStaged, allPlain, finishDisable, stagedPathFor, backupPathFor,
 } from './disableRecovery.js'
 
 export const DISABLE_PHRASE = 'DISABLE ENCRYPTION'
@@ -83,8 +83,8 @@ export function disableAtRestEncryption({ userDataDir, dbPaths, safeStorage, Dat
     state: 'staging',
     stamp,
     files: [
-      ...targets.map((file) => ({ kind: 'db', path: file })),
-      ...docs.filter((d) => d.encrypted).map((d) => ({ kind: 'doc', path: d.file })),
+      ...targets.map((file) => ({ kind: 'db', path: file, counts: counts.get(file) })),
+      ...docs.filter((d) => d.encrypted).map((d) => ({ kind: 'doc', path: d.file, sha256: sha256Hex(d.plain), length: d.plain.length })),
     ],
   }
   const rollback = () => {
@@ -122,6 +122,8 @@ export function disableAtRestEncryption({ userDataDir, dbPaths, safeStorage, Dat
       writeJournal(userDataDir, journal, fsImpl)
       swapStaged(journal.files, fsImpl)
       if (!allPlain(journal.files, fsImpl)) throw new Error('a decrypted file did not take its place')
+      const bad = verifyPlainContent({ files: journal.files, Database, fsImpl })
+      if (bad) throw new Error(`the decrypted data did not check out (${bad})`)
       atomicWrite(markerPath, JSON.stringify({ disabledAt: now().toISOString() }), fsImpl)
       fsImpl.renameSync(keyPath, `${keyPath}.disabling`)
     } catch (err) {

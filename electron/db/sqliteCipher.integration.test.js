@@ -17,6 +17,7 @@ import crypto from 'node:crypto'
 import { openLocalDb } from './localDb.js'
 import { isPlaintextSqliteFile, decryptEncryptedToPlaintext, readTableCounts } from './sqliteCipher.js'
 import { disableAtRestEncryption } from './disableAtRestEncryption.js'
+import { saveDoc as saveCampDoc, createEmptyDoc } from '../automerge/campDocument.js'
 import { getOrCreateDbKey, KEY_FILE } from './dbEncryptionKey.js'
 import { makeDocCipher, isEncrypted } from './docCipher.js'
 
@@ -92,7 +93,7 @@ describe.skipIf(!driverAvailable && !onCI)('SQLite at-rest encryption — real d
       const rowsBefore = db.prepare('SELECT id, v FROM probe ORDER BY id').all()
       db.close()
 
-      const docBytes = Buffer.concat([Buffer.from([0x85, 0x6f, 0x4a, 0x83]), crypto.randomBytes(2000)])
+      const docBytes = Buffer.from(saveCampDoc(createEmptyDoc()))
       const cipher = makeDocCipher(k)
       fs.mkdirSync(path.join(dir, 'automerge'))
       const docPath = path.join(dir, 'automerge', 'camp-1.automerge')

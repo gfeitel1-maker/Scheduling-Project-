@@ -11,6 +11,7 @@ export function fakeDriver({ failRekey = false, corruptAfterRekey = false, befor
   function Fake(p) { this.p = p; this.keyed = false }
   Fake.prototype.pragma = function (s) {
     calls.push(s)
+    if (s === 'integrity_check') { readable(this); return 'ok' }
     if (/^key\s*=/.test(s)) { this.keyed = true; return }
     if (/^rekey\s*=\s*''$/.test(s)) {
       if (beforeRekey) beforeRekey(this.p)

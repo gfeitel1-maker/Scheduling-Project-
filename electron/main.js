@@ -86,7 +86,7 @@ import { validateBackupPair, restoreFromBackup, RestoreRefusal } from './db/back
 import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { disableAtRestEncryption, DISABLE_PHRASE } from './db/disableAtRestEncryption.js'
 import { recoverInterruptedDisable } from './db/disableRecovery.js'
-import { createAtRestDisableRunner } from './atRestDisableRunner.js'
+import { createAtRestDisableRunner, boundedSyncStop } from './atRestDisableRunner.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled, latchEncryptionIfKeyPresent } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
@@ -3529,7 +3529,7 @@ if (isElectronEntryPoint()) {
   // T345: finish or undo a disable that was killed part-way, BEFORE the key is read or any db is opened,
   // so the device is fully encrypted or fully plain by the time anything depends on it.
   {
-    const recovered = recoverInterruptedDisable({ userDataDir: userDataPath })
+    const recovered = recoverInterruptedDisable({ userDataDir: userDataPath, Database: encryptingDatabaseCtor() })
     if (recovered.message) {
       console.error(recovered.message)
       dialog.showMessageBox({ type: 'info', message: 'Encryption', detail: recovered.message, buttons: ['OK'] }).catch(() => {})
@@ -4168,10 +4168,7 @@ if (isElectronEntryPoint()) {
     flushDoc: flushAutomergeDoc,
     // close(), not shutdown(): it settles a start still in flight and refuses any later one, and the
     // race bounds a node that will not stop, so the screen can never stick on "working".
-    shutdownSync: () => Promise.race([
-      syncStarterHolder.close(),
-      new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('Encryption was not changed: sync did not stop in time. The app will restart.'), { code: 'sync_stop_timeout' })), 10000)),
-    ]),
+    shutdownSync: () => boundedSyncStop(() => syncStarterHolder.close(), 10000),
     suspendDocSaves: suspendAutomergeDocSaves,
     closeDb: () => db.close(),
     listDbPaths: () => dataPathsForKey().filter((p) => fs.existsSync(p)),

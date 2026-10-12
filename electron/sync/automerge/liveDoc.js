@@ -49,7 +49,7 @@
 // `handleReceived` is an async function, Node's single-threaded run-to-completion semantics mean
 // there is no window where a local write and a remote merge can interleave mid-update. Both sides
 // always read the latest value and write back synchronously before yielding to the event loop.
-import { docPath, loadDoc, saveDoc } from './docStore.js'
+import { docPath, loadDoc, saveDoc, suspendDocSaves as setDocSavesSuspended, docSavesAreSuspended } from './docStore.js'
 import { recordDocumentWriteFailure, documentWriteFailureRecorded } from '../../ops/documentWriteFailures.js'
 import { DOCUMENT_OUTCOME } from '../../ops/documentOutcome.js'
 import { recordDeviceHealthEvent, DEVICE_HEALTH } from '../../ops/deviceHealthEvents.js'
@@ -117,9 +117,8 @@ export function setDocCipher(cipher) {
 
 // T345: while the device key is being shredded no save may reach disk (a late one would encrypt the
 // decrypted document with a key that no longer exists). Pending saves stay queued, not dropped.
-let docSavesSuspended = false
 export function suspendDocSaves(suspended) {
-  docSavesSuspended = Boolean(suspended)
+  setDocSavesSuspended(suspended)
 }
 
 export function setLocalWriteBroadcaster(db, fn) {
@@ -151,7 +150,7 @@ export function resetForTests() {
   docRegistry = new WeakMap()
   userDataDirGetter = null
   docCipher = null
-  docSavesSuspended = false
+  setDocSavesSuspended(false)
   warnedUnconfigured = false
   broadcastCallbacks = new WeakMap()
   // Without this, a test whose transaction throws leaves a depth > 0 and every
@@ -222,7 +221,7 @@ function getDoc(db, userDataDir, campId, { persistSeed = true } = {}) {
     // recordLocalWrite. Saving the seed there writes a document that is missing
     // the very write that triggered it, and that partial document is what a
     // crash inside the debounce window would leave on disk.
-    if (persistSeed && !docSavesSuspended) saveDoc(userDataDir, campId, doc, docCipher)
+    if (persistSeed && !docSavesAreSuspended()) saveDoc(userDataDir, campId, doc, docCipher)
   }
   docRegistry.set(db, doc)
   return doc
@@ -296,7 +295,7 @@ export function flushPendingWrites() {
     clearTimeout(pendingTimer)
     pendingTimer = null
   }
-  if (docSavesSuspended) return
+  if (docSavesAreSuspended()) return
   if (pendingSaves.size === 0) return
   const userDataDir = userDataDirGetter?.()
   const entries = pendingSaves
@@ -481,7 +480,7 @@ function applyLocalWritesNow(db, args) {
       doc = applyWrites(doc, writes.slice(i, i + DOC_CHANGE_CHUNK))
       docRegistry.set(db, doc)
     }
-    if (seeding && !docSavesSuspended) {
+    if (seeding && !docSavesAreSuspended()) {
       // One synchronous save, once per camp per process — the same one-time cost
       // the seed already paid, just moved to after the writes instead of before.
       saveDoc(userDataDir, campId, doc, docCipher)

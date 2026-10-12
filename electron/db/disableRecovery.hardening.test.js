@@ -9,7 +9,8 @@ import crypto from 'node:crypto'
 import { recoverInterruptedDisable, writeJournal, atomicWrite, backupPathFor, DISABLE_JOURNAL_FILE } from './disableRecovery.js'
 import { getOrCreateDbKey, KEY_FILE } from './dbEncryptionKey.js'
 import { makeDocCipher } from './docCipher.js'
-import { FAKE_MAGIC } from './fakeCipherDriver.js'
+import { FAKE_MAGIC, fakeDriver } from './fakeCipherDriver.js'
+import { saveDoc, createEmptyDoc } from '../automerge/campDocument.js'
 
 const safeStorage = {
   isEncryptionAvailable: () => true,
@@ -17,7 +18,7 @@ const safeStorage = {
   decryptString: (b) => b.toString().replace(/^sealed:/, ''),
 }
 const STAMP = '2026-10-11T00-00-00-000Z'
-const docBytes = Buffer.concat([Buffer.from([0x85, 0x6f, 0x4a, 0x83]), crypto.randomBytes(64)])
+const docBytes = Buffer.from(saveDoc(createEmptyDoc()))
 const dirs = []
 afterEach(() => { for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }) })
 
@@ -35,8 +36,8 @@ function setup() {
 }
 const plainDb = () => Buffer.from(`${FAKE_MAGIC}{"camps":1}`, 'latin1')
 const journalOf = (env, files) => ({ state: 'committing', stamp: STAMP, files })
-const dbEntry = (env) => ({ kind: 'db', path: env.dbPath })
-const docEntry = (env) => ({ kind: 'doc', path: env.docPath })
+const dbEntry = (env) => ({ kind: 'db', path: env.dbPath, counts: { camps: 1 } })
+const docEntry = (env) => ({ kind: 'doc', path: env.docPath, sha256: crypto.createHash('sha256').update(docBytes).digest('hex'), length: docBytes.length })
 
 function expectStillEncrypted(env) {
   expect(fs.existsSync(env.keyPath)).toBe(true)
@@ -48,7 +49,7 @@ describe('recovery does not trust a journal alone before shredding the key', () 
     const env = setup()
     fs.writeFileSync(env.dbPath, env.encDb)
     writeJournal(env.dir, journalOf(env, []))
-    expect(recoverInterruptedDisable({ userDataDir: env.dir }).outcome).toBe('unreadable_journal')
+    expect(recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver() }).outcome).toBe('unreadable_journal')
     expectStillEncrypted(env)
     expect(fs.readFileSync(env.dbPath).equals(env.encDb)).toBe(true)
   })
@@ -59,7 +60,7 @@ describe('recovery does not trust a journal alone before shredding the key', () 
     fs.writeFileSync(env.docPath, docBytes)
     fs.writeFileSync(backupPathFor(env.docPath, STAMP), env.encDoc)
     writeJournal(env.dir, journalOf(env, [docEntry(env)]))
-    expect(recoverInterruptedDisable({ userDataDir: env.dir }).outcome).toBe('unreadable_journal')
+    expect(recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver() }).outcome).toBe('unreadable_journal')
     expectStillEncrypted(env)
   })
 
@@ -68,7 +69,7 @@ describe('recovery does not trust a journal alone before shredding the key', () 
     fs.writeFileSync(env.dbPath, plainDb())
     fs.writeFileSync(env.docPath, docBytes)
     writeJournal(env.dir, journalOf(env, [dbEntry(env), docEntry(env)]))
-    expect(recoverInterruptedDisable({ userDataDir: env.dir }).outcome).toBe('unreadable_journal')
+    expect(recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver() }).outcome).toBe('unreadable_journal')
     expectStillEncrypted(env)
   })
 
@@ -77,7 +78,7 @@ describe('recovery does not trust a journal alone before shredding the key', () 
     const outside = path.join(os.tmpdir(), `shoresh-outside-${crypto.randomUUID()}.sqlite`)
     fs.writeFileSync(env.dbPath, env.encDb)
     writeJournal(env.dir, journalOf(env, [{ kind: 'db', path: outside }]))
-    expect(recoverInterruptedDisable({ userDataDir: env.dir }).outcome).toBe('unreadable_journal')
+    expect(recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver() }).outcome).toBe('unreadable_journal')
     expectStillEncrypted(env)
   })
 
@@ -88,7 +89,7 @@ describe('recovery does not trust a journal alone before shredding the key', () 
     fs.writeFileSync(env.docPath, Buffer.alloc(0))
     fs.writeFileSync(backupPathFor(env.docPath, STAMP), env.encDoc)
     writeJournal(env.dir, journalOf(env, [dbEntry(env), docEntry(env)]))
-    expect(recoverInterruptedDisable({ userDataDir: env.dir }).outcome).toBe('rolled_back')
+    expect(recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver() }).outcome).toBe('rolled_back')
     expectStillEncrypted(env)
     expect(fs.readFileSync(env.docPath).equals(env.encDoc)).toBe(true)
   })
@@ -100,7 +101,7 @@ describe('recovery does not trust a journal alone before shredding the key', () 
     fs.writeFileSync(env.docPath, crypto.randomBytes(40))
     fs.writeFileSync(backupPathFor(env.docPath, STAMP), env.encDoc)
     writeJournal(env.dir, journalOf(env, [dbEntry(env), docEntry(env)]))
-    expect(recoverInterruptedDisable({ userDataDir: env.dir }).outcome).toBe('rolled_back')
+    expect(recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver() }).outcome).toBe('rolled_back')
     expectStillEncrypted(env)
   })
 
@@ -111,7 +112,7 @@ describe('recovery does not trust a journal alone before shredding the key', () 
     fs.writeFileSync(env.docPath, docBytes)
     fs.writeFileSync(backupPathFor(env.docPath, STAMP), env.encDoc)
     writeJournal(env.dir, journalOf(env, [dbEntry(env), docEntry(env)]))
-    expect(recoverInterruptedDisable({ userDataDir: env.dir }).outcome).toBe('completed')
+    expect(recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver() }).outcome).toBe('completed')
     expect(fs.existsSync(env.keyPath)).toBe(false)
     expect(fs.existsSync(env.markerPath)).toBe(true)
     expect(fs.existsSync(path.join(env.dir, DISABLE_JOURNAL_FILE))).toBe(false)

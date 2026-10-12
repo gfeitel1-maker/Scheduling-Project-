@@ -367,13 +367,19 @@ file is edited in place.
 2. Write the **journal** `encryption.disable-journal` (temp file then rename, so it is never torn) with
    `state: "staging"` and the list of `{kind, path}` it will change. It is the first mutation of the whole run.
 3. Copy each target to `<file>.pre-disable-<stamp>.bak` (encrypted copies).
+3b. Record the content expectations IN THE JOURNAL (content facts, never key material): per db the row count of
+   every table, per document its SHA-256 and byte length. They are what the check in step 6 compares against.
 4. Build **plaintext copies beside the originals**, `<file>.disable-staged`: documents are written decrypted;
    each db is copied, keyed, taken out of WAL (`journal_mode = DELETE`, because SQLite3MultipleCiphers refuses to
    rekey a WAL-mode db: "Rekeying is not supported in WAL journal mode"), `PRAGMA rekey = ''` (an empty key
    removes encryption), then reopened keyless and checked for a plaintext header and equal row counts. The
    originals stay encrypted and readable throughout.
 5. Rewrite the journal as `state: "committing"`. **From here the boot rule is roll forward.**
-6. Swap each staged copy over its original (`rename`, atomic per file; a db's `-wal`/`-shm` are removed first).
+6. Swap each staged copy over its original (`rename`, atomic per file; a db's `-wal`/`-shm` are removed first),
+   then the **full content check** (`verifyPlainContent`): each plaintext db is reopened keyless through the
+   driver, must pass `integrity_check`, and its per-table row counts must equal the journal's; each plaintext
+   document must LOAD as Automerge and match the journal's length and hash. A header-only check never gates a
+   deletion. A failure here (key still in place) rolls the whole disable back.
 7. Write the `encryption.disabled` marker (temp file then rename).
 8. Rename `db.key.enc` to `db.key.enc.disabling` (the point where the device stops being decryptable).
 9. Overwrite the sealed key with zeros and unlink it, unlink the backups, unlink the journal LAST.
@@ -384,9 +390,13 @@ the latch reads the key and before any db is opened).** It reads the journal and
 - no journal: nothing to do (a leftover journal temp file is removed);
 - `staging`: roll **back**: delete staged copies, backups, marker and journal. Key and originals were never touched;
 - `committing`: roll **forward**: finish the swap (a staged copy still present is renamed in, a missing one means
-  it already was), require every target to be plaintext, then run steps 7-9 (each is idempotent). If the targets
-  are not all plaintext it rolls **back** instead (restore from the encrypted backups, drop the marker), which is
-  only legal while the key is still at its own path;
+  it already was), require every target to be plaintext, then run the full content check of step 6, and only then
+  steps 7-9 (each is idempotent). If a target is not plaintext, or the content check fails, while the key is still
+  at its own path it rolls **back** (restore from the encrypted backups, drop the marker). If the check fails
+  after the key has gone it **fails closed**: outcome `unverified_plain`, every backup and the journal are kept
+  (nothing is deleted), the opt-out marker is written so the next boot does not mint a new key over suspect data,
+  and the plain message says the backups were kept. The next boot repeats the check, so a repaired file finishes
+  the job;
 - anything it cannot classify (**fails closed**): unparseable journal, unknown version or state, a stamp or file
   kind it does not recognise, a path that is not absolute. It deletes no data, moves the journal aside to
   `encryption.disable-journal.unreadable` so the message shows once, removes only `*.disable-staged` copies and
@@ -419,7 +429,9 @@ and that a second recovery changes nothing. It also kills recovery itself at eve
 | 16-17 (marker write) | all plain, key present, no marker | committing | roll forward | plain |
 | 18 (key rename) | all plain, marker present, key present | committing | roll forward | plain |
 | 19-20 (key overwrite, unlink; also torn) | all plain, marker present, key renamed or half-zeroed | committing | roll forward: shred again, clean up | plain |
-| 21-23 (backup unlinks) | key gone, some backups left | committing | roll forward: remove them | plain |
+| 21-23 (backup unlinks) | key gone, some backups left | committing | roll forward: remove them (content check passed first) | plain |
+| 13-24 with a torn or wrong plaintext db or document, key still present | plaintext header but unparseable or mismatched content | committing | content check fails: roll back to the encrypted backups | encrypted |
+| 19-24 with a torn or wrong plaintext db or document, key gone | same, key renamed or shredded | committing | content check fails: keep every backup and the journal, write the marker, `unverified_plain`, delete nothing | unverified (backups kept) |
 | 24 (journal unlink) | complete except the journal | committing | roll forward (all no-ops), removes journal | plain |
 | after 24 | complete | none | nothing | plain |
 | garbled / unknown journal | unknown | unreadable | quarantine journal, delete nothing, plain message | encrypted (key present) |
@@ -442,3 +454,13 @@ empty key decrypts, and a WAL-mode db is refused, hence the `journal_mode = DELE
 
 **Quiesce order (runner).** `electron/atRestDisableRunner.js` fixes the order flush, stop sync, flush, block
 saves, close db, disable, and `electron/atRestDisableRunner.test.js` pins it.
+
+**The save gate is where the bytes are written.** `docStore.saveDoc` refuses (`doc_saves_suspended`) while saves
+are suspended, so the purge support command, which saves through docStore directly, is covered as well as
+liveDoc's debounced path.
+
+**The window after a failed disable (5 s before the restart).** Doc saves stay blocked until the restart (the
+runner no longer re-enables them: the files may be mid-swap), and the db is already closed once the quiesce
+reached it, so no write path can succeed. The key is never shredded on a failure path: every throw out of
+`disableAtRestEncryption` leaves the key at its own path (the shred tail only collects warnings), pinned by the
+"throws at any step" test in the crash suite. The sync stop is bounded by `boundedSyncStop` (close() against 10 s).

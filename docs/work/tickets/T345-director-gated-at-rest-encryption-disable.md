@@ -28,3 +28,10 @@ The 2026-10-11 park is withdrawn; the work is on branch `claude/t345-encryption-
 3. **Kill mid-rekey.** Redesigned so no live file is edited in place: journal, staged plaintext copies, atomic swap, marker, then key removal, with boot-time recovery. Crash-point table in docs/adr/2026-09-28-at-rest-encryption-disable-control.md ("Amendment 2026-10-11 (b)"); `electron/db/disableAtRestEncryption.crash.test.js` kills the run before every step.
 
 Closure is the Grader's call.
+
+## Keeper merge conditions (2026-10-11)
+
+- (A) Full content check before any backup is deleted, live and in boot recovery: `verifyPlainContent` (db reopened keyless, `integrity_check`, per-table row counts; document loaded as Automerge, length and SHA-256), expectations stored in the journal. Fails closed with backups kept after the key is gone (`unverified_plain`), rolls back before. `electron/db/disableContentCheck.test.js`.
+- (B) The suspend gate moved into `docStore.saveDoc`, covering the purge path. `electron/sync/automerge/docStore.suspend.test.js`.
+- (C) Post-failure window: doc saves stay blocked, the db is closed, and the key is never shredded on a failure path. Crash suite and runner tests.
+- (D) `boundedSyncStop` extracted and tested (timeout path); in-flight start settling and refusal of a later start were already pinned in `electron/sync/automerge/syncStarterHolder.test.js`.

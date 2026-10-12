@@ -16,6 +16,7 @@ import { getOrCreateDbKey, KEY_FILE } from './dbEncryptionKey.js'
 import { makeDocCipher, isEncrypted } from './docCipher.js'
 import { isPlaintextSqliteFile, readTableCounts } from './sqliteCipher.js'
 import { fakeDriver } from './fakeCipherDriver.js'
+import { saveDoc, createEmptyDoc } from '../automerge/campDocument.js'
 
 const safeStorage = {
   isEncryptionAvailable: () => true,
@@ -24,7 +25,7 @@ const safeStorage = {
 }
 const tables = { camps: 1, users: 3 }
 const otherTables = { camps: 5 }
-const docBytes = Buffer.concat([Buffer.from([0x85, 0x6f, 0x4a, 0x83]), crypto.randomBytes(64)])
+const docBytes = Buffer.from(saveDoc(createEmptyDoc()))
 const KILL = Object.assign(new Error('process killed'), { killed: true })
 
 const dirs = []
@@ -147,17 +148,30 @@ describe('disable: kill at every step, then boot recovery', () => {
         // a kill in the post-commit tail is swallowed there (it only collects warnings); the step count proves it fired
         try { runDisable(env, k) } catch { /* killed */ }
         expect(k.log.length, `step ${at} never fired`).toBe(at)
-        const res = recoverInterruptedDisable({ userDataDir: env.dir })
+        const res = recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver() })
         let state
         try { state = classify(env) } catch (err) { err.message = `after kill at step ${at} (${k.log[at - 1]}), outcome ${res.outcome}: ${err.message}`; throw err }
         seen.add(state)
         // recovery is idempotent: a second boot changes nothing
-        expect(recoverInterruptedDisable({ userDataDir: env.dir }).outcome).toBe('none')
+        expect(recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver() }).outcome).toBe('none')
         expect(classify(env)).toBe(state)
       }
       expect([...seen].sort()).toEqual(['encrypted', 'plain'])
     })
   }
+
+  it('a disable that throws at any step leaves the key at its own path (the post-failure window can never reach a shredded key)', () => {
+    const { total } = countSteps()
+    let threw = 0
+    for (let at = 1; at <= total; at++) {
+      const env = setup()
+      try { runDisable(env, killable({ killAt: at })) } catch {
+        threw++
+        expect(fs.existsSync(env.keyPath), `step ${at}`).toBe(true)
+      }
+    }
+    expect(threw).toBeGreaterThan(10)
+  }, 120000)
 
   it('recovery that is itself killed at every step still converges on a known state', () => {
     const { total } = countSteps()
@@ -168,14 +182,14 @@ describe('disable: kill at every step, then boot recovery', () => {
       let steps = 0
       {
         const counter = killable()
-        recoverInterruptedDisable({ userDataDir: probe.dir, fsImpl: counter.fsImpl })
+        recoverInterruptedDisable({ userDataDir: probe.dir, Database: fakeDriver(), fsImpl: counter.fsImpl })
         steps = counter.count()
       }
       for (let rk = 1; rk <= steps; rk++) {
         const env = setup()
         try { runDisable(env, killable({ killAt: at })) } catch { /* killed */ }
-        try { recoverInterruptedDisable({ userDataDir: env.dir, fsImpl: killable({ killAt: rk }).fsImpl }) } catch (err) { expect(err.killed).toBe(true) }
-        recoverInterruptedDisable({ userDataDir: env.dir })
+        try { recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver(), fsImpl: killable({ killAt: rk }).fsImpl }) } catch (err) { expect(err.killed).toBe(true) }
+        recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver() })
         try { classify(env) } catch (err) { err.message = `kill at ${at}, recovery killed at ${rk}: ${err.message}`; throw err }
         checked++
       }
@@ -199,7 +213,7 @@ describe('disable: unreadable or unrecognised journal fails closed', () => {
     it(`${name}: stays encrypted, touches no data, says so in plain words`, () => {
       const env = setup()
       fs.writeFileSync(path.join(env.dir, DISABLE_JOURNAL_FILE), make())
-      const res = recoverInterruptedDisable({ userDataDir: env.dir })
+      const res = recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver() })
       expect(res.outcome).toBe('unreadable_journal')
       expect(res.message).toMatch(/still (on|encrypted)|not changed/i)
       expect(res.message).not.toMatch(/ENOENT|undefined|SyntaxError|\[object/)
@@ -208,7 +222,7 @@ describe('disable: unreadable or unrecognised journal fails closed', () => {
       expect(fs.existsSync(path.join(env.dir, DISABLE_JOURNAL_FILE))).toBe(false)
       fs.rmSync(aside)
       expect(classify(env)).toBe('encrypted')
-      expect(recoverInterruptedDisable({ userDataDir: env.dir }).outcome).toBe('none')
+      expect(recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver() }).outcome).toBe('none')
     })
   }
 
@@ -220,7 +234,7 @@ describe('disable: unreadable or unrecognised journal fails closed', () => {
     }))
     fs.writeFileSync(env.dbPath, `SQLite format 3\0${JSON.stringify(tables)}`, 'latin1')
     const before = fs.readFileSync(env.dbPath)
-    const res = recoverInterruptedDisable({ userDataDir: env.dir })
+    const res = recoverInterruptedDisable({ userDataDir: env.dir, Database: fakeDriver() })
     expect(res.outcome).toBe('unreadable_journal')
     expect(res.message).toMatch(/still on|nothing was changed|nothing was deleted/i)
     expect(fs.readFileSync(env.dbPath).equals(before)).toBe(true)

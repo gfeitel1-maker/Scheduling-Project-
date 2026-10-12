@@ -6,17 +6,21 @@
 // of two known states: fully encrypted (key present, no marker) or fully plain (key gone, marker present).
 //
 //   journal state "staging"    : originals untouched, key untouched  -> roll BACK (delete the copies)
-//   journal state "committing" : copies verified, swap may be partial -> roll FORWARD to plain; if that
-//                                cannot be verified, roll back to the encrypted backups instead
+//   journal state "committing" : copies verified, swap may be partial -> roll FORWARD to plain, but only after
+//                                a FULL content check (verifyPlainContent). If the check fails while the key is
+//                                still in place, roll back to the encrypted backups; if the key is already gone,
+//                                keep every backup and fail closed (nothing is deleted)
 //
 // The journal lists only {kind, path}; staged and backup paths are DERIVED here, never read from it, so a
 // damaged journal can never aim a delete or a copy at a path of its choosing.
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
+import { loadDoc as parseAutomergeDoc } from '../automerge/campDocument.js'
 import { KEY_FILE } from './dbEncryptionKey.js'
 import { isEncrypted } from './docCipher.js'
 import { OPT_OUT_FILE } from './atRestEncryption.js'
-import { isPlaintextSqliteFile, restoreDbFromBackup } from './sqliteCipher.js'
+import { isPlaintextSqliteFile, restoreDbFromBackup, readTableCounts } from './sqliteCipher.js'
 
 export const DISABLE_JOURNAL_FILE = 'encryption.disable-journal'
 const JOURNAL_VERSION = 1
@@ -76,7 +80,51 @@ function parseJournal(raw, userDataDir) {
     if (!f || (f.kind !== 'db' && f.kind !== 'doc') || typeof f.path !== 'string' || !path.isAbsolute(f.path)) return null
     if (!within(userDataDir, f.path)) return null
   }
-  return { state: j.state, stamp: j.stamp, files: j.files.map((f) => ({ kind: f.kind, path: f.path })) }
+  return { state: j.state, stamp: j.stamp, files: j.files.map(expectationsOf) }
+}
+
+// Expectations recorded before the swap (row counts, document hash): content facts, never key material.
+// A malformed one is dropped, which makes the content check fail rather than pass.
+function expectationsOf(f) {
+  const out = { kind: f.kind, path: f.path }
+  if (f.kind === 'db' && f.counts && typeof f.counts === 'object' && !Array.isArray(f.counts) &&
+      Object.values(f.counts).every((n) => Number.isInteger(n) && n >= 0)) out.counts = f.counts
+  if (f.kind === 'doc' && typeof f.sha256 === 'string' && /^[0-9a-f]{64}$/.test(f.sha256) && Number.isInteger(f.length)) {
+    out.sha256 = f.sha256
+    out.length = f.length
+  }
+  return out
+}
+
+export const sha256Hex = (buf) => crypto.createHash('sha256').update(buf).digest('hex')
+
+// The check that gates every backup deletion. db: reopen KEYLESS through the driver, integrity_check, and the
+// per-table row counts must equal those captured from the encrypted original. doc: LOAD it as Automerge
+// and match the recorded length and hash. -> null when everything checks out, else a short reason.
+export function verifyPlainContent({ files, Database, fsImpl = fs }) {
+  for (const f of files) {
+    const name = path.basename(f.path)
+    try {
+      if (f.kind === 'db') {
+        if (!f.counts) return `${name}: no recorded row counts to compare`
+        if (!Database) return `${name}: no database driver to check it with`
+        const db = new Database(f.path)
+        try {
+          if (db.pragma('integrity_check', { simple: true }) !== 'ok') return `${name}: integrity check failed`
+        } finally { db.close() }
+        const after = readTableCounts(Database, f.path, null)
+        if (JSON.stringify(Object.entries(after).sort()) !== JSON.stringify(Object.entries(f.counts).sort())) return `${name}: row counts differ`
+      } else {
+        if (!f.sha256) return `${name}: no recorded hash to compare`
+        const buf = fsImpl.readFileSync(f.path)
+        parseAutomergeDoc(buf)
+        if (buf.length !== f.length || sha256Hex(buf) !== f.sha256) return `${name}: not the document that was decrypted`
+      }
+    } catch (err) {
+      return `${name}: ${err?.message ?? err}`
+    }
+  }
+  return null
 }
 
 const exists = (p, fsImpl) => fsImpl.existsSync(p)
@@ -164,7 +212,7 @@ const UNREADABLE_OTHER =
 
 // Run once per boot, before the key is read or any database is opened.
 // -> { outcome: 'none' | 'rolled_back' | 'completed' | 'unreadable_journal', message? }
-export function recoverInterruptedDisable({ userDataDir, fsImpl = fs }) {
+export function recoverInterruptedDisable({ userDataDir, Database, fsImpl = fs }) {
   const p = disablePaths(userDataDir)
   tryUnlink(`${p.journal}.tmp`, fsImpl)
   let raw
@@ -204,8 +252,20 @@ export function recoverInterruptedDisable({ userDataDir, fsImpl = fs }) {
     rollbackDisable({ userDataDir, journal, fsImpl })
     return { outcome: 'rolled_back', message: ROLLED_BACK }
   }
+  const bad = verifyPlainContent({ files: journal.files, Database, fsImpl })
+  if (bad) {
+    if (exists(p.key, fsImpl)) {
+      rollbackDisable({ userDataDir, journal, fsImpl })
+      return { outcome: 'rolled_back', message: ROLLED_BACK }
+    }
+    if (!exists(p.marker, fsImpl)) atomicWrite(p.marker, JSON.stringify({ disabledAt: new Date().toISOString() }), fsImpl)
+    return { outcome: 'unverified_plain', message: UNVERIFIED }
+  }
   finishDisable({ userDataDir, journal, fsImpl })
   return { outcome: 'completed', message: 'An earlier attempt to turn off encryption was interrupted and has now finished. Encryption is off on this device.' }
 }
 
+const UNVERIFIED =
+  'An earlier attempt to turn off encryption was interrupted and the decrypted camp data could not be confirmed complete. ' +
+  'Nothing was deleted: the protected backups beside your data are kept. Do not delete them; see docs/current/KEY_RECOVERY_STORY.md.'
 const ROLLED_BACK = 'An earlier attempt to turn off encryption was interrupted. Encryption is still on and your camp data is intact. You can try again from the Devices screen.'

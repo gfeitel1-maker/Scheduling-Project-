@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { saveDoc, createEmptyDoc } from '../automerge/campDocument.js'
 import { disableAtRestEncryption } from './disableAtRestEncryption.js'
 import { getOrCreateDbKey, KEY_FILE } from './dbEncryptionKey.js'
 import { makeDocCipher } from './docCipher.js'
@@ -19,7 +20,7 @@ const safeStorage = {
 
 let dir, dbPath, docPath, docKey, keyPath
 const tables = { camps: 1, users: 3 }
-const docBytes = Buffer.concat([Buffer.from([0x85, 0x6f, 0x4a, 0x83]), crypto.randomBytes(64)])
+const docBytes = Buffer.from(saveDoc(createEmptyDoc()))
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-disable-'))
