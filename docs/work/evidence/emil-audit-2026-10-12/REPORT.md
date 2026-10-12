@@ -1,3 +1,10 @@
+---
+title: "Design audit (Emil Kowalski lens), 2026-10-12"
+document_type: evidence
+status: active
+created: 2026-10-12
+archive_when: findings 1-8 are fixed and a later audit supersedes this one
+---
 # Design audit (Emil Kowalski lens) — 2026-10-12
 
 How the app *acts*, not only whether it works. Driven over CDP against packaged build `3ae9fb9` (port 9870), source read-only. Screenshots in this directory. Not driven: Restore from backup (native picker), real device pairing, Elective assignment past empty state, Special Day grid editor.
