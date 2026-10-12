@@ -102,7 +102,7 @@ function FixedEventModal({ fixedEvent, kind, tiers, groups, days, timeBlocks, lo
   const [notes, setNotes] = useState(fixedEvent?.notes || '')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
-  const enterStyle = useEnterTransition('liftFade')
+  const enterStyle = useEnterTransition('fade') // the scrim fades; ModalCard lifts the card
 
   // T180: `unit_ids` IS the division scope, so it pre-ticks the picker
   // directly. The reverse derivation below runs only for pre-v65 rows that

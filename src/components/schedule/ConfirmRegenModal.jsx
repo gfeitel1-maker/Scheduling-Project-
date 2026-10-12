@@ -13,7 +13,7 @@ import { useModalA11y } from '../../hooks/useModalA11y'
 // merged-block and released markers, so no copy may promise a perfect restore.
 export default function ConfirmRegenModal({ role, onConfirm, onCancel }) {
   const isAdmin = role === 'admin'
-  const enterStyle = useEnterTransition('liftFade')
+  const enterStyle = useEnterTransition('fade') // the scrim fades; ModalCard lifts the card
   const cancelRef = useRef()
   const a11y = useModalA11y({ onCancel, initialFocusRef: cancelRef })
   return (

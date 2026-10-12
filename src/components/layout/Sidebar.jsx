@@ -67,6 +67,14 @@ export default function Sidebar({
 }) {
   const [sidebar, setSidebar] = useState(() => loadSidebarState(globalThis.localStorage))
   const [gearOpen, setGearOpen] = useState(false)
+  // "Backing up…" only once a backup has run past 150ms: a quick one goes straight from "Backup now"
+  // to "Backup saved" instead of flashing a third label for a frame (design audit #8).
+  const [showBackingUp, setShowBackingUp] = useState(false)
+  useEffect(() => {
+    if (backupStatus !== 'running') return
+    const t = setTimeout(() => setShowBackingUp(true), 150)
+    return () => { clearTimeout(t); setShowBackingUp(false) }
+  }, [backupStatus])
   const gearBtnRef = useRef(null)
   const gearMenuRef = useRef(null)
 
@@ -176,7 +184,7 @@ export default function Sidebar({
           borderLeft: current === item.key
             ? '3px solid var(--primary)'
             : '3px solid transparent',
-          transition: 'background 0.1s',
+          transition: 'background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out)',
         }}
         onMouseEnter={e => { if (current !== item.key) e.currentTarget.style.background = 'var(--bg)' }}
         onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
@@ -455,14 +463,16 @@ export default function Sidebar({
               marginBottom: 4,
             }}
           >
-            {backupStatus === 'running' ? 'Backing up…'
+            {backupStatus === 'running' ? (showBackingUp ? 'Backing up…' : 'Backup now')
               : backupStatus === 'ok' ? 'Backup saved'
               : backupStatus === 'caution' ? 'Backup saved — camp document not included'
               : backupStatus === 'error' ? 'Backup failed'
               : 'Backup now'}
           </button>
         )}
-        {role === 'admin' && backupRevealable && (
+        {/* The line is reserved even before a backup, so "Show in Finder" appearing does not push the
+            footer down (design audit 2026-10-12 #8). */}
+        {role === 'admin' && <div style={{ minHeight: 20 }}>{backupRevealable && (
           <button
             type="button"
             onClick={handleShowBackup}
@@ -475,7 +485,7 @@ export default function Sidebar({
           >
             Show in Finder
           </button>
-        )}
+        )}</div>}
         {role === 'admin' && <RestoreControl />}
         {/* Ungated: staff and directors both see what Shoresh has learned from their import
             answers. Text only, no count: a footer entry that never asks for attention. */}

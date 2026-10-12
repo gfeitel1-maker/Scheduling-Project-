@@ -52,6 +52,15 @@ function rowFor(text) {
 }
 
 describe('VersionsDropdown', () => {
+  // Design audit 2026-10-12 #7: the popover closes on Escape and gives focus back to its button.
+  it('Escape closes the open panel and returns focus to the Versions button', () => {
+    const onToggle = vi.fn()
+    renderOpen([], { onToggle })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onToggle).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(screen.getByText('Versions').closest('button'))
+  })
+
   it('offers Restore on the week preserved by an update, even though it is newest', () => {
     // v26 writes its snapshot last, so the preserved week sorts first. The old
     // positional rule called the first row "current" and hid Restore — the week

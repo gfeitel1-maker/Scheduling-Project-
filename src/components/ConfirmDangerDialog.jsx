@@ -14,7 +14,7 @@ import ModalCard from './ModalCard'
 // was already dismissed before the delete ran) — this dialog has no error
 // prop and does not attempt to show one inline.
 export default function ConfirmDangerDialog({ title, body, recovery, confirmLabel, busy, onConfirm, onCancel }) {
-  const enterStyle = useEnterTransition('liftFade')
+  const enterStyle = useEnterTransition('fade') // the scrim fades; ModalCard lifts the card
   // Defeats a fast double-click firing onConfirm twice before the caller's
   // `busy` prop has propagated through a render — every deleteAll flow only
   // disables the button via `busy`, which is one render late. Resets once

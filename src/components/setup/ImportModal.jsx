@@ -29,7 +29,7 @@ export default function ImportModal({
 }) {
   const dialogRef = useRef(null)
   const primaryRef = useRef(null)
-  const enterStyle = useEnterTransition('liftFade')
+  const enterStyle = useEnterTransition('fade') // the scrim fades; ModalCard lifts the card
 
   // Initial focus (the primary action), Escape and focus restore come from ModalCard (useModalA11y);
   // it is keyed on `step`, so moving from preview to done refocuses that step's primary button.

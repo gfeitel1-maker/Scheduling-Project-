@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { formatClock12 } from '../../utils/timeBlockLabel.js'
-import { S } from '../../styles/shared'
+import { S, useEnterTransition } from '../../styles/shared'
 import { ChevronIcon } from '../icons'
 
 function formatTime(isoString) {
@@ -15,6 +15,12 @@ function formatTime(isoString) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + timeStr
 }
 
+// The panel scales in from the Versions button's corner (design audit 2026-10-12 #7).
+function PopIn({ style, children }) {
+  const enter = useEnterTransition('popFade', { transformOrigin: 'top right' })
+  return <div style={{ ...style, ...enter }}>{children}</div>
+}
+
 export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, onRestore, onSaveNamed, onRenameAutoSave, onDelete }) {
   const isAdmin = role === 'admin'
   const [nameInput, setNameInput] = useState('')
@@ -24,14 +30,24 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
   const [confirmingDeleteId, setConfirmingDeleteId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
   const dropRef = useRef(null)
+  const toggleRef = useRef(null)
 
   useEffect(() => {
     if (!isOpen) return
     function handleClick(e) {
       if (dropRef.current && !dropRef.current.contains(e.target)) { setConfirmingDeleteId(null); onToggle() }
     }
+    // Escape closes it too, and hands focus back to the Versions button (design audit #7).
+    function handleKey(e) {
+      if (e.key !== 'Escape') return
+      setConfirmingDeleteId(null); onToggle(); toggleRef.current?.focus()
+    }
     document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKey)
+    }
   }, [isOpen, onToggle])
 
   const btnStyle = {
@@ -49,13 +65,13 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
 
   return (
     <div ref={dropRef} style={{ position: 'relative' }}>
-      <button onClick={() => { setConfirmingDeleteId(null); onToggle() }} style={{ ...btnStyle, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+      <button ref={toggleRef} aria-expanded={isOpen} onClick={() => { setConfirmingDeleteId(null); onToggle() }} style={{ ...btnStyle, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
         Versions
         <ChevronIcon expanded={isOpen} />
       </button>
 
       {isOpen && (
-        <div style={{
+        <PopIn style={{
           position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100,
           background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
           boxShadow: '0 8px 24px rgba(0,0,0,0.10)', width: 360, overflow: 'hidden',
@@ -225,7 +241,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
               Save version
             </button>
           </div>
-        </div>
+        </PopIn>
       )}
     </div>
   )

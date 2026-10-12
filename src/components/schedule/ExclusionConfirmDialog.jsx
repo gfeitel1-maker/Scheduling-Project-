@@ -2,7 +2,7 @@ import { S, useEnterTransition } from '../../styles/shared'
 import ModalCard from '../ModalCard'
 
 export default function ExclusionConfirmDialog({ entityName, weekName, slotCount, onCancel, onConfirm }) {
-  const enterStyle = useEnterTransition('liftFade')
+  const enterStyle = useEnterTransition('fade') // the scrim fades; ModalCard lifts the card
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
       <ModalCard onCancel={onCancel} style={{ ...S.modalSm, maxWidth: 440 }}>

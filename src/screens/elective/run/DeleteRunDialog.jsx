@@ -37,7 +37,7 @@ export const DELETE_RUN_COST_COPY =
 export default function DeleteRunDialog({ run, camperCount = 0, placementCount = 0, onCancel, onDeleted }) {
   const [working, setWorking] = useState(false)
   const [error, setError] = useState(null)
-  const enterStyle = useEnterTransition('liftFade')
+  const enterStyle = useEnterTransition('fade') // the scrim fades; ModalCard lifts the card
 
   async function confirm() {
     setWorking(true)

@@ -11,7 +11,7 @@ export default function HostHandoffConfirm() {
   const { status, refresh } = useHostHandoff()
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
-  const enterStyle = useEnterTransition('liftFade')
+  const enterStyle = useEnterTransition('fade') // the scrim fades; ModalCard lifts the card
 
   const handoff = status?.handoff
   if (!handoff || handoff.role !== 'taker') return null

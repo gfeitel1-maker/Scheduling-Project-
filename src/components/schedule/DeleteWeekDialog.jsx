@@ -9,7 +9,7 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
   const [counts, setCounts] = useState(null)
   const [confirming, setConfirming] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
-  const enterStyle = useEnterTransition('liftFade')
+  const enterStyle = useEnterTransition('fade') // the scrim fades; ModalCard lifts the card
 
   useEffect(() => {
     if (!week) return

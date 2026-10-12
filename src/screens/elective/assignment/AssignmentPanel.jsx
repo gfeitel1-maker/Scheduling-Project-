@@ -203,7 +203,7 @@ function EncryptionDisclosure() {
 // in-progress import's rows/mapping/resolutions would be the same silent
 // data loss T250's own commit guard exists to prevent, one screen over.
 function ReplaceDraftModal({ onConfirm, onCancel }) {
-  const enterStyle = useEnterTransition('liftFade')
+  const enterStyle = useEnterTransition('fade') // the scrim fades; ModalCard lifts the card
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
       <ModalCard onCancel={onCancel} style={{ ...S.modalLg, maxWidth: 420 }} aria-labelledby="replace-draft-title">

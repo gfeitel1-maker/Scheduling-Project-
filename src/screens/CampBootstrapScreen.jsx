@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import AuthWatermark from '../components/AuthWatermark'
 import { S, useEnterTransition } from '../styles/shared'
 import { WarningTriangleIcon } from '../components/icons'
 import sproutMark from '../assets/brand/sprout-mark.svg'
+import IndeterminateBar from '../components/schedule/IndeterminateBar'
 
 export default function CampBootstrapScreen({ onBack, onSubmit }) {
   const badgeEnter = useEnterTransition('liftFade')
@@ -11,6 +12,14 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
   const [adminPin, setAdminPin] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  // Creating a camp takes about 2.5s on first run. Past 300ms a progress bar says it is working, so the
+  // wait is not silent; a fast creation never shows it (design audit 2026-10-12 #8).
+  const [showProgress, setShowProgress] = useState(false)
+  useEffect(() => {
+    if (!submitting) return
+    const t = setTimeout(() => setShowProgress(true), 300)
+    return () => { clearTimeout(t); setShowProgress(false) }
+  }, [submitting])
 
   const valid = campName.trim() && adminName.trim() && /^\d{6,}$/.test(adminPin)
 
@@ -30,7 +39,8 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
   return (
     <div style={{ ...S.authPage, position: 'relative', overflow: 'hidden' }}>
       <AuthWatermark />
-      <div style={S.authCard}>
+      <div style={{ ...S.authCard, position: 'relative', overflow: 'hidden' }}>
+        {submitting && showProgress && <IndeterminateBar label="Creating your camp" />}
         <div style={S.authBackRow}>
           <button
             style={S.authBackBtn}

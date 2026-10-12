@@ -60,7 +60,7 @@ export default function NameSubjectDialog({ subjectId, label, why, onCancel, onN
 
   return (
     <div style={S.overlay}>
-      <ModalCard onCancel={working ? undefined : onCancel} style={{ ...panel, ...enterStyle }} aria-label="Name this camper">
+      <ModalCard enter={false} onCancel={working ? undefined : onCancel} style={{ ...panel, ...enterStyle }} aria-label="Name this camper">
         <div style={title}>Whose sheet is this?</div>
 
         {/* The label the import kept — its filename — which is how a director

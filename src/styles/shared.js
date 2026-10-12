@@ -17,6 +17,7 @@ export function prefersReducedMotion() {
  *   'liftFade'  — translateY(8px)->0  + opacity 0->1, --motion-base   (modals)
  *   'settle'    — translateY(12px)->0 + opacity 0->1, --motion-settle (blocking gates, m3-locations §5d)
  *   'popFade'   — scale(0.97)->1      + opacity 0->1, 180ms           (anchored popovers)
+ *   'fade'      — opacity 0->1 only,                  --motion-base   (a modal's scrim; the card lifts)
  *
  * Under prefers-reduced-motion the transform is dropped entirely and only
  * opacity crossfades, per DESIGN_STANDARD §8.
@@ -34,6 +35,7 @@ export function useEnterTransition(variant, { transformOrigin } = {}) {
     liftFade: 'translateY(8px)',
     settle: 'translateY(12px)',
     popFade: 'scale(0.97)',
+    fade: 'none',
   }
   const DURATION = variant === 'popFade' ? '180ms' : variant === 'settle' ? 'var(--motion-settle)' : 'var(--motion-base)'
 
@@ -158,7 +160,9 @@ export const S = {
   centeredRow: { display: 'flex', flexWrap: 'wrap', justifyContent: 'center' },
   btnPrimary: {
     padding: '7px 14px',
-    background: 'var(--primary)',
+    // Through a property so the hover rule in index.css can reach an inline style (design audit #3).
+    background: 'var(--btn-primary-bg, var(--primary))',
+    transition: 'transform var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)',
     color: '#fff',
     border: 'none',
     borderRadius: 7,
@@ -169,7 +173,8 @@ export const S = {
   },
   btnSecondary: {
     padding: '7px 14px',
-    background: 'var(--surface)',
+    background: 'var(--btn-secondary-bg, var(--surface))',
+    transition: 'transform var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)',
     color: 'var(--text)',
     border: '1px solid var(--border)',
     borderRadius: 7,
@@ -822,6 +827,8 @@ export const S = {
     color: 'var(--text-secondary)',
     fontFamily: 'var(--font-mono)',
     fontSize: 13,
+    // Hidden for the first 150ms, then a 140ms fade (keyframes in index.css): a fast load never flashes it.
+    animation: 'loading-in var(--motion-fast) var(--ease-out) 150ms both',
   },
   emptyState: {
     padding: '40px 16px',
