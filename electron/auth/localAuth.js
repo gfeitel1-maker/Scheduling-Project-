@@ -457,8 +457,8 @@ function issueTokenForThisDevice(db, userId, deviceId) {
 // Every user session issued before this time is no longer valid ON this device (see
 // electron/sessionsValidAfter.js: turning at-rest encryption off signs everyone out). Checked by
 // the local-session paths only (authorize() and the verifySession IPC), never by verifySessionToken
-// itself: a paired device presents its camp token over the network to be admitted for sync, and
-// that is not a session here (Security review, #979).
+// itself: device tokens are not user sessions, and network admission uses the device roster, not
+// a token (Security review, #979; T376).
 let sessionsValidAfter = 0
 export function setSessionsValidAfter(ms) { sessionsValidAfter = Number.isFinite(ms) ? ms : 0 }
 export function isSessionEnded(session) {
