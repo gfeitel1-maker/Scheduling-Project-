@@ -19,6 +19,7 @@ import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
 import { defaultWeekId, defaultWeekFields } from '../../src/ingest/defaultWeek.js'
 import { blocksThatContinue } from '../../src/engine/blockOverlap.js'
 import { isHumanDeleted } from './fieldProvenance.js'
+import { DELETE_FIELD } from './operations.js'
 import { deriveSpecialDayActivityId } from './electiveDerivedIds.js'
 
 // The renderer supplies the file name; it becomes a stored version name, so it
@@ -108,13 +109,20 @@ async function writeSpanBundles(db, syncClient, slots, blockOrder, blockContinue
   // A bundle or period the director deleted keeps its delete in the op log under the same derived
   // id: that is the tombstone, so a re-import of the same file never brings it back. Undo's own
   // deletes are not tombstones (isHumanDeleted, the rule fixed events use too).
-  const deleted = (table, id) => !exists(table, id) && isHumanDeleted(db, table, id)
+  //
+  // A rejection ends when an import recreates what it rejected (keeper ruling, final audit): a
+  // director who deleted the whole elective set cascaded its bundles with it, and an import that
+  // has since made the set again links its double period again. So the tombstone counts only if
+  // the delete is newer than the set's latest (re)creation.
+  const createdSeq = (setId) => db.prepare("SELECT MAX(seq) AS s FROM operations WHERE entity = 'elective_sets' AND entity_id = ? AND field = 'name'").get(setId)?.s ?? 0
+  const deleteSeq = (table, id) => db.prepare('SELECT MAX(seq) AS s FROM operations WHERE entity = ? AND entity_id = ? AND field = ?').get(table, id, DELETE_FIELD)?.s ?? 0
+  const deleted = (table, id, setId) => !exists(table, id) && isHumanDeleted(db, table, id) && deleteSeq(table, id) > createdSeq(setId)
   try {
     for (const { setId, dayId, blockIds } of spans) {
       const day = fileLabels.dayName(dayId) ?? dayLabel.get(dayId)?.label ?? ''
       for (const choice of choices.all(setId)) {
         const bundleId = deriveImportedBundleId(setId, choice.id, dayId, blockIds)
-        if (deleted('elective_bundles', bundleId)) continue
+        if (deleted('elective_bundles', bundleId, setId)) continue
         if (!exists('elective_bundles', bundleId)) {
           await writeFields(syncClient, 'elective_bundles', bundleId, {
             elective_set_id: setId, activity_id: choice.id, name: [fileLabels.choiceName(setId, choice.id) ?? choice.name ?? 'Choice', day].filter(Boolean).join(' — '), scope_mode: 'all',
@@ -123,7 +131,7 @@ async function writeSpanBundles(db, syncClient, slots, blockOrder, blockContinue
         }
         for (const blockId of blockIds) {
           const periodId = `${bundleId}:${blockId}`
-          if (exists('elective_bundle_periods', periodId) || deleted('elective_bundle_periods', periodId)) continue
+          if (exists('elective_bundle_periods', periodId) || deleted('elective_bundle_periods', periodId, setId)) continue
           await writeFields(syncClient, 'elective_bundle_periods', periodId, { bundle_id: bundleId, day_id: dayId, time_block_id: blockId }, authorUserId)
           onRowCreated?.('elective_bundle_periods', periodId)
         }
@@ -218,6 +226,7 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     // id only break ties they leave undefined.
     blockOrder: new Map(orderedBlocks.map((b, i) => [b.id, i])),
     blockContinues: blocksThatContinue(orderedBlocks),
+    activitySpanBlocks: new Map(db.prepare('SELECT id, span_blocks FROM activities WHERE camp_id = ? AND span_blocks > 1').all(campId).map((a) => [a.id, a.span_blocks])),
   }
 
   const { slots, unresolved } = resolveImportedPlacements(placements, maps)
