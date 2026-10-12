@@ -12,6 +12,9 @@ import {
   beginDeferredDocWrites, commitDeferredDocWrites, discardDeferredDocWrites,
 } from '../sync/automerge/liveDoc.js'
 // Moved to campScopedEntities.js (parent-scoped entities slice) — see that file's comment for why:
+// Mirrors UNDO_DELETE_PREFIX in ingest.js (which imports this module).
+const UNDO_DELETE_PREFIX = 'undo-import:'
+
 // campDocument.js needs these too and cannot import them from here without a circular dependency.
 // Re-exported unchanged so every existing importer of these three from operations.js is unaffected.
 export { BULK_REPLACE_ENTITIES, MAX_BULK_REPLACE_ROWS, validateBulkReplaceRows } from './campScopedEntities.js'
@@ -332,7 +335,10 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
     // off the op that was just written rather than the caller's argument, so the
     // document records exactly what the op-log recorded — including appendOp's
     // own defaulting — and the two can never disagree.
-    const outcome = recordLocalWrite(db, { entity, entity_id, field, value: storedValue, source: op.source, author_user_id: op.author_user_id, op_id: op.id }, op)
+    // T375: an undo of an import deletes with source 'human' (Trash names the director) but is not
+    // a rejection; the document is told 'undo' so other devices do not read it as one.
+    const docSource = field === DELETE_FIELD && String(op.client_write_id ?? '').startsWith(UNDO_DELETE_PREFIX) ? 'undo' : op.source
+    const outcome = recordLocalWrite(db, { entity, entity_id, field, value: storedValue, source: docSource, author_user_id: op.author_user_id, op_id: op.id }, op)
     op[DOCUMENT_OUTCOME] = MODELED_ENTITIES.has(entity) ? outcome : 'not-modeled'
   } catch (err) {
     // Durable, not just a console line. SQLite has this write and the document

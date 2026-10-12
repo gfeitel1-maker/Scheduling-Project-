@@ -8,6 +8,7 @@ import { openLocalDb } from '../db/localDb.js'
 import { appendOp, DELETE_FIELD } from './operations.js'
 import { materializeImportedVersion, cleanSourceFileName } from './materializeImportedVersion.js'
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
+import { deriveSpecialDayActivityId } from './electiveDerivedIds.js'
 import { leftOutPlacements } from '../../src/ingest/leftOutPlacements.js'
 
 const files = []
@@ -461,6 +462,31 @@ describe('materializeImportedVersion', () => {
       expect(db.prepare('SELECT id FROM elective_bundles').all().map((r) => r.id)).toEqual([kept])
       expect(db.prepare('SELECT 1 FROM elective_bundle_periods WHERE id = ?').get(droppedPeriod)).toBeUndefined()
       expect(db.prepare('SELECT COUNT(*) c FROM elective_bundle_periods WHERE bundle_id = ?').get(kept).c).toBe(2)
+    })
+
+    // T375: two devices importing the same file write the same bundle name, even when one of them
+    // holds an unsynced rename of a choice. The label comes from the file, never the local catalog.
+    it("names a bundle from the file's choice and day text, not this device's renamed activity", async () => {
+      const db = makeDb()
+      const campId = seedCamp(db)
+      seedWeek(db, campId)
+      seedGroup(db, campId, 'Bunk 1')
+      seedDay(db, campId, 'Monday')
+      ;['09:00', '10:00'].forEach((n, i) => orderBlock(db, seedBlock(db, campId, n), i))
+      const setId = randomUUID()
+      db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(setId, campId, 'Chugim')
+      // The import minted this choice under its derived id; this device has since renamed it.
+      const potteryId = deriveSpecialDayActivityId(campId, 'Pottery')
+      db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(potteryId, campId, 'Ceramics')
+      db.prepare("INSERT INTO elective_set_activities (id, elective_set_id, activity_id, status) VALUES (?, ?, ?, 'potential')").run(randomUUID(), setId, potteryId)
+      const cell = (block) => ({ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: block, electiveSetName: 'Chugim', activityName: 'Chugim', choices: [] })
+
+      await materializeImportedVersion(db, fakeSyncClient(db), {
+        campId, authorUserId, placements: [cell('09:00'), cell('10:00')],
+        electiveChoiceLabels: [{ name: 'Chugim', choices: ['Pottery'] }],
+      })
+
+      expect(db.prepare('SELECT name FROM elective_bundles').all().map((r) => r.name)).toEqual(['Pottery — Monday'])
     })
 
     it('a held import (no elective set written) yields zero elective slots and one left-out entry per name, without throwing', async () => {

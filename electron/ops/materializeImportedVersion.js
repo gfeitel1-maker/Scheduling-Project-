@@ -19,6 +19,7 @@ import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
 import { defaultWeekId, defaultWeekFields } from '../../src/ingest/defaultWeek.js'
 import { blocksThatContinue } from '../../src/engine/blockOverlap.js'
 import { isHumanDeleted } from './fieldProvenance.js'
+import { deriveSpecialDayActivityId } from './electiveDerivedIds.js'
 
 // The renderer supplies the file name; it becomes a stored version name, so it
 // is coerced to a bare, bounded string at the boundary.
@@ -62,7 +63,7 @@ export function deriveImportedBundleId(electiveSetId, activityId, dayId, blockId
 // camper the same choice for the whole double period
 // (docs/adr/2026-09-29-linked-elective-bundles.md). Only choices the set holds
 // now are linked; a choice the director adds later is linked by hand.
-async function writeSpanBundles(db, syncClient, slots, blockOrder, blockContinues, authorUserId, onRowCreated) {
+async function writeSpanBundles(db, syncClient, slots, blockOrder, blockContinues, authorUserId, onRowCreated, fileLabels) {
   const blockAt = new Map([...blockOrder].map(([id, i]) => [i, id]))
   // Each group's runs of consecutive blocks holding a set on a day, marked or not.
   const runsBySetDay = new Map() // `${set}|${day}` -> [[blockId, ...], ...]
@@ -110,13 +111,13 @@ async function writeSpanBundles(db, syncClient, slots, blockOrder, blockContinue
   const deleted = (table, id) => !exists(table, id) && isHumanDeleted(db, table, id)
   try {
     for (const { setId, dayId, blockIds } of spans) {
-      const day = dayLabel.get(dayId)?.label ?? ''
+      const day = fileLabels.dayName(dayId) ?? dayLabel.get(dayId)?.label ?? ''
       for (const choice of choices.all(setId)) {
         const bundleId = deriveImportedBundleId(setId, choice.id, dayId, blockIds)
         if (deleted('elective_bundles', bundleId)) continue
         if (!exists('elective_bundles', bundleId)) {
           await writeFields(syncClient, 'elective_bundles', bundleId, {
-            elective_set_id: setId, activity_id: choice.id, name: [choice.name ?? 'Choice', day].filter(Boolean).join(' — '), scope_mode: 'all',
+            elective_set_id: setId, activity_id: choice.id, name: [fileLabels.choiceName(setId, choice.id) ?? choice.name ?? 'Choice', day].filter(Boolean).join(' — '), scope_mode: 'all',
           }, authorUserId)
           onRowCreated?.('elective_bundles', bundleId)
         }
@@ -135,13 +136,48 @@ async function writeSpanBundles(db, syncClient, slots, blockOrder, blockContinue
   return { unlinkedSpans }
 }
 
+// T375: a bundle's name is read from the FILE (the choice and day as printed), so every device
+// importing the same file writes the same bytes. A device holding an unsynced rename of a choice
+// would otherwise write a different name and raise a conflict on the other. The import's choice
+// activities carry an id derived from the printed text (deriveSpecialDayActivityId, as
+// writeElectiveChoices mints them), which is what ties a printed label to an activity here; one
+// matched by spelling instead falls back to that spelling. Local names are the last resort.
+function fileLabelsFor(db, campId, placements, electiveChoiceLabels, maps) {
+  const choicesBySetId = new Map()
+  const addChoices = (setName, choices) => {
+    const setId = maps.electiveSetIdByName.get(normalizeName(setName ?? ''))
+    if (!setId || !Array.isArray(choices)) return
+    if (!choicesBySetId.has(setId)) choicesBySetId.set(setId, new Map())
+    const byId = choicesBySetId.get(setId)
+    for (const raw of choices) {
+      const text = String(raw ?? '').trim()
+      if (!text) continue
+      const derived = deriveSpecialDayActivityId(campId, text)
+      if (!byId.has(derived)) byId.set(derived, text)
+      const spelled = maps.activityIdByName.get(normalizeName(text))
+      if (spelled && !byId.has(spelled)) byId.set(spelled, text)
+    }
+  }
+  for (const s of electiveChoiceLabels ?? []) addChoices(s?.name, s?.choices)
+  for (const p of placements ?? []) if (p?.electiveSetName) addChoices(p.electiveSetName, p.choices)
+  const dayNameById = new Map()
+  for (const p of placements ?? []) {
+    const dayId = maps.dayIdByName.get(normalizeName(p?.dayName ?? ''))
+    if (dayId && !dayNameById.has(dayId)) dayNameById.set(dayId, String(p.dayName).trim())
+  }
+  return {
+    choiceName: (setId, activityId) => choicesBySetId.get(setId)?.get(activityId) ?? null,
+    dayName: (dayId) => dayNameById.get(dayId) ?? null,
+  }
+}
+
 /**
  * @param {import('better-sqlite3').Database} db
  * @param {{write: Function}} syncClient
  * @param {{campId: string, authorUserId: string, placements: Array}} args
  * @returns {Promise<{created: boolean, snapshotId: string|null, allWeeksArchived?: boolean, unresolvedCount: number, unresolvedNames: string[]}>}
  */
-export async function materializeImportedVersion(db, syncClient, { campId, authorUserId, placements, sourceFileName = null, onSnapshotCreated = null, onRowCreated = null }) {
+export async function materializeImportedVersion(db, syncClient, { campId, authorUserId, placements, sourceFileName = null, onSnapshotCreated = null, onRowCreated = null, electiveChoiceLabels = [] }) {
   if (!placements || placements.length === 0) {
     return { created: false, snapshotId: null, unresolvedCount: 0, unresolvedNames: [] }
   }
@@ -229,7 +265,7 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
 
   // After the versions, so a failed link cannot cost the version. Each row is reported as it is
   // written, like the versions, so undo owns it (T219).
-  const links = await writeSpanBundles(db, syncClient, slots, maps.blockOrder, maps.blockContinues, authorUserId, onRowCreated)
+  const links = await writeSpanBundles(db, syncClient, slots, maps.blockOrder, maps.blockContinues, authorUserId, onRowCreated, fileLabelsFor(db, campId, placements, electiveChoiceLabels, maps))
   const linkReport = { ...(links.unlinkedSpans.length ? { unlinkedSpans: links.unlinkedSpans } : {}), ...(links.linkFailed ? { linkFailed: links.linkFailed } : {}) }
 
   if (!snapshotId) return { created: false, snapshotId: null, unchanged: true, ...linkReport, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
