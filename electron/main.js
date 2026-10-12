@@ -3548,6 +3548,11 @@ if (isElectronEntryPoint()) {
   let deviceId = getOrCreateDeviceId(db)
 
   let mainWindow = null
+  // T368: set once a quit starts (SIGTERM, menu, verify:packaged), so a renderer dying or an
+  // activate during the quit never brings a window back and holds the process past its bound.
+  // Never reset: nothing in this app cancels a quit once started (the will-quit veto always re-quits).
+  let appQuitting = false
+  app.on('before-quit', () => { appQuitting = true })
 
   // All IPC channels registered by makeHandlers. Keep in sync with the
   // ipcMain.handle calls in registerHandlers() below.
@@ -4177,7 +4182,7 @@ if (isElectronEntryPoint()) {
     mainWindow.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) abandonJoin() })
     mainWindow.webContents.on('render-process-gone', abandonJoin)
     const win = mainWindow
-    win.webContents.on('render-process-gone', (_event, details) => recoverFromRendererGone(win, details, { createWindow }))
+    win.webContents.on('render-process-gone', (_event, details) => recoverFromRendererGone(win, details, { createWindow, isQuitting: () => appQuitting }))
     mainWindow.webContents.on('destroyed', abandonJoin)
   }
 
@@ -4273,17 +4278,18 @@ if (isElectronEntryPoint()) {
     }
     startAutomergeSyncNodeIfEnabled()
   })
-  wireActivate({ app, getWindow: () => mainWindow, createWindow })
+  wireActivate({ app, getWindow: () => mainWindow, createWindow, isQuitting: () => appQuitting })
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
   app.on('will-quit', createWillQuitHandler({ app, cleanup: async () => {
     quitFlush()
+    appQuitting = true // also here, in case a quit path reaches will-quit without before-quit
     // T347 (S1): a no-op unless SHORESH_PUNCH_ENABLED wired the punch transport. Started BEFORE the
     // awaited node stop because Electron does not await this handler: its synchronous prefix closes
     // every open pc immediately, and libdatachannel's cleanup() (without which the process cannot
     // exit) follows. Never throws into the quit path.
-    await syncStarterHolder.shutdown()
+    await syncStarterHolder.close()
     // A peer merge can land while the node stops: flush once more so it reaches disk.
     try {
       flushAutomergeDoc()

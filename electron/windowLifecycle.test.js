@@ -39,3 +39,21 @@ describe('wireActivate', () => {
     expect(createWindow).not.toHaveBeenCalled()
   })
 })
+
+// T368: once the app is quitting, a renderer that dies (SIGTERM reaching it, or the window closing
+// mid-boot) must not bring a window back and keep the process alive.
+describe('recovery while quitting', () => {
+  it('neither reloads nor recreates once quitting', () => {
+    const win = fakeWin(); const winGone = fakeWin(true); const createWindow = vi.fn()
+    recoverFromRendererGone(win, { reason: 'killed' }, { createWindow, isQuitting: () => true })
+    recoverFromRendererGone(winGone, { reason: 'crashed' }, { createWindow, isQuitting: () => true })
+    expect(win.webContents.reload).not.toHaveBeenCalled()
+    expect(createWindow).not.toHaveBeenCalled()
+  })
+  it('activate does not recreate a window once quitting', () => {
+    const app = new EventEmitter(); const createWindow = vi.fn()
+    wireActivate({ app, getWindow: () => null, createWindow, isQuitting: () => true })
+    app.emit('activate')
+    expect(createWindow).not.toHaveBeenCalled()
+  })
+})

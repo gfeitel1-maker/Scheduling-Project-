@@ -6,8 +6,12 @@ export function createSyncStarterHolder(makeStarter) {
   let starter = makeStarter()
   let starting = null
   let replacing = null
+  // T368: set by close() (the quit path). A start asked for after it is a no-op, so a quit during boot cannot be
+  // followed by a node (and the punch transport's native handle) coming up behind it.
+  let closed = false
 
   function start() {
+    if (closed) return Promise.resolve()
     // A failed replace is reported by its own caller (swap rolls back); a joined start must not
     // turn it into a second, unhandled rejection.
     if (replacing) return replacing.then(() => starting, () => undefined)
@@ -96,6 +100,18 @@ export function createSyncStarterHolder(makeStarter) {
     getNode: () => starter.getNode(),
     start,
     shutdown,
+    // The quit path's shutdown: no start may follow it (a db swap reuses shutdown and starts again).
+    close: async () => {
+      closed = true
+      // The punch transport's native cleanup is what lets the process exit, so it is released
+      // FIRST, before anything is awaited. Then a start still in flight is let settle (will-quit's
+      // 5s race bounds this) so its node is stopped too; shutdown() releases punch again in case
+      // that start brought it up.
+      const punch = starter.shutdownPunch().catch((err) => { console.error(`automerge sync: punch shutdown failed: ${err?.message ?? err}`) })
+      if (starting) await starting.catch(() => {})
+      await shutdown()
+      await punch
+    },
     replace,
     swap,
     acquireSwitch,

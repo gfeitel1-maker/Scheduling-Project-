@@ -1,7 +1,7 @@
 ---
 title: T368-sigterm-during-slow-boot-exceeds-quit-bound
 document_type: ticket
-status: open
+status: in-progress
 created: 2026-10-11
 task_class: test-infrastructure
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -35,3 +35,11 @@ Suspect paths:
 ## Next step
 
 Instrument the quit path. Log timestamps at SIGTERM receipt, at will-quit, at the veto, at the re-quit and at exit. Then reproduce under load, with SIGTERM at increasing delays after the heartbeat. Find which await holds the exit.
+
+## Fix (2026-10-11, PR pending) — two holders closed, cause not yet confirmed on a packaged build
+
+- **A window came back during the quit.** `recoverFromRendererGone` (and macOS `activate`) reloaded or recreated a window whenever a renderer died, including while the app was quitting (a SIGTERM reaching the renderer, or a window torn down mid-boot). `electron/main.js` now sets `appQuitting` on `before-quit`, and `electron/windowLifecycle.js` does nothing once it is set.
+- **A sync start in flight outlived the quit.** `syncStarterHolder.shutdown()` stopped only a node that had finished starting; a start still in flight at quit landed its node (and the punch transport's native handle) afterwards. The quit path now calls `close()`, which waits for the in-flight start (inside will-quit's existing 5s race) and refuses any later start. A db swap still uses `shutdown()` and starts again.
+- Pinned by `electron/windowLifecycle.test.js` and `electron/sync/automerge/syncStarterHolder.test.js` (red first). The 10s bound is unchanged.
+
+Not done here: the packaged repro under load and the 20-run check in `archive_when`. Which of the two (or neither) held the 11s exit is confirmed only by that run.

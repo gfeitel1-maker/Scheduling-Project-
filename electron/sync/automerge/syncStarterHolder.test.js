@@ -99,3 +99,49 @@ describe('syncStarterHolder switch serialization', () => {
     })).rejects.toThrow('build boom')
   })
 })
+
+// T368: a quit that lands while the sync node is still starting must not leave it running.
+describe('shutdown during a start in flight', () => {
+  it('waits for the in-flight start, then stops the node it produced', async () => {
+    const gate = deferred()
+    const f = fakeFactory(gate)
+    const holder = createSyncStarterHolder(f.make)
+    const started = holder.start()
+    const down = holder.close()
+    gate.resolve()
+    await started
+    await down
+    expect(f.made[0].node).toBeNull()
+    expect(f.made[0].stops).toBe(1)
+  })
+
+  it('a start asked for after shutdown does not start a node', async () => {
+    const f = fakeFactory()
+    const holder = createSyncStarterHolder(f.make)
+    await holder.close()
+    await holder.start()
+    expect(f.made[0].startCalls).toBe(0)
+  })
+})
+
+describe('close() releases the punch transport first', () => {
+  it('calls shutdownPunch at once even when the in-flight start never settles', async () => {
+    const never = deferred()
+    const f = fakeFactory(never)
+    let punchCalls = 0
+    const holder = createSyncStarterHolder(() => { const s = f.make(); s.shutdownPunch = async () => { punchCalls++ }; return s })
+    holder.start()
+    holder.close()
+    await Promise.resolve(); await Promise.resolve()
+    expect(punchCalls).toBeGreaterThan(0)
+  })
+
+  it('shutdown() (the db swap path) does not wait on a start in flight', async () => {
+    const never = deferred()
+    const f = fakeFactory(never)
+    const holder = createSyncStarterHolder(f.make)
+    holder.start()
+    const done = await Promise.race([holder.shutdown().then(() => 'done'), new Promise((r) => setTimeout(() => r('waited'), 200))])
+    expect(done).toBe('done')
+  })
+})
