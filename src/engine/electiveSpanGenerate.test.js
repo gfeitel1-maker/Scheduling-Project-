@@ -15,13 +15,24 @@ describe('Generate keeps a spanning elective', () => {
     { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', elective_set_id: 'set1', is_span_head: false },
   ]
 
+  // derivePreplacedSlots' output is pinned as a literal and that literal is what buildSchedule gets,
+  // so the fixture-schema parity guard (fixtureSchemaParity.test.js) can read the fixture.
+  const preplaced = [
+    { groupId: 'g1', dayId: 'd1', blockId: 'b1', electiveSetId: 'set1' },
+    { groupId: 'g1', dayId: 'd1', blockId: 'b2', electiveSetId: 'set1', isSpanHead: false },
+  ]
+
+  it('derivePreplacedSlots carries the tail marking', () => {
+    expect(derivePreplacedSlots(stored, [])).toEqual(preplaced)
+  })
+
   it('emits the head and the tail with their span marking', () => {
     const { slots } = buildSchedule({
       groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
       tiers: [{ id: 't1', name: 'Junior' }],
       days: [{ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }],
       timeBlocks: blocks, activities: [], fixedEvents: [], campId: 'c', replacedDayIds: [],
-      preplacedSlots: derivePreplacedSlots(stored, []),
+      preplacedSlots: preplaced,
     })
     const cells = slots.filter((s) => s.type === 'elective').map((s) => [s.blockId, s.electiveSetId, s.is_span_head])
     expect(cells).toEqual([['b1', 'set1', true], ['b2', 'set1', false]])
@@ -33,7 +44,7 @@ describe('Generate keeps a spanning elective', () => {
       tiers: [{ id: 't1', name: 'Junior' }],
       days: [{ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }],
       timeBlocks: blocks, activities: [], fixedEvents: [], campId: 'c', replacedDayIds: [],
-      preplacedSlots: derivePreplacedSlots([stored[1]], []),
+      preplacedSlots: [preplaced[1]],
     })
     expect(slots.filter((s) => s.type === 'elective').map((s) => [s.blockId, s.is_span_head])).toEqual([['b2', true]])
   })
