@@ -168,54 +168,47 @@ export function restoreDbFromBackup(filePath, backupPath, { fsImpl = fs } = {}) 
   fsImpl.copyFileSync(backupPath, filePath)
 }
 
-// Decrypt an ENCRYPTED SQLite file at `filePath` to plaintext in place: the mirror of
-// migratePlaintextToEncrypted (docs/adr/2026-09-28-at-rest-encryption-disable-control.md section 4).
-// Backup first (fatal), `PRAGMA rekey = ''` (SQLite3MultipleCiphers removes encryption on an empty key),
-// then reopen WITHOUT a key and require the header to be plaintext and every table's row count to equal
-// `expectedCounts`. Any failure restores the encrypted file from the backup and throws. The backup is NOT
-// deleted here: the caller still needs it if a later step fails, and removes it once the whole disable
-// has succeeded.
-export function decryptEncryptedToPlaintext(filePath, key, { Database, writeBackup, expectedCounts, fsImpl = fs } = {}) {
+// Decrypt an ENCRYPTED SQLite file to plaintext WITHOUT touching it: copy it to `stagedPath`, key the copy,
+// switch it out of WAL (SQLite3MultipleCiphers refuses to rekey a WAL-mode db), `PRAGMA rekey = ''` (an
+// empty key removes encryption), then reopen the copy WITHOUT a key and require a plaintext header and
+// every table's row count to equal `expectedCounts`. The original stays encrypted and readable throughout,
+// so a kill at any point leaves it intact (docs/adr/2026-09-28-at-rest-encryption-disable-control.md,
+// "Crash safety"). On any failure the copy is deleted and the error carries a plain-words message.
+export function decryptEncryptedToPlaintext(filePath, key, { Database, stagedPath, expectedCounts, fsImpl = fs } = {}) {
   if (!Database) throw new Error('decryptEncryptedToPlaintext: a Database constructor is required')
-  if (!writeBackup) throw new Error('decryptEncryptedToPlaintext: a writeBackup fn is required')
+  if (!stagedPath) throw new Error('decryptEncryptedToPlaintext: a stagedPath is required')
   if (!expectedCounts) throw new Error('decryptEncryptedToPlaintext: expectedCounts is required')
 
-  let backupPath
-  try {
-    backupPath = writeBackup(filePath)
-  } catch (err) {
-    const e = new Error(`at-rest disable refused: backup failed (${err?.message ?? err}). Not proceeding.`)
-    e.code = 'backup_failed'
-    throw e
-  }
-
   const fail = (code, what, err) => {
-    try { restoreDbFromBackup(filePath, backupPath, { fsImpl }) } catch { /* the backup still exists at backupPath */ }
-    const e = new Error(`at-rest disable aborted: ${what} (${err?.message ?? err}). The encrypted db was restored; a copy is also at ${backupPath}.`)
+    for (const suffix of ['', '-wal', '-shm', '-journal']) {
+      try { if (fsImpl.existsSync(`${stagedPath}${suffix}`)) fsImpl.unlinkSync(`${stagedPath}${suffix}`) } catch { /* best effort */ }
+    }
+    const e = new Error(`Encryption was not changed: ${what} (${err?.message ?? err}). The encrypted database was not touched.`)
     e.code = code
     return e
   }
 
   try {
-    const db = new Database(filePath)
+    fsImpl.copyFileSync(filePath, stagedPath)
+    const db = new Database(stagedPath)
     try {
       db.pragma(rawKeyPragma(key))
+      db.pragma('journal_mode = DELETE')
       db.pragma("rekey = ''")
     } finally {
       db.close()
     }
   } catch (err) {
-    throw fail('rekey_failed', 'decrypting the database (PRAGMA rekey) failed', err)
+    throw fail('rekey_failed', 'decrypting the database failed', err)
   }
 
   try {
-    if (!isPlaintextSqliteFile(filePath, { fsImpl })) throw new Error('the file is still not plaintext')
-    const after = readTableCounts(Database, filePath, null)
+    if (!isPlaintextSqliteFile(stagedPath, { fsImpl })) throw new Error('the copy is still not plaintext')
+    const after = readTableCounts(Database, stagedPath, null)
     if (JSON.stringify(after) !== JSON.stringify(expectedCounts)) throw new Error('row counts differ from before the decrypt')
   } catch (err) {
-    throw fail('verify_failed', 'the decrypted db failed verification', err)
+    throw fail('verify_failed', 'the decrypted database failed verification', err)
   }
-  return { backupPath }
 }
 
 // Crash recovery for migratePlaintextToEncrypted. If the process died between the in-place rekey and

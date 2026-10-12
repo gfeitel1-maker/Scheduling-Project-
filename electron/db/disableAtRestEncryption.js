@@ -12,9 +12,10 @@ import path from 'node:path'
 import { getDbKey, KEY_FILE } from './dbEncryptionKey.js'
 import { makeDocCipher, isEncrypted } from './docCipher.js'
 import { OPT_OUT_FILE } from './atRestEncryption.js'
+import { isPlaintextSqliteFile, readTableCounts, decryptEncryptedToPlaintext, rawKeyPragma } from './sqliteCipher.js'
 import {
-  isPlaintextSqliteFile, readTableCounts, decryptEncryptedToPlaintext, restoreDbFromBackup, rawKeyPragma,
-} from './sqliteCipher.js'
+  writeJournal, atomicWrite, rollbackDisable, swapStaged, allPlain, finishDisable, stagedPathFor, backupPathFor,
+} from './disableRecovery.js'
 
 export const DISABLE_PHRASE = 'DISABLE ENCRYPTION'
 
@@ -76,76 +77,56 @@ export function disableAtRestEncryption({ userDataDir, dbPaths, safeStorage, Dat
     }
   }
 
-  const stamp = now().toISOString().replace(/[:.]/g, '-')
-  const backups = new Map() // original path -> backup path
-  const tmps = []
   const markerPath = path.join(userDataDir, OPT_OUT_FILE)
-  const heldKeyPath = `${keyPath}.disabling`
-  let keyMoved = false
-
-  const rollback = () => {
-    if (keyMoved) { try { fsImpl.renameSync(heldKeyPath, keyPath) } catch { /* the sealed key is still at heldKeyPath */ } }
-    try { fsImpl.unlinkSync(markerPath) } catch { /* may not exist */ }
-    for (const t of tmps) { try { fsImpl.unlinkSync(t) } catch { /* may not exist */ } }
-    for (const [file, bak] of backups) {
-      try {
-        if (targets.includes(file)) restoreDbFromBackup(file, bak, { fsImpl })
-        else fsImpl.copyFileSync(bak, file)
-      } catch { /* the backup still exists */ }
-    }
+  const stamp = now().toISOString().replace(/[:.]/g, '-')
+  const journal = {
+    state: 'staging',
+    stamp,
+    files: [
+      ...targets.map((file) => ({ kind: 'db', path: file })),
+      ...docs.filter((d) => d.encrypted).map((d) => ({ kind: 'doc', path: d.file })),
+    ],
   }
-  const withRollback = (fn) => {
-    try { return fn() } catch (err) { rollback(); throw err }
-  }
+  const rollback = () => { try { rollbackDisable({ userDataDir, journal, fsImpl }) } catch { /* the journal and backups stay for the next boot */ } }
 
-  withRollback(() => {
+  try {
+    writeJournal(userDataDir, journal, fsImpl)
+
     try {
-      for (const file of [...targets, ...docs.filter((d) => d.encrypted).map((d) => d.file)]) {
-        const bak = `${file}.pre-disable-${stamp}.bak`
-        fsImpl.copyFileSync(file, bak)
-        backups.set(file, bak)
-      }
+      for (const f of journal.files) fsImpl.copyFileSync(f.path, backupPathFor(f.path, stamp))
     } catch (err) {
       throw coded('backup_failed', `Encryption was not changed: a backup could not be written (${err?.message ?? err}).`)
     }
 
     for (const d of docs.filter((x) => x.encrypted)) {
-      const tmp = `${d.file}.disable.tmp`
-      try {
-        tmps.push(tmp)
-        fsImpl.writeFileSync(tmp, d.plain)
-        fsImpl.renameSync(tmp, d.file)
-      } catch (err) {
+      try { fsImpl.writeFileSync(stagedPathFor(d.file), d.plain) } catch (err) {
         throw coded('doc_decrypt_failed', `Encryption was not changed: the camp document could not be decrypted (${err?.message ?? err}).`)
       }
     }
-
     for (const file of targets) {
-      decryptEncryptedToPlaintext(file, key, { Database, writeBackup: () => backups.get(file), expectedCounts: counts.get(file), fsImpl })
+      decryptEncryptedToPlaintext(file, key, { Database, stagedPath: stagedPathFor(file), expectedCounts: counts.get(file), fsImpl })
     }
-
     for (const d of docs.filter((x) => x.encrypted)) {
       let ok = false
-      try { const now_ = fsImpl.readFileSync(d.file); ok = !isEncrypted(now_) && now_.equals(d.plain) } catch { /* ok stays false */ }
+      try { const staged = fsImpl.readFileSync(stagedPathFor(d.file)); ok = !isEncrypted(staged) && staged.equals(d.plain) } catch { /* ok stays false */ }
       if (!ok) throw coded('verify_failed', 'Encryption was not changed: the decrypted camp document did not match.')
     }
 
+    journal.state = 'committing'
     try {
-      fsImpl.writeFileSync(markerPath, JSON.stringify({ disabledAt: now().toISOString() }))
-      fsImpl.renameSync(keyPath, heldKeyPath)
-      keyMoved = true
+      writeJournal(userDataDir, journal, fsImpl)
+      swapStaged(journal.files, fsImpl)
+      if (!allPlain(journal.files, fsImpl)) throw new Error('a decrypted file did not take its place')
+      atomicWrite(markerPath, JSON.stringify({ disabledAt: now().toISOString() }), fsImpl)
+      fsImpl.renameSync(keyPath, `${keyPath}.disabling`)
     } catch (err) {
-      throw coded('shred_failed', `Encryption was not changed: the device key could not be removed (${err?.message ?? err}).`)
+      throw coded('shred_failed', `Encryption was not changed: the switch could not be completed (${err?.message ?? err}).`)
     }
-  })
-
-  const warnings = []
-  try {
-    fsImpl.writeFileSync(heldKeyPath, Buffer.alloc(fsImpl.statSync(heldKeyPath).size))
-    fsImpl.unlinkSync(heldKeyPath)
-  } catch (err) { warnings.push(`sealed key leftover at ${heldKeyPath}: ${err?.message ?? err}`) }
-  for (const bak of backups.values()) {
-    try { fsImpl.unlinkSync(bak) } catch (err) { warnings.push(`backup leftover at ${bak}: ${err?.message ?? err}`) }
+  } catch (err) {
+    rollback()
+    throw err
   }
+
+  const warnings = finishDisable({ userDataDir, journal, fsImpl, now })
   return { disabled: true, warnings }
 }

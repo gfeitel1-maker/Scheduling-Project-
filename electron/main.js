@@ -85,6 +85,8 @@ import * as Automerge from '@automerge/automerge'
 import { validateBackupPair, restoreFromBackup, RestoreRefusal } from './db/backupRestore.js'
 import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { disableAtRestEncryption, DISABLE_PHRASE } from './db/disableAtRestEncryption.js'
+import { recoverInterruptedDisable } from './db/disableRecovery.js'
+import { createAtRestDisableRunner } from './atRestDisableRunner.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled, latchEncryptionIfKeyPresent } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
@@ -3524,6 +3526,16 @@ if (isElectronEntryPoint()) {
   // place an Electron app opens its resources anyway.
   await app.whenReady()
 
+  // T345: finish or undo a disable that was killed part-way, BEFORE the key is read or any db is opened,
+  // so the device is fully encrypted or fully plain by the time anything depends on it.
+  {
+    const recovered = recoverInterruptedDisable({ userDataDir: userDataPath })
+    if (recovered.message) {
+      console.error(recovered.message)
+      dialog.showMessageBox({ type: 'info', message: 'Encryption', detail: recovered.message, buttons: ['OK'] }).catch(() => {})
+    }
+  }
+
   const envOff = process.env.SHORESH_AT_REST_ENCRYPTION === 'off'
   if (latchEncryptionIfKeyPresent(userDataPath) && envOff) {
     console.warn('SHORESH_AT_REST_ENCRYPTION=off ignored: this device is encrypted.')
@@ -4152,27 +4164,15 @@ if (isElectronEntryPoint()) {
     },
   }))
   const startAutomergeSyncNodeIfEnabled = () => syncStarterHolder.start()
-  setAtRestDisableRunner(async () => {
-    const restart = (ms) => setTimeout(() => { app.relaunch(); app.exit(0) }, ms)
-    try {
-      try { flushAutomergeDoc() } catch (err) { console.error('disable encryption: automerge flush failed:', err?.message ?? err) }
-      await syncStarterHolder.shutdown()
-      // A peer merge can land while the node stops; flush it, then block every later save so none can
-      // re-encrypt the decrypted document with the key being shredded.
-      try { flushAutomergeDoc() } catch (err) { console.error('disable encryption: automerge flush failed:', err?.message ?? err) }
-      suspendAutomergeDocSaves(true)
-      db.close()
-      const dbPaths = dataPathsForKey().filter((p) => fs.existsSync(p))
-      const res = disableAtRestEncryption({ userDataDir: userDataPath, dbPaths, safeStorage, Database: encryptingDatabaseCtor() })
-      restart(1500)
-      return { ok: true, restarting: true, warnings: res.warnings }
-    } catch (err) {
-      console.error('disable encryption failed; encryption stays on:', err?.message ?? err)
-      suspendAutomergeDocSaves(false)
-      restart(5000)
-      return { ok: false, error: err?.code ?? 'disable_failed', message: err?.message ?? String(err), restarting: true }
-    }
-  })
+  setAtRestDisableRunner(createAtRestDisableRunner({
+    flushDoc: flushAutomergeDoc,
+    shutdownSync: () => syncStarterHolder.shutdown(),
+    suspendDocSaves: suspendAutomergeDocSaves,
+    closeDb: () => db.close(),
+    listDbPaths: () => dataPathsForKey().filter((p) => fs.existsSync(p)),
+    disable: ({ dbPaths }) => disableAtRestEncryption({ userDataDir: userDataPath, dbPaths, safeStorage, Database: encryptingDatabaseCtor() }),
+    restart: (ms) => setTimeout(() => { app.relaunch(); app.exit(0) }, ms),
+  }))
   const initialHandlers = makeHandlers(db, deviceId, {
     getMainWindow: () => mainWindow,
     dbPath,

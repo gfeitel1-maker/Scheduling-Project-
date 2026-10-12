@@ -351,3 +351,94 @@ T345 is the deliberate exit that 2026-10-08 deferred. As built:
 - Confirm is the typed phrase `DISABLE ENCRYPTION` on the Devices screen; the process then restarts. Older user
   backups made while encrypted become unreadable and the confirm copy says so. Open question 2 (cooling-off) was
   not added; question 3 (rekey form) was checked against the installed driver source.
+
+### Amendment 2026-10-11 (b): crash safety (T345 v1 pull-in)
+
+The first build edited each database in place (`PRAGMA rekey = ''`) and rolled back from backups only when the
+process was alive to do it. A kill, power loss or OS crash part-way through left no design for what the next
+boot should do. The rule now is: **after any kill, the next boot lands in a KNOWN state, fully encrypted or fully
+plain, never half, and no camp data is lost.**
+
+**Sequence (`electron/db/disableAtRestEncryption.js`, recovery in `electron/db/disableRecovery.js`).** No live
+file is edited in place.
+
+1. Preflight, read-only: unseal the key, decrypt every document in memory, open every db with the key and record
+   row counts. Any surprise refuses with nothing touched.
+2. Write the **journal** `encryption.disable-journal` (temp file then rename, so it is never torn) with
+   `state: "staging"` and the list of `{kind, path}` it will change. It is the first mutation of the whole run.
+3. Copy each target to `<file>.pre-disable-<stamp>.bak` (encrypted copies).
+4. Build **plaintext copies beside the originals**, `<file>.disable-staged`: documents are written decrypted;
+   each db is copied, keyed, taken out of WAL (`journal_mode = DELETE`, because SQLite3MultipleCiphers refuses to
+   rekey a WAL-mode db: "Rekeying is not supported in WAL journal mode"), `PRAGMA rekey = ''` (an empty key
+   removes encryption), then reopened keyless and checked for a plaintext header and equal row counts. The
+   originals stay encrypted and readable throughout.
+5. Rewrite the journal as `state: "committing"`. **From here the boot rule is roll forward.**
+6. Swap each staged copy over its original (`rename`, atomic per file; a db's `-wal`/`-shm` are removed first).
+7. Write the `encryption.disabled` marker (temp file then rename).
+8. Rename `db.key.enc` to `db.key.enc.disabling` (the point where the device stops being decryptable).
+9. Overwrite the sealed key with zeros and unlink it, unlink the backups, unlink the journal LAST.
+
+**Boot recovery (`recoverInterruptedDisable`, called in `electron/main.js` right after `app.whenReady()`, before
+the latch reads the key and before any db is opened).** It reads the journal and acts on its state only:
+
+- no journal: nothing to do (a leftover journal temp file is removed);
+- `staging`: roll **back**: delete staged copies, backups, marker and journal. Key and originals were never touched;
+- `committing`: roll **forward**: finish the swap (a staged copy still present is renamed in, a missing one means
+  it already was), require every target to be plaintext, then run steps 7-9 (each is idempotent). If the targets
+  are not all plaintext it rolls **back** instead (restore from the encrypted backups, drop the marker), which is
+  only legal while the key is still at its own path;
+- anything it cannot classify (**fails closed**): unparseable journal, unknown version or state, a stamp or file
+  kind it does not recognise, a path that is not absolute. It deletes no data, moves the journal aside to
+  `encryption.disable-journal.unreadable` so the message shows once, removes only `*.disable-staged` copies and
+  only while the key is present, and returns the plain message "Encryption is still on and nothing was changed".
+  The staged and backup paths are always **derived** from `{path, stamp}`, never read from the journal, so a
+  damaged journal cannot aim a delete at a path of its choosing;
+- a state neither direction can verify (for example one db already plain with no backup while another is still
+  encrypted) throws `disable_recovery_failed` with a plain message; the app refuses to start rather than guess,
+  and every file and backup is still on disk.
+
+Whatever it did, `main.js` logs the message and shows it in a dialog (no banner), so an interrupted disable is
+never silent.
+
+**Crash-point table.** "Killed before step N" means the process died after step N-1 finished and N did not.
+`electron/db/disableAtRestEncryption.crash.test.js` kills the run before **every** numbered mutation (and
+again with the interrupted write torn in half), runs recovery on the same directory, and asserts the end state
+and that a second recovery changes nothing. It also kills recovery itself at every one of its steps.
+
+| Killed before | State on disk | Journal | Next boot does | Ends |
+|---|---|---|---|---|
+| 1 (journal temp write) | nothing changed | none | nothing | encrypted |
+| 2 (journal rename) | journal temp file only | none | removes the temp file | encrypted |
+| 3-5 (backups) | some `.bak` copies | staging | roll back: delete copies and journal | encrypted |
+| 6 (doc staged write, also torn) | partial `.disable-staged` doc | staging | roll back | encrypted |
+| 7, 9 (db copy, also torn) | partial staged db | staging | roll back | encrypted |
+| 8, 10 (rekey of the staged copy, also half-written) | garbage staged db | staging | roll back | encrypted |
+| 11 (journal temp write for `committing`) | all staged copies verified | staging (old) | roll back | encrypted |
+| 12 (journal rename to `committing`) | same, temp file present | staging (old) | roll back, removes temp | encrypted |
+| 13-15 (swap, 0 to 2 files done) | mix of encrypted and plain originals, staged copies for the rest | committing | roll forward: finish swap, marker, key shred | plain |
+| 16-17 (marker write) | all plain, key present, no marker | committing | roll forward | plain |
+| 18 (key rename) | all plain, marker present, key present | committing | roll forward | plain |
+| 19-20 (key overwrite, unlink; also torn) | all plain, marker present, key renamed or half-zeroed | committing | roll forward: shred again, clean up | plain |
+| 21-23 (backup unlinks) | key gone, some backups left | committing | roll forward: remove them | plain |
+| 24 (journal unlink) | complete except the journal | committing | roll forward (all no-ops), removes journal | plain |
+| after 24 | complete | none | nothing | plain |
+| garbled / unknown journal | unknown | unreadable | quarantine journal, delete nothing, plain message | encrypted (key present) |
+| committing but unverifiable both ways | partly swapped, no usable backup | committing | throw `disable_recovery_failed`, app does not start, no file deleted | unchanged |
+
+The invariants the test asserts after recovery: key present implies no marker, db and document still encrypted,
+readable and identical; key absent implies marker present, db and document plaintext, readable and identical;
+never a leftover `.bak`, `.tmp`, `.disable-staged`, `.disabling` or journal.
+
+**Why roll forward after `committing` and not always back.** Once the staged copies are verified and the journal
+says so, completing is the director's own request, and it is the only direction that needs no restore of a
+possibly half-swapped set. Roll back remains available (and is the fallback) while the key is still present.
+
+**Real-driver proof.** `electron/db/sqliteCipher.integration.test.js` runs `decryptEncryptedToPlaintext` and the
+whole `disableAtRestEncryption` (plus the document round trip) through `better-sqlite3-multiple-ciphers` 12.11.1
+with 800 to 1500 rows in WAL mode, reopens keyless and compares rows and `integrity_check`. On CI (`CI=true`) the
+suite is never skipped: a driver that fails to load makes the tests fail with the driver's own load error.
+The driver source (`deps/sqlite3/sqlite3.c`, `sqlite3_rekey_v2`) confirms the two facts the design depends on: an
+empty key decrypts, and a WAL-mode db is refused, hence the `journal_mode = DELETE` step.
+
+**Quiesce order (runner).** `electron/atRestDisableRunner.js` fixes the order flush, stop sync, flush, block
+saves, close db, disable, and `electron/atRestDisableRunner.test.js` pins it.

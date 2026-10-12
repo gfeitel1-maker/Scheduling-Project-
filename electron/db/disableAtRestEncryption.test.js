@@ -8,47 +8,13 @@ import { disableAtRestEncryption } from './disableAtRestEncryption.js'
 import { getOrCreateDbKey, KEY_FILE } from './dbEncryptionKey.js'
 import { makeDocCipher } from './docCipher.js'
 import { isPlaintextSqliteFile } from './sqliteCipher.js'
+import { fakeDriver } from './fakeCipherDriver.js'
 
 const MAGIC = 'SQLite format 3\0'
 const safeStorage = {
   isEncryptionAvailable: () => true,
   encryptString: (s) => Buffer.from(`sealed:${s}`),
   decryptString: (b) => b.toString().replace(/^sealed:/, ''),
-}
-
-// Stand-in for the encrypting driver (the native module cannot load under every Node here; the
-// real-driver proof lives in sqliteCipher.integration.test.js). File = 'ENC'|MAGIC prefix + JSON table counts.
-function fakeDriver({ failRekey = false, corruptAfterRekey = false } = {}) {
-  const calls = []
-  function Fake(p) { this.p = p; this.keyed = false }
-  Fake.prototype.pragma = function (s) {
-    calls.push(s)
-    if (/^key\s*=/.test(s)) { this.keyed = true; return }
-    if (/^rekey\s*=\s*''$/.test(s)) {
-      if (failRekey) throw new Error('disk I/O error')
-      const body = fs.readFileSync(this.p, 'latin1')
-      if (!body.startsWith('ENC')) throw new Error('not keyed')
-      let json = body.slice(3)
-      if (corruptAfterRekey) json = JSON.stringify({ camps: 99 })
-      fs.writeFileSync(this.p, MAGIC + json, 'latin1')
-    }
-  }
-  const readable = (self) => {
-    const body = fs.readFileSync(self.p, 'latin1')
-    const enc = body.startsWith('ENC')
-    if (enc !== self.keyed) throw Object.assign(new Error('file is not a database'), { code: 'SQLITE_NOTADB' })
-    return JSON.parse(enc ? body.slice(3) : body.slice(MAGIC.length))
-  }
-  Fake.prototype.prepare = function (sql) {
-    const self = this
-    if (/sqlite_master/.test(sql) && /name/.test(sql)) return { all: () => Object.keys(readable(self)).map((name) => ({ name })) }
-    const m = /FROM "(\w+)"/.exec(sql)
-    if (m) return { get: () => ({ n: readable(self)[m[1]] }) }
-    return { get: () => ({ n: Object.keys(readable(self)).length }) }
-  }
-  Fake.prototype.close = function () {}
-  Fake._calls = calls
-  return Fake
 }
 
 let dir, dbPath, docPath, docKey, keyPath
@@ -180,9 +146,19 @@ describe('disableAtRestEncryption: a failure at each step leaves the device encr
 
   it('document decrypt fails (write error)', () => {
     const before = snapshot()
-    const fsImpl = { ...fs, renameSync: (a, b, ...r) => { if (String(b).endsWith('.automerge')) throw new Error('EIO'); return fs.renameSync(a, b, ...r) } }
+    const fsImpl = { ...fs, writeFileSync: (p, ...r) => { if (String(p).endsWith('.automerge.disable-staged')) throw new Error('EIO'); return fs.writeFileSync(p, ...r) } }
     expect(() => run({ fsImpl })).toThrow(expect.objectContaining({ code: 'doc_decrypt_failed' }))
     expectUntouchedEncrypted(before)
+    expect(fs.readdirSync(dir).sort()).toEqual(before.files)
+  })
+
+  it('swapping the decrypted document in fails AFTER the database was already swapped: the database is put back too', () => {
+    const before = snapshot()
+    const fsImpl = { ...fs, renameSync: (a, b, ...r) => { if (String(b).endsWith('.automerge')) throw new Error('EIO'); return fs.renameSync(a, b, ...r) } }
+    expect(() => run({ fsImpl })).toThrow(expect.objectContaining({ code: 'shred_failed' }))
+    expectUntouchedEncrypted(before)
+    expect(fs.readdirSync(dir).sort()).toEqual(before.files)
+    expect(fs.readdirSync(path.join(dir, 'automerge'))).toEqual(['camp-1.automerge'])
   })
 
   it('rekey fails', () => {
@@ -198,10 +174,11 @@ describe('disableAtRestEncryption: a failure at each step leaves the device encr
     const otherBefore = fs.readFileSync(other)
     const Fake = fakeDriver()
     const origPragma = Fake.prototype.pragma
-    Fake.prototype.pragma = function (s) { if (/^rekey/.test(s) && this.p === other) throw new Error('boom'); return origPragma.call(this, s) }
+    Fake.prototype.pragma = function (s) { if (/^rekey/.test(s) && this.p.startsWith(other)) throw new Error('boom'); return origPragma.call(this, s) }
     expect(() => run({ dbPaths: [dbPath, other], Database: Fake })).toThrow(expect.objectContaining({ code: 'rekey_failed' }))
     expectUntouchedEncrypted(before)
     expect(fs.readFileSync(other).equals(otherBefore)).toBe(true)
+    expect(fs.readdirSync(dir).sort()).toEqual(before.files)
   })
 
   it('verification fails (row counts differ after decrypt)', () => {
@@ -219,7 +196,7 @@ describe('disableAtRestEncryption: a failure at each step leaves the device encr
 
   it('writing the opt-out marker fails', () => {
     const before = snapshot()
-    const fsImpl = { ...fs, writeFileSync: (p, ...r) => { if (String(p).endsWith('encryption.disabled')) throw new Error('EROFS'); return fs.writeFileSync(p, ...r) } }
+    const fsImpl = { ...fs, writeFileSync: (p, ...r) => { if (String(p).endsWith('encryption.disabled.tmp')) throw new Error('EROFS'); return fs.writeFileSync(p, ...r) } }
     expect(() => run({ fsImpl })).toThrow(expect.objectContaining({ code: 'shred_failed' }))
     expectUntouchedEncrypted(before)
   })
