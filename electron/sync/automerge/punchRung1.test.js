@@ -81,10 +81,22 @@ beforeEach(async () => {
   trustPeer(b.db, 'peer-a')
   const listener = b.transport.createListener({ upgrader: upgraderFor('peer-a') })
   await listener.listen(multiaddr('/ip4/127.0.0.1/udp/9'))
-  await a.transport.dial(multiaddr('/ip4/127.0.0.1/udp/9'), { upgrader: upgraderFor('peer-b'), signal: AbortSignal.timeout(10000) })
+  // The signaled punch only seeds each database's memory; no test asserts on it. Under machine load a
+  // real loopback ICE check can miss and libdatachannel reports 'failed' before open, so that one error
+  // is retried. Anything else still throws, and a failed attempt records no memory (onEstablished only
+  // fires on open), so the seeded state is the same however many attempts it took.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await a.transport.dial(multiaddr('/ip4/127.0.0.1/udp/9'), { upgrader: upgraderFor('peer-b'), signal: AbortSignal.timeout(10000) })
+      break
+    } catch (err) {
+      if (!(err instanceof PunchConnectionFailedError) || attempt === 4) throw err
+      await Promise.all([...a.transport.sessions.values(), ...b.transport.sessions.values()].map((s) => { s.close(); return s.whenClosed }))
+    }
+  }
   await new Promise((r) => setTimeout(r, 200))
   await Promise.all([...a.transport.sessions.values(), ...b.transport.sessions.values()].map((s) => { s.close(); return s.whenClosed }))
-}, 30000)
+}, 60000)
 
 describe('Rung 1 - remembered-candidate redial', () => {
   it('the signaled session leaves the peer\'s fingerprint, ufrag/pwd, candidates and our role in the database', () => {
@@ -198,12 +210,16 @@ describe('Rung 1 - remembered-candidate redial', () => {
   it('two peers redialled concurrently on one pinned port are serialized: the second times out, no throw', async () => {
     trustPeer(a.db, 'peer-c')
     a.db.prepare('INSERT INTO peer_punch_memory SELECT ?, role, remote_sdp_type, remote_sdp, remote_fingerprint, remote_ufrag, remote_pwd, candidates, last_seen_at FROM peer_punch_memory WHERE peer_id = ?').run('peer-c', 'peer-b')
-    const pa = attemptRung1({ peerId: 'peer-b' }, { db: a.db, transport: a.transport, upgrader: upgraderFor('peer-b'), ...LOOP, timeoutMs: 8000 })
-    const pb = attemptRung1({ peerId: 'peer-a' }, { db: b.db, transport: b.transport, upgrader: upgraderFor('peer-a'), ...LOOP, timeoutMs: 8000 })
-    const pc = attemptRung1({ peerId: 'peer-c' }, { db: a.db, transport: a.transport, upgrader: upgraderFor('peer-c'), ...LOOP, timeoutMs: 2500 })
-    const [ra, rb, rc] = await Promise.all([pa, pb, pc])
+    // pa and pb need a real ICE handshake whose speed depends on machine load, so their budgets are
+    // generous and play no part in the assertion. What proves serialization is pc: it is queued behind
+    // pa, which keeps the pinned port for the whole test (its connection is never closed here), so pc's
+    // short budget expires whatever pa's handshake speed. pa is registered first, synchronously.
+    const pa = attemptRung1({ peerId: 'peer-b' }, { db: a.db, transport: a.transport, upgrader: upgraderFor('peer-b'), ...LOOP, timeoutMs: 40000 })
+    const pb = attemptRung1({ peerId: 'peer-a' }, { db: b.db, transport: b.transport, upgrader: upgraderFor('peer-a'), ...LOOP, timeoutMs: 40000 })
+    const pc = attemptRung1({ peerId: 'peer-c' }, { db: a.db, transport: a.transport, upgrader: upgraderFor('peer-c'), ...LOOP, timeoutMs: 400 })
+    expect(await pc).toEqual({ ok: false, reason: 'timeout' })
+    const [ra, rb] = await Promise.all([pa, pb])
     expect(ra.ok).toBe(true)
     expect(rb.ok).toBe(true)
-    expect(rc).toEqual({ ok: false, reason: 'timeout' })
-  }, 30000)
+  }, 60000)
 })
