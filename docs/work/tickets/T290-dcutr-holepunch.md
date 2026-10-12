@@ -17,4 +17,4 @@ PARKED behind `INTERNET_TRANSPORT_SIGNOFF`. Adds `@libp2p/dcutr` + `@libp2p/circ
 
 ## Closed as superseded (2026-10-11)
 
-Superseded by T336 (#737, dcutr hole-punch) and T337 (#736, camp-peer relay coordination), per `docs/adr/2026-10-02-wan-discovery-transport-ladder.md`.
+Superseded by T336 (#737, dcutr hole-punch). The slice plan was replaced by the relay-less ladder in `docs/adr/2026-10-08-relayless-cross-network-reconnect.md` (#752, T347).

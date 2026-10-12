@@ -171,6 +171,9 @@ must not preempt a faster one that already succeeded).
 | **2. DHT + hole-punch** (PRIMARY WAN) | find + reach directly across networks | Kademlia DHT discovery (`@libp2p/kad-dht`) keyed on the rotating, scrypt-derived discovery tag; NAT hole-punch via `@libp2p/dcutr` coordinated by `@libp2p/circuit-relay-v2`; secured by the already-built ephemeral join secret + namespace/key rotation | `kadDht`, `dcutr`, `bootstrap`, plus `relay` (coordination-only) | **blocked** — to build |
 | **3. Cloudflare noticeboard + data relay** (LAST RESORT) | find + carry traffic when tier 2 can't | existing Cloudflare rendezvous (`rendezvousClient.js`, already signed off) as a discovery fallback; `@libp2p/circuit-relay-v2` as a capped, time-boxed **data** path for CGNAT-both-ends pairs | `discovery` (signed off), `relay` (data-path use) | discovery **wired**; relay-as-data-path **blocked** — to build, owner-gated |
 
+> **Superseded (2026-10-08):** there is no data relay. `docs/adr/2026-10-08-relayless-cross-network-reconnect.md` (#752) replaces this row. Both-ends CGNAT is unreachable by design, and the rendezvous Worker only introduces peers.
+
+
 Tier 2 is the owner's primary WAN path. Tier 3 engages only when tier 2 cannot: Cloudflare discovery
 when the DHT cannot locate the peer (e.g. a device that cannot reach the bootstrap network at all), and
 the data relay when the peer is found but **both** ends are behind symmetric/CGNAT NAT — the one

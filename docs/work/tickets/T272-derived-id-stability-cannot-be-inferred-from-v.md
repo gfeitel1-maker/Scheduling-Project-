@@ -1,7 +1,7 @@
 ---
 title: "Derived-id stability cannot be inferred from the shared V constant"
 document_type: ticket
-status: open
+status: wont-fix
 created: 2026-09-26
 task_class: database-sync
 archive_when: "a reader can determine whether a derived id's shape has changed without reading git history — either V is split per id-kind, or a stale-id detector reports rows whose id does not match what the current code derives, or the owner has accepted the risk and a documented dev-database reset step exists"
@@ -74,3 +74,7 @@ length-prefixing is genuinely injective, including against an `occurrence_id` li
 
 T265 round 4 amended the module header to state plainly that a reader must check git history rather
 than infer stability from `V`. This ticket removes the trap; it does not fix a live defect.
+
+## Won't fix (2026-10-11)
+
+Owner ruling, relayed by the keeper: no updates ship after v1, so `V` never changes under an existing camp, and fresh camps only (no backfills).

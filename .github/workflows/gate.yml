@@ -59,7 +59,11 @@ jobs:
     timeout-minutes: 45
 
     steps:
+      # Full history so origin/main exists: check:governance's merged-ticket status check (T283)
+      # reads `git log origin/main` and FAILS in CI without it rather than abstaining.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:

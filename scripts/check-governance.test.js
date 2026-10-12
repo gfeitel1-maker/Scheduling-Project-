@@ -524,6 +524,20 @@ describe('checkMergedTicketStatus', () => {
   })
 })
 
+describe('checkAll — merged-ticket status in CI', () => {
+  const noMain = () => { throw new Error('no origin/main') }
+
+  it('FAILS in CI when origin/main is missing (an abstaining green is not a pass)', () => {
+    const f = checkAll('/fake/root', noMain, { ci: true })
+    expect(f.map((x) => x.code)).toContain('merged-ticket-status-unchecked')
+  })
+
+  it('skips locally when origin/main is missing', () => {
+    const f = checkAll('/fake/root', noMain, { ci: false })
+    expect(f.map((x) => x.code)).not.toContain('merged-ticket-status-unchecked')
+  })
+})
+
 describe('resolveIds', () => {
   it('matches a ticket by T-number prefix, not a numeric substring', () => {
     const docs = [

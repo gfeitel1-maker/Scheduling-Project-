@@ -1167,7 +1167,7 @@ export function makeResolver(root, topLevel = DEFAULT_TOP_LEVEL) {
   }
 }
 
-export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8' })) {
+export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8' }), { ci = !!process.env.CI } = {}) {
   const exists = (p) => existsSync(join(root, p))
   const docs = readDocs(root)
   const findings = docs.flatMap((doc) => checkDoc(doc, exists))
@@ -1206,6 +1206,11 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
 
   const merges = gatherMainMerges(root, execFn)
   if (merges !== null) findings.push(...checkMergedTicketStatus(merges, docs, gatherBranchFiles(root, execFn)))
+  // In CI a skip would be an abstaining green: gate.yml checks out full history, so a
+  // missing origin/main there is a broken checkout, not an environment to tolerate.
+  else if (ci) findings.push(finding('merged-ticket-status-unchecked',
+    'origin/main is not available, so the merged-ticket status check could not run. ' +
+    'CI must check out full history (actions/checkout fetch-depth: 0 in .github/workflows/gate.yml).'))
   else console.warn('check:governance — merged-ticket status check skipped (no origin/main log)')
 
   const subjects = gatherCompletionSubjects(root, execFn)

@@ -290,8 +290,8 @@ whose work merged get flipped?"* Two structural reasons, both verified:
 `git log origin/main` and flags a `T<n>:` commit on main whose ticket is not terminal when nothing
 has edited that ticket: not the merge, not a later main commit, not the branch being pushed.
 Editing the ticket counts as a status decision, so a parked ticket or a recorded partial slice
-passes. It needs `origin/main`, so it runs in the local pre-push `check:governance`, not in the
-shallow CI checkout.
+passes. It reads `origin/main`. CI checks out full history for it, and a missing
+`origin/main` fails the run in CI. Only a local run skips.
 
 The rules below are still the discipline. The check catches only a merge that never touched its
 ticket:
