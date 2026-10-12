@@ -94,6 +94,10 @@ import { seedAllFromSqlite } from './automerge/seed.js'
 import { mintJoinSecret } from './sync/joinCode.js'
 import { startJoinSession } from './sync/automerge/joinSession.js'
 import { signAuthFields } from './auth/authSignature.js'
+import { commitElectiveRun } from './ops/commitElectiveRun.js'
+import { getElectiveRun } from './ops/getElectiveRun.js'
+import { deriveElectiveAssignmentId } from './ops/electiveDerivedIds.js'
+import { recordConflicts } from './automerge/conflictStore.js'
 
 let tmpFile
 let db
@@ -2324,6 +2328,75 @@ describe('resolveConflict — a CRDT conflict, which has no losing op row', () =
         token, entity: 'activities', entity_id: 'act-1', field: 'name', chosen_op_id: 'not-a-side',
       })
     ).toThrow(/chosen conflict side not found/)
+  })
+})
+
+// T264 Red Hat 1 (docs/adr/2026-10-11-locked-elective-seat-survives-unmerged-regeneration.md).
+// Keeping a side of the seat's activity card must leave the WHOLE row consistent:
+// choice_id, preference_rank, source, solver_generation and is_locked follow the
+// chosen activity, not just activity_id.
+describe('resolveConflict — the locked-seat activity card on elective_assignments', () => {
+  const PARSED = {
+    campers: [{ id: 'cam-1', display_name: 'Ari Green', external_id: null }],
+    choices: [{ label: 'Archery', labelKey: 'archery' }, { label: 'Gaga', labelKey: 'gaga' }],
+    preferences: [
+      { camper_id: 'cam-1', occurrence_id: 'occ-1', label: 'Archery', labelKey: 'archery', rank: 1 },
+      { camper_id: 'cam-1', occurrence_id: 'occ-1', label: 'Gaga', labelKey: 'gaga', rank: 2 },
+    ],
+    sameNameCampers: [],
+    skippedRows: [],
+  }
+
+  async function seatWithPendingCard() {
+    const { campId } = await seedCampAndUser({ name: 'DirectorE', pin: '123400', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { token } = await handlers.login({ name: 'DirectorE', pin: '123400' })
+    db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run('set-1', campId, 'Electives')
+    for (const [id, name] of [['act-archery', 'Archery'], ['act-gaga', 'Gaga']]) {
+      db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(id, campId, name)
+      db.prepare(
+        'INSERT INTO elective_set_activities (id, elective_set_id, activity_id, capacity_mode, status) VALUES (?, ?, ?, ?, ?)'
+      ).run(randomUUID(), 'set-1', id, 'unlimited', 'confirmed')
+    }
+    const committed = commitElectiveRun(db, {
+      campId, deviceId, name: 'Week 1', runId: 'run-1', parsed: PARSED,
+      assignments: [{ camper_id: 'cam-1', occurrence_id: 'occ-1', labelKey: 'gaga', activity_id: 'act-gaga', preference_rank: 2, flags: [] }],
+      occurrences: [{ id: 'occ-1', elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-1', tier_id: 'tier-1' }],
+    })
+    expect(committed.ok).toBe(true)
+    const seat = deriveElectiveAssignmentId('run-1', 'cam-1', 'occ-1')
+    // The merged state the lock lost: the solver's activity, the lock flag kept.
+    db.prepare('UPDATE elective_assignments SET is_locked = 1 WHERE id = ?').run(seat)
+    recordConflicts(db, [{
+      entity: 'elective_assignments', entityId: seat, field: 'activity_id',
+      values: [{ opId: '9@lock', value: 'act-archery', source: 'manual' }, { opId: '9@solver', value: 'act-gaga', source: 'solver' }],
+    }])
+    return { handlers, token, seat }
+  }
+  const choiceFor = (label) => db.prepare('SELECT id FROM elective_choices WHERE run_id = ? AND label = ?').get('run-1', label).id
+
+  it('keeping the lock gives the manual, locked row for that activity, choice and rank included', async () => {
+    const { handlers, token, seat } = await seatWithPendingCard()
+    handlers.resolveConflict({ token, entity: 'elective_assignments', entity_id: seat, field: 'activity_id', chosen_op_id: '9@lock' })
+    const row = db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get(seat)
+    expect(row).toMatchObject({ activity_id: 'act-archery', choice_id: choiceFor('Archery'), preference_rank: 1, source: 'manual', is_locked: 1 })
+    expect(getElectiveRun(db, { runId: 'run-1' }).lockedSeatFindings).toEqual([])
+  })
+
+  it('keeping the solver gives that activity with the lock released (a director chose it)', async () => {
+    const { handlers, token, seat } = await seatWithPendingCard()
+    handlers.resolveConflict({ token, entity: 'elective_assignments', entity_id: seat, field: 'activity_id', chosen_op_id: '9@solver' })
+    const row = db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get(seat)
+    expect(row).toMatchObject({ activity_id: 'act-gaga', choice_id: choiceFor('Gaga'), preference_rank: 2, source: 'manual', is_locked: 0 })
+    expect(getElectiveRun(db, { runId: 'run-1' }).lockedSeatFindings).toEqual([])
+  })
+
+  it('a card that arrives after the run is final can still be answered (single-key write)', async () => {
+    const { handlers, token, seat } = await seatWithPendingCard()
+    db.prepare("UPDATE elective_assignment_runs SET status = 'final' WHERE id = ?").run('run-1')
+    expect(() => handlers.resolveConflict({ token, entity: 'elective_assignments', entity_id: seat, field: 'activity_id', chosen_op_id: '9@lock' })).not.toThrow()
+    expect(db.prepare('SELECT activity_id FROM elective_assignments WHERE id = ?').get(seat).activity_id).toBe('act-archery')
   })
 })
 

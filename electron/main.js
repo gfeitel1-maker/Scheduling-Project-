@@ -356,6 +356,11 @@ export function writeCampDataRecordAfterDbSwap(newHandlers) {
   }
 }
 
+const SEAT_FIELDS = [
+  'run_id', 'occurrence_id', 'camper_id', 'activity_id', 'choice_id', 'preference_rank',
+  'source', 'is_locked', 'solver_generation',
+]
+
 export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, safeStorage: injectedSafeStorage, getAutomergeSyncNode, getAutomergeStartupAttempted, getRelayReservationRefused, getPortMappingStatus, onCampBootstrapped, onCampJoined, retrySync, stopSync } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
@@ -1872,6 +1877,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       .get(entity, entity_id, field)
 
     let chosenValue
+    let chosenSource
     if (crdtRow) {
       const sides = [crdtRow.existing_op, crdtRow.incoming_op].map((s) => {
         try { return JSON.parse(s) } catch { return null }
@@ -1879,6 +1885,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       const chosen = sides.find((s) => s && s.op_id === chosen_op_id)
       if (!chosen) throw new Error('chosen conflict side not found')
       chosenValue = chosen.value
+      chosenSource = chosen.source
     } else {
       const chosenOp = db
         .prepare('SELECT value FROM operations WHERE id = ? AND entity = ? AND entity_id = ? AND field = ?')
@@ -1914,15 +1921,43 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // runs host-local, where import ownership is legitimately stamped.
     const source = stale_accept ? 'import' : 'human'
 
-    const result = syncClient.write({
-      entity,
-      entity_id,
-      field,
-      value: chosenValue,
-      parent_op_id: parent_op_id ?? null,
-      author_user_id: userId,
-      source,
-    })
+    // T264: the seat's activity card is answered by the whole seat, not by one
+    // key. Keeping a side re-places the camper through the same write the drag
+    // and Restore use, so choice_id, preference_rank, source, solver_generation
+    // and is_locked all follow the chosen activity. Keeping the lock keeps it
+    // locked; keeping the solver's activity releases the lock (the director
+    // chose it: source manual, unlocked); a card whose sides carry no source
+    // keeps the seat's lock as it is.
+    let seatRow = null
+    let result
+    if (crdtRow && entity === 'elective_assignments' && field === 'activity_id') {
+      seatRow = db
+        .prepare('SELECT run_id, camper_id, occurrence_id, is_locked FROM elective_assignments WHERE id = ?')
+        .get(entity_id)
+    }
+    // A final run refuses re-placement (RUN_NOT_DRAFT), but a conflict can still arrive after
+    // finalizing; the card must stay answerable, so it falls back to the single-key write.
+    const runIsDraft = seatRow ? db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(seatRow.run_id)?.status !== 'final' : false
+    if (seatRow && runIsDraft) {
+      const placed = setElectiveAssignment(db, {
+        runId: seatRow.run_id, camperId: seatRow.camper_id, occurrenceId: seatRow.occurrence_id,
+        activityId: chosenValue,
+        locked: chosenSource === 'manual' ? true : chosenSource === 'solver' ? false : seatRow.is_locked === 1,
+        authorUserId: userId, deviceId,
+      })
+      if (!placed.ok) throw new Error(placed.error)
+      result = { status: 'applied' }
+    } else {
+      result = syncClient.write({
+        entity,
+        entity_id,
+        field,
+        value: chosenValue,
+        parent_op_id: parent_op_id ?? null,
+        author_user_id: userId,
+        source,
+      })
+    }
 
     // A CRDT conflict needs one more step, and it is not belt-and-braces.
     //
@@ -1957,6 +1992,15 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
             `it may resurface until the next write to this field: ${err?.message ?? err}`
         )
       }
+      // The seat's whole row was just re-written, so every key of it collapses,
+      // not only activity_id: a key left contested would resurface as a card.
+      const collapsed = (doc) => {
+        if (!seatRow) return resolveConflictInDoc(doc, { entity, entityId: entity_id, field, value: chosenValue })
+        const row = db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get(entity_id)
+        return SEAT_FIELDS.reduce(
+          (d, f) => resolveConflictInDoc(d, { entity, entityId: entity_id, field: f, value: row[f] }), doc
+        )
+      }
       try {
         const node = getAutomergeNode()
         const doc = getDocIfLoaded(db)
@@ -1965,7 +2009,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
           // for its caller. `.catch` rather than a bare call so a rejection is
           // surfaced instead of becoming an unhandled promise rejection.
           Promise.resolve(
-            node.applyLocal(resolveConflictInDoc(doc, { entity, entityId: entity_id, field, value: chosenValue }))
+            node.applyLocal(collapsed(doc))
           ).catch(onCollapseFailed)
         }
       } catch (err) {

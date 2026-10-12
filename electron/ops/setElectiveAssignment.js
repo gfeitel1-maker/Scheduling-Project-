@@ -288,8 +288,8 @@ export function setElectiveAssignment(db, {
         // commitElectiveRun reads `is_locked = 1` before its transaction and
         // skips writing those derived ids entirely, so source/activity_id/
         // solver_generation are all left alone. A lock this device has NOT yet
-        // merged is still overwritten with source:'solver' — pre-existing, and
-        // T264's scope, not this write path's.
+        // merged can still be overwritten with source:'solver'; T264 surfaces that
+        // as LOCKED_SEAT_OVERWRITTEN on the run, and this same write is its Restore.
         solver_generation: run.solver_generation,
       }
       for (const [field, value] of Object.entries(fields)) {
@@ -297,6 +297,24 @@ export function setElectiveAssignment(db, {
           entity: 'elective_assignments', entity_id: assignmentId, field, value,
           author_user_id: authorUserId, device_id: deviceId, client_write_id: randomUUID(),
         })
+      }
+      // T264 — an Automerge put replaces every concurrent value of its key, and
+      // nothing projects a local write, so the writer would keep showing a card
+      // for a disagreement it just ended. Only a card this write answered is
+      // closed: the value written must be one of that card's competing values,
+      // otherwise the card is left for clearResolvedConflicts to judge.
+      const pending = db.prepare(
+        `SELECT id, field, incoming_op, existing_op FROM conflicts
+          WHERE entity = 'elective_assignments' AND entity_id = ? AND resolved_at IS NULL AND id LIKE 'crdt:%'`
+      ).all(assignmentId)
+      const closeCard = db.prepare('UPDATE conflicts SET resolved_at = ? WHERE id = ?')
+      const valueOf = (raw) => { try { return JSON.stringify(JSON.parse(raw)?.value ?? null) } catch { return undefined } }
+      for (const c of pending) {
+        if (!(c.field in fields)) continue
+        const written = JSON.stringify(fields[c.field] ?? null)
+        if ([c.incoming_op, c.existing_op].some((raw) => valueOf(raw) === written)) {
+          closeCard.run(new Date().toISOString(), c.id)
+        }
       }
       // T320 item 3 — a genuine cross-occurrence MOVE (the destination id
       // differs from the source), inside the SAME transaction as the

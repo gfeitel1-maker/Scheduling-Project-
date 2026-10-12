@@ -29,6 +29,8 @@ const EMPTY = {
   // cold reopen, unlike the commit-response-only values this hook's own
   // callers used to hold in local React state.
   danglingFindings: [], eligibilityFindings: [], resourceConflicts: [],
+  // T264 — a lock that lost to a regeneration it had not merged with.
+  lockedSeatFindings: [],
   snapshotIncomplete: false, expectedSnapshotRows: null, heldSnapshotRows: null,
 }
 

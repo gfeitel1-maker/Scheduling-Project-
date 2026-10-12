@@ -110,6 +110,27 @@ export function danglingMessage({ camperName }) {
   return `${camperName}'s lock no longer applies.`
 }
 
+// T264 — a lock that lost to a regeneration written on a device that had not
+// merged it yet. Activity names, never ids; the solver's activity is omitted
+// when the merge no longer says which one it was.
+const LOST_ACTIVITY_LABEL = 'an activity that is no longer listed'
+export function lockedSeatsRefusalMessage(count) {
+  return count === 1
+    ? '1 lock was replaced by another device. Restore it or choose an activity for it, then finalize.'
+    : `${count} locks were replaced by another device. Restore or choose an activity for each, then finalize.`
+}
+export const RESTORE_LOCK_LABEL = 'Restore lock'
+export function lockedSeatOverwrittenMessage({ camperName, lockedActivityId, lockedActivityName, solverActivityName }) {
+  if (lockedActivityId === null) {
+    return `${camperName}'s lock was replaced when another device regenerated this run. Which activity it held is not known, so choose one for them.`
+  }
+  const locked = lockedActivityName ?? LOST_ACTIVITY_LABEL
+  if (solverActivityName == null) {
+    return `${camperName}'s lock on ${locked} was replaced when another device regenerated this run.`
+  }
+  return `${camperName} was locked into ${locked}, but another device regenerated this run and placed them in ${solverActivityName}.`
+}
+
 export function stalenessOfferMessage({ staleCount }) {
   return `${staleCount} ${staleCount === 1 ? 'placement is' : 'placements are'} from an older schedule.`
 }

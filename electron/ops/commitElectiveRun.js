@@ -378,16 +378,14 @@ export function commitElectiveRun(db, {
   // solver placement for a (camper, occurrence) that is locked here. The skip
   // is decided from the local projection at commit time, not from the caller.
   //
-  // THE RESIDUAL GAP, stated plainly. `is_locked = 1` is read from THIS
-  // device's projection, so a lock that has not yet merged here is invisible
-  // and its row is rewritten to source='solver' with the solver's activity
-  // while `is_locked` stays 1 — no path in this file writes `is_locked`. That
-  // mixed state is pre-existing: the write set before this change never wrote
-  // `is_locked` either, so this ticket neither worsens it nor claims to fix it.
-  // It is not closed here because closing it needs a mechanism nobody has
-  // designed: the ADR's Red Hat H3 correction moved lock survival to the READ
-  // side precisely to avoid depending on the regenerating device's local view
-  // of which rows are locked, and this skip depends on exactly that view.
+  // WHAT THIS SKIP CANNOT DO, and what covers it. `is_locked = 1` is read from
+  // THIS device's projection, so a lock that has not yet merged here is
+  // invisible and its row is rewritten with source='solver' and the solver's
+  // activity while `is_locked` stays 1. T264
+  // (docs/adr/2026-10-11-locked-elective-seat-survives-unmerged-regeneration.md)
+  // closes that on the READ side: getElectiveRun derives LOCKED_SEAT_OVERWRITTEN
+  // from the merged row, and the director restores the lock with one tap. This
+  // skip stays; it still prevents the overwrite wherever the lock HAS merged.
   const lockedRows = db
     .prepare('SELECT id, occurrence_id FROM elective_assignments WHERE run_id = ? AND is_locked = 1')
     .all(runId)

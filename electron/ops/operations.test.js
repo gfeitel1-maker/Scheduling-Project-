@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach, beforeEach, vi, afterAll } from 'vites
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { recordConflicts } from '../automerge/conflictStore.js'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
@@ -775,6 +776,38 @@ function insertOpConflictRow(db, { incomingOp, existingOp }) {
 }
 
 describe('listPendingConflicts (Task 10 round 3, Fix 3: conflict rehydration)', () => {
+  it('(T264) a document-derived row carries entity, field and op id on both sides, plus the side mark', () => {
+    db.prepare(
+      `INSERT INTO conflicts (id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at)
+       VALUES ('crdt:elective_assignments:seat-1:activity_id', 'elective_assignments', 'seat-1', 'activity_id', ?, ?, 'op-b', ?)`
+    ).run(
+      JSON.stringify({ value: 'act-gaga', op_id: 'op-a', source: 'solver' }),
+      JSON.stringify({ value: 'act-archery', op_id: 'op-b', source: 'manual' }),
+      new Date().toISOString()
+    )
+    const [msg] = listPendingConflicts(db)
+    expect(msg.existingOp).toMatchObject({ entity: 'elective_assignments', entity_id: 'seat-1', field: 'activity_id', id: 'op-b', source: 'manual' })
+    expect(msg.incomingOp).toMatchObject({ entity: 'elective_assignments', entity_id: 'seat-1', field: 'activity_id', id: 'op-a', source: 'solver' })
+  })
+
+  it('(T264) a NON-elective document-derived row (template_slots.activity_id) gets the right identity on both sides and a stable key across calls', () => {
+    recordConflicts(db, [{
+      entity: 'template_slots', entityId: 'slot-9', field: 'activity_id',
+      values: [{ opId: '4@aaa', value: 'act-1' }, { opId: '4@bbb', value: 'act-2' }],
+    }])
+    const key = (m) => `${m.existingOp.entity}:${m.existingOp.entity_id}:${m.existingOp.field}:${m.existingOp.id}`
+    const [live] = listPendingConflicts(db)
+    const [rehydrated] = listPendingConflicts(db)
+    for (const m of [live, rehydrated]) {
+      expect(m.type).toBe('op_conflict')
+      expect(m.existingOp).toMatchObject({ entity: 'template_slots', entity_id: 'slot-9', field: 'activity_id', id: '4@aaa', value: 'act-1' })
+      expect(m.incomingOp).toMatchObject({ entity: 'template_slots', entity_id: 'slot-9', field: 'activity_id', id: '4@bbb', value: 'act-2' })
+      expect(m.existingOp).not.toHaveProperty('source')
+    }
+    expect(key(live)).toBe('template_slots:slot-9:activity_id:4@aaa')
+    expect(key(rehydrated)).toBe(key(live))
+  })
+
   it('(a) a conflict that arose before "restart" and was never resolved IS present in the rehydrated list', () => {
     const parentOp = appendOp(db, {
       entity: 'template_slots',

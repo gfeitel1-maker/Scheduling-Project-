@@ -3,6 +3,7 @@ import { S, useEnterTransition } from '../styles/shared'
 import { CircleCheckIcon, LockIcon } from '../components/icons'
 import { usePendingConflicts } from '../hooks/usePendingConflicts'
 import { noticeForStatus } from './conflictsNotice'
+import { activitySideText } from './conflictSideCopy'
 import { DOW } from './setup/setupHelpers'
 import { SETUP_MAX_WIDTH } from '../components/setup/SetupScreenShell'
 
@@ -24,6 +25,10 @@ const FIELD_LABELS = {
   'template_slots.activity_id': "Which activity is in a cell",
   'template_slots.group_id': "Which group a cell belongs to",
   'template_slots.locked': "Whether a cell was held in place",
+  // T264. The other two things a lock and a regeneration disagree about
+  // (source, solver_generation) never reach this screen: reconcile.js folds
+  // them into this card, and the run screen carries the one Restore item.
+  'elective_assignments.activity_id': 'Which elective a camper is placed in',
   // M6 (D3, docs/adr/2026-08-16-locations-optional-map.md): the generic
   // String(side.value) branch below would dump ~700KB of unreadable base64
   // text for this field — same sentinel shape as '__PIN__', a signal to
@@ -89,7 +94,7 @@ function relativeTime(timestamp) {
   return `${day} day${day !== 1 ? 's' : ''} ago`
 }
 
-function ChoiceBox({ side, label, isPin, isImage, disabled, onKeep }) {
+function ChoiceBox({ side, label, text, isPin, isImage, disabled, onKeep }) {
   const [hover, setHover] = useState(false)
   return (
     <div
@@ -113,7 +118,7 @@ function ChoiceBox({ side, label, isPin, isImage, disabled, onKeep }) {
         />
       ) : (
         <div style={{ fontSize: 13.5, color: 'var(--text)', lineHeight: 1.5, margin: '10px 0' }}>
-          {String(side.value)}
+          {text ?? String(side.value)}
         </div>
       )}
 
@@ -194,7 +199,7 @@ function UniqueConflictCard({ conflict, onNavigate }) {
   )
 }
 
-function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
+function ConflictCard({ conflict, resolved, resolveAuthorLabel, resolveActivityName, onResolve }) {
   const [resolving, setResolving] = useState(false)
   const [collapsing, setCollapsing] = useState(false)
   const [errorNotice, setErrorNotice] = useState(null)
@@ -217,6 +222,8 @@ function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
 
   const labelA = resolveAuthorLabel(conflict.sideA)
   const labelB = resolveAuthorLabel(conflict.sideB)
+  const isActivityPick = conflict.entity === 'elective_assignments' && conflict.field === 'activity_id'
+  const textOf = (side) => (isActivityPick ? activitySideText(side, resolveActivityName) : undefined)
   const confirmedSide = resolved ? (resolved.side === 'A' ? labelA : labelB) : null
 
   // Purely-local visual collapse timer, re-derived from `resolved` (shared
@@ -304,8 +311,8 @@ function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
             </div>
           )}
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-            <ChoiceBox side={conflict.sideA} label={labelA} isPin={isPin} isImage={isImage} disabled={resolving} onKeep={() => keep('A')} />
-            <ChoiceBox side={conflict.sideB} label={labelB} isPin={isPin} isImage={isImage} disabled={resolving} onKeep={() => keep('B')} />
+            <ChoiceBox side={conflict.sideA} label={labelA} text={textOf(conflict.sideA)} isPin={isPin} isImage={isImage} disabled={resolving} onKeep={() => keep('A')} />
+            <ChoiceBox side={conflict.sideB} label={labelB} text={textOf(conflict.sideB)} isPin={isPin} isImage={isImage} disabled={resolving} onKeep={() => keep('B')} />
           </div>
         </>
       )}
@@ -316,7 +323,7 @@ function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
 export default function ConflictsScreen({ pendingConflicts, onNavigate }) {
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const fallback = pendingConflicts ? null : usePendingConflicts()
-  const { conflicts, loading, resolveConflict, resolveAuthorLabel, resolvedMeta } = pendingConflicts ?? fallback
+  const { conflicts, loading, resolveConflict, resolveAuthorLabel, resolveActivityName, resolvedMeta } = pendingConflicts ?? fallback
   const enterStyle = useEnterTransition('liftFade')
 
   return (
@@ -354,6 +361,7 @@ export default function ConflictsScreen({ pendingConflicts, onNavigate }) {
                 conflict={c}
                 resolved={resolvedMeta ? resolvedMeta[c.id] : null}
                 resolveAuthorLabel={resolveAuthorLabel}
+                resolveActivityName={resolveActivityName}
                 onResolve={resolveConflict}
               />
             )

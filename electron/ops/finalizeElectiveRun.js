@@ -7,6 +7,7 @@
 // finalize at all.
 import { randomUUID } from 'node:crypto'
 import { appendOp, runAtomic } from './operations.js'
+import { deriveLockedSeatOverwrittenFindings } from './lockedSeatOverwrittenFinding.js'
 import { deriveElectiveRunOuterSnapshotId } from './deriveElectiveRunOuterSnapshotId.js'
 import { deriveElectiveRunOuterRows } from './electiveRunOuterSchedule.js'
 import { deriveOccurrences } from '../../src/screens/elective/assignment/deriveOccurrences.js'
@@ -24,6 +25,7 @@ import { computeExpectedSnapshotDigestByCamper } from './electiveRunSnapshotComp
 /**
  * @returns {{ok:true, finalizedAt:string, snapshotRows:number}
  *  | {ok:false, error:'ALREADY_FINAL'}
+ *  | {ok:false, error:'LOCKED_SEATS_OVERWRITTEN', findings:Array}
  *  | {ok:false, error:'STALE_OUTER_SCHEDULE', findings:Array}
  *  | {ok:false, error:'OUTER_RESOURCE_CONFLICT', findings:Array}
  *  | {ok:false, error:string}}
@@ -42,6 +44,11 @@ export function finalizeElectiveRun(db, { runId, authorUserId = null, deviceId }
   // OUTER_RESOURCE_CONFLICT/ALREADY_FINAL, which each drive a specific UI
   // action. Matches commitElectiveRun.js's own refusal-string precedent.
   if (recordedOccurrences.length === 0) return { ok: false, error: 'run has no assignments' }
+
+  // T264 — a lock that lost to a regeneration is the director's decision not
+  // yet honoured; finalizing would freeze the solver's placement over it.
+  const overwrittenLocks = deriveLockedSeatOverwrittenFindings(db, runId, run.solver_generation)
+  if (overwrittenLocks.length > 0) return { ok: false, error: 'LOCKED_SEATS_OVERWRITTEN', findings: overwrittenLocks }
 
   // 1. Re-derive occurrences live from template_slots and diff against what
   // the run recorded (deriveOccurrences.js — the same pure derivation the
