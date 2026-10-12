@@ -222,7 +222,7 @@ export default function LearnedScreen({ campId }) {
             const answers = shown.filter((r) => r.rowKind === 'answer')
             const panelId = `learned-group-${g.key}`
             const rowProps = (row) => ({
-              row, canWrite: data.canWrite === true, api, flash: flashes[row.id], campChangedFlag: changedFlag(row),
+              row, canWrite: data.canWrite === true && !row.readOnly, api, flash: flashes[row.id], campChangedFlag: changedFlag(row),
               onLinger, onChanged, onStale: () => load(true), announce: setAnnouncement,
             })
             return (

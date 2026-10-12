@@ -1,7 +1,7 @@
 ---
 title: "Stage 4 — a synthetic shape-parameterised import corpus and the two acceptance numbers"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-27
 task_class: test-infrastructure
 archive_when: "a shape-parameterised generator emits every observed and plausible shape class with a test that FAILS if a class is uncovered; every camper name in the corpus provably comes from a committed synthetic name list, asserted by a test, and no file derived from a real camp's filled-in responses is committed in any format; the corpus includes re-import and drifted-re-import cases; and the correct-binding rate and the silent-miss rate are both reported from tests that enter at file bytes and assert at the database, with the silent-miss number covering remembered bindings as well as freshly proposed ones and labelled device-local unless the journal is deliberately aggregated"
@@ -68,3 +68,5 @@ specified.
 **Metric 2's construction is now explicit (ADR §13.5):** published over pages where check 3 was
 AVAILABLE, **plus an explicit count of UNMEASURED pages**. An untiered-camper page is unmeasured, never
 passing — otherwise a design could raise the measured rate by pushing pages into a silent denominator.
+
+**COMPLETED 2026-10-11 (batched with T280).** `test/fixtures/preference-corpus/shapeCorpus.js` generates every declared shape class (A to G and NEW; H declared excluded) with ground truth, from the committed synthetic name list. `electron/preferenceCorpusAcceptance.integration.test.js` asserts class coverage (fails on an uncovered or undeclared class), asserts every camper name is synthetic, and runs 43 cases (40 shape cases across csv/tsv/xlsx and two sizes, plus same-bytes and drifted re-import) from file bytes through `runPreferenceSheetCli` into a fresh camp, judging the database against the truth. Measured, device-local: **correct-binding 41/43, silent-miss 0/43** (baseline 7/33). Two root fixes the corpus found: a TSV whose cells hold commas was sniffed as CSV (`readWorkbookSafely` now decides the separator from the header line), and an offerings menu packing its options into one cell was read as a camper's planner (`detectGridLayout` counts options inside the cell). The two remaining LOUD cases are a camper who ranked nothing, skipped and reported. Not done here: the ~500-camper scale and the coordinate-resolver (template + tiered groups) probes of round 6.

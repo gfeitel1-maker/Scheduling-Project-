@@ -238,13 +238,25 @@ export function detectGridLayout(rows = [], headerIndex = 0) {
     }
   })
   const widths = [...spans.values()].map((c) => c.length)
-  const optionsPerCoordinate = widths.length > 0 ? Math.max(...widths) : 1
+  const columnArity = widths.length > 0 ? Math.max(...widths) : 1
 
   // The first column must label the periods on at least one row under the header,
   // or this is not a grid keyed by period and nothing here should claim it is.
   const body = rows.slice(headerIndex + 1)
   const labelled = body.filter((r) => PERIOD_IN_HEADER.test(String(r?.[0] ?? '').trim()))
   if (labelled.length === 0) return null
+
+  // ARITY INSIDE THE CELL, as well as across sub-columns (T282). A menu may pack its options into
+  // ONE cell per (day, period) ("Basketball, Drama"), and counting columns alone read that as a
+  // camper's planner and minted a child from a document that names none. Only when MOST filled
+  // cells are packed: one packed cell on a planner is a question about that cell (AMBIGUOUS_PACKED_CELL),
+  // not evidence the page is a menu.
+  const dayIndexes = [...spans.values()].flat()
+  const filled = labelled.flatMap((r) => dayIndexes.map((i) => String(r?.[i] ?? '').trim()).filter(Boolean))
+  const counts = filled.map((c) => c.split(PACKED_CELL_SPLIT).filter((p) => p.trim()).length)
+  const packed = counts.filter((n) => n > 1)
+  const cellArity = filled.length > 0 && packed.length * 2 > filled.length ? Math.min(...packed) : 1
+  const optionsPerCoordinate = Math.max(columnArity, cellArity)
 
   return {
     periodIndex: 0,

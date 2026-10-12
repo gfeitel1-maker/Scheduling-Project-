@@ -14,6 +14,9 @@ const GROUPS = [
   { key: 'exclusion', label: 'All camp except...', qkinds: ['exclusion'] },
   { key: 'value', label: 'Values', qkinds: ['value', 'drift_ack'] },
   { key: 'split', label: 'Splits and merges', qkinds: ['split', 'merge'] },
+  // T280 — the elective preference import's questions: what a sheet's label means, and which column is which.
+  { key: 'pref_label', label: 'Elective sheet labels', qkinds: ['pref_label'] },
+  { key: 'pref_columns', label: 'Elective sheet columns', qkinds: [] },
 ]
 const OTHER_GROUP = { key: 'other', label: 'Other' }
 export const GROUP_LABELS = [...GROUPS, OTHER_GROUP].map((g) => ({ key: g.key, label: g.label }))
@@ -24,6 +27,7 @@ const VERDICT_TEXT = {
   split: { accept: 'Split into two', decline: 'Kept as one' },
   merge: { accept: 'Merged', decline: 'Kept separate' },
   residue: { added: 'Added as new', mapped: 'Mapped to an existing one', ignored: 'Ignored' },
+  pref_label: { mapped: 'Read as an activity', split: 'Read as separate choices', added: 'Added as an activity' },
 }
 
 // What a director can pick when changing an answer. Mirrors VERDICTS in answerMemory.js with
@@ -84,6 +88,7 @@ function joinNames(names, total) {
 
 function answerText(a) {
   if (a.qkind === 'classify' || a.qkind === 'exclusion') return a.label
+  if (a.qkind === 'pref_label' && a.verdict === 'mapped' && a.activity) return `Read as ${a.activity}`
   return VERDICT_TEXT[a.qkind]?.[a.verdict] ?? a.label ?? a.verdict
 }
 
@@ -148,8 +153,26 @@ function patternRow(p, byId, viewerUserId, canWrite) {
   }
 }
 
+// A confirmed column layout (T280): read-only here. It is recalled by the import panel, which pre-fills
+// it for the director to confirm or correct, and correcting it there is how it changes.
+function layoutRow(l, viewerUserId) {
+  const author = authorOf(l, viewerUserId)
+  const date = shortDate(l.confirmed_at)
+  const roles = [`name in \u201c${l.name}\u201d`, l.division ? `division in \u201c${l.division}\u201d` : null, l.externalId ? `id in \u201c${l.externalId}\u201d` : null]
+    .filter(Boolean)
+  const ranks = l.ranks.length > 0 ? `, choices in ${l.ranks.map((h) => `\u201c${h}\u201d`).join(', ')}` : ''
+  return {
+    rowKind: 'answer', id: l.id, qkind: 'pref_columns', verdict: null, names: [l.name, ...l.ranks],
+    title: `Columns: ${roles.join(', ')}${ranks}`,
+    why: `${sentenceCase(author.text)} confirmed this layout on ${date}. A sheet with these headers arrives filled in.`,
+    who: `Confirmed by ${author.text} on ${date}`,
+    flag: { text: 'Remembered', tone: 'success' }, asRecorded: false, canKeep: false, readOnly: true,
+    choices: [], confirmed_at: l.confirmed_at, camp_shape: null,
+  }
+}
+
 export function buildLearnedGroups(data) {
-  const { answers = [], patterns = [], viewerUserId = null } = data
+  const { answers = [], patterns = [], columnLayouts = [], viewerUserId = null } = data
   const canWrite = data.canWrite === true
   const byId = new Map(answers.map((a) => [a.id, a]))
   const keyOf = (qkind) => (GROUPS.find((g) => g.qkinds.includes(qkind)) ?? OTHER_GROUP).key
@@ -157,6 +180,7 @@ export function buildLearnedGroups(data) {
   const at = (qkind) => out.find((g) => g.key === keyOf(qkind))
   for (const p of patterns) at(p.qkind).patterns.push(patternRow(p, byId, viewerUserId, canWrite))
   for (const a of answers) at(a.qkind).answers.push(answerRow(a, viewerUserId, canWrite))
+  for (const l of columnLayouts) out.find((g) => g.key === 'pref_columns').answers.push(layoutRow(l, viewerUserId))
   for (const g of out) {
     g.answers.sort((a, b) => (a.confirmed_at < b.confirmed_at ? 1 : a.confirmed_at > b.confirmed_at ? -1 : 0))
     g.count = g.patterns.length + g.answers.length

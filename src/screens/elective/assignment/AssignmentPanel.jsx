@@ -15,7 +15,7 @@ import { detectWholeSheetGrid, inferPreferenceLayout, hasContradictoryRanks } fr
 import { residueIsDecision } from '../../../ingest/residueKinds.js'
 import { importEventRunName } from '../../../ingest/importEventRunName.js'
 import { recallColumnMapping, bindingFromMapping } from '../../../ingest/mappingSeedling.js'
-import { proposeActivityMatch, resolutionMap, RESOLUTION } from '../../../ingest/labelResolutions.js'
+import { proposeActivityMatch, resolutionMap, RESOLUTION, resolutionFromRecall, labelAnswerEntries } from '../../../ingest/labelResolutions.js'
 import { journalEntriesFor } from '../../../ingest/decisionJournal.js'
 import {
   buildPreferenceCatalog,
@@ -289,6 +289,31 @@ function answersFor(decisions, resolutions) {
   return answers
 }
 
+// T280 — THE COLUMN BINDING, journalled as a question like the labels: what the inferencer (or the
+// camp's remembered layout) proposed, and what the director confirmed. Roles by header TEXT, never by
+// index, so two imports of one form compare. Only presented when the corrector was shown: a planner
+// grid goes straight to the parse and asks nothing about columns.
+function axisRoles(m, header = []) {
+  if (!m) return null
+  const at = (i) => (i == null ? null : String(header[i] ?? '').trim() || null)
+  return {
+    name: at(m.nameIndex), externalId: at(m.externalIdIndex), division: at(m.divisionIndex),
+    ranks: (m.rankColumns ?? []).map((r) => `${r.rank}:${at(r.index) ?? ''}`),
+  }
+}
+
+function axisDecision(proposedMapping, chosenMapping, header, recalledFromId) {
+  const proposed = axisRoles(proposedMapping, header)
+  const chosen = axisRoles(chosenMapping, header)
+  if (!proposed || !chosen) return null
+  const same = JSON.stringify(proposed) === JSON.stringify(chosen)
+  const decision = { id: 'axis_binding', kind: 'axis_binding', entityName: null, proposal: proposed }
+  const answer = { action: same ? 'confirmed' : 'corrected', value: chosen }
+  // Confirming a layout the camp remembered is learning from that memory.
+  if (recalledFromId && same) Object.assign(decision, { recallShown: true, recalled: { memoryId: recalledFromId, answer } })
+  return { decision, answer }
+}
+
 // Reads the raw header+rows out of an uploaded file. A preference sheet is a
 // flat table (name/id/division/rank columns), not a day x time-block grid, so
 // this deliberately does NOT reuse workbookToPages/parseGridSchedule (the
@@ -359,6 +384,13 @@ export default function AssignmentPanel({
   // the mapping was inferred. Drives the "remembered" line on the corrector; a
   // director confirming a memory should know that is what they are confirming.
   const [recalledFromId, setRecalledFromId] = useState(null)
+  // T280 — what the corrector PROPOSED (inferred, or recalled), kept so the journal can record whether
+  // the director took it. Null when no corrector was shown (a planner grid).
+  const [proposedMapping, setProposedMapping] = useState(null)
+  // T280 — EVERY label question this import presented, across its re-parses. A label the director
+  // settles stops being residue on the next parse, so reading the questions off the FINAL parse
+  // journalled only the ones left unanswered and dropped every answer.
+  const presentedRef = useRef(new Map())
   const [sourceLabel, setSourceLabel] = useState(null)
   const [submissionKey, setSubmissionKey] = useState(null)
   const [arrivalId, setArrivalId] = useState(null)
@@ -556,6 +588,7 @@ export default function AssignmentPanel({
       }
       setRows(fileRows)
       setUnreadSheets(selection.unread)
+      presentedRef.current = new Map()
       // WHAT IDENTIFIES A PROVISIONAL SUBJECT: the SUBMISSION, never the file name.
       // Keying on the name merged two real children whose planners were both
       // exported as `planner.csv`. The label is kept for the director to recognise;
@@ -603,6 +636,7 @@ export default function AssignmentPanel({
       }
       setMapping(recalled ?? inferred)
       setRecalledFromId(recalled?.recalledFromId ?? null)
+      setProposedMapping(recalled ?? inferred)
       // T305 — A SHEET THAT IS NOTHING BUT A PLANNER GRID HAS NOTHING TO CORRECT, so it
       // is not asked about. A child's own planner has no camper-name column and no rank
       // columns BY DESIGN (ADR §14.1a: the identity comes from the submission, and the
@@ -617,6 +651,7 @@ export default function AssignmentPanel({
       // re-parse the PREVIOUS sheet — an empty one on the first import, which would look
       // like a clean no-op rather than a failure.
       if (detectWholeSheetGrid(fileRows, inferred)) {
+        setProposedMapping(null)
         confirmMapping([], resolutions, {
           rows: fileRows, sourceLabel: label, submissionKey: key, arrivalId: arrival,
           unreadSheets: selection.unread,
@@ -784,11 +819,44 @@ export default function AssignmentPanel({
     // so the workbook-level fact reads before the row-level ones, as on the CLI.
     setParsed(sheetUnread.length > 0 ? { ...result, residue: [...sheetUnread, ...result.residue] } : result)
     setPhase('parsed')
+    for (const d of presentedDecisions(result, activityNames)) if (!presentedRef.current.has(d.id)) presentedRef.current.set(d.id, d)
+    if (!sheet.skipRecall) {
+      recallRememberedLabels(result, resolutionList, extraActivities, {
+        rows: sheetRows, sourceLabel: sheetLabel, submissionKey: sheetKey, arrivalId: sheetArrival,
+        mapping: sheetMapping, unreadSheets: sheetUnread,
+      })
+    }
     setAnnouncement(
       result.sameNameCampers.length > 0 || hasContradictoryRanks(result)
         ? 'This sheet cannot be assigned yet.'
         : `Parsed ${result.campers.length} campers, ${result.preferences.length} preferences.`
     )
+  }
+
+  // T280 — LABELS THIS CAMP ANSWERED BEFORE are settled from its answer memory, so the same sheet
+  // imported again asks nothing already answered. Asked once per parse, for the labels still
+  // unresolved; what comes back is replayed as the resolution itself and the sheet re-parsed, with the
+  // row saying where it came from. Best-effort: a memory that cannot be read leaves the question asked,
+  // which is where recall must always fail (ADR 2026-10-11 Invariant 3).
+  async function recallRememberedLabels(result, resolutionList, extraActivities, sheet) {
+    try {
+      const settledLabels = new Set(resolutionList.map((r) => r.label))
+      const asked = presentedDecisions(result, activityNames).filter((d) => !settledLabels.has(d.entityName))
+      if (asked.length === 0 || !localClient.matchImportAnswers) return
+      const recall = await localClient.matchImportAnswers({
+        others: asked.map((d) => ({ id: d.id, qkind: 'pref_label', name: d.entityName })),
+      })
+      const names = [...activityNames, ...extraActivities.map((a) => a?.name).filter(Boolean)]
+      const replayed = asked
+        .map((d) => resolutionFromRecall(d.entityName, recall?.[d.id], { activityNames: names, packed: d.kind === 'resolve_packed_cell' }))
+        .filter(Boolean)
+      if (replayed.length === 0) return
+      const next = [...resolutionList, ...replayed]
+      setResolutions(next)
+      confirmMapping(extraActivities, next, { ...sheet, skipRecall: true })
+    } catch {
+      // Not recalled: the questions stay asked.
+    }
   }
 
   // H1 — the runId is minted HERE, once per solve, and used to derive
@@ -1271,12 +1339,35 @@ export default function AssignmentPanel({
       // ones a later learning slice needs most: a question nobody ever answers is a
       // question not worth asking. Best-effort and never blocking, the same posture
       // as ReconciliationScreen's call — a committed run must stay committed.
+      const importId = crypto.randomUUID()
       try {
-        const presented = presentedDecisions(parsed, activityNames)
-        const entries = journalEntriesFor(presented, answersFor(presented, resolutions), crypto.randomUUID())
+        // Plus whatever the final parse still shows (a run resumed from a draft has no earlier parses).
+        for (const d of presentedDecisions(parsed, activityNames)) if (!presentedRef.current.has(d.id)) presentedRef.current.set(d.id, d)
+        const presented = [...presentedRef.current.values()]
+        const answers = answersFor(presented, resolutions)
+        // T280 — a label settled from memory is journalled as learned from that memory.
+        const byLabel = resolutionMap(resolutions)
+        const journalled = presented.map((d) => {
+          const memoryId = byLabel[d.entityName]?.remembered?.memoryId
+          return memoryId && answers[d.id] ? { ...d, recallShown: true, recalled: { memoryId, answer: answers[d.id] } } : d
+        })
+        const axis = axisDecision(proposedMapping, mapping, rows?.[mapping?.headerIndex ?? 0] ?? [], recalledFromId)
+        if (axis) {
+          journalled.push(axis.decision)
+          answers[axis.decision.id] = axis.answer
+        }
+        const entries = journalEntriesFor(journalled, answers, importId)
         if (entries.length > 0) await localClient.recordImportDecisions({ entries })
       } catch {
         /* diagnostics only — never surfaced, never blocking */
+      }
+      // T280 — the labels the director settled THIS import go into the camp's answer memory, so the
+      // next import of this sheet asks nothing already answered. Best-effort, like the journal.
+      try {
+        const remembered = labelAnswerEntries(resolutions)
+        if (remembered.length > 0) await localClient.rememberImportAnswers?.({ importId, entries: remembered })
+      } catch {
+        /* not remembered: the question is asked again next time, as before */
       }
       setDanglingFindings(out.findings ?? [])
       setCommittedInfo({ runId: out.runId, camperCount: out.counts.campers, occurrenceCount: occurrences.length })

@@ -358,6 +358,19 @@ describe('readWorkbookRows — one reader for every door (T313)', () => {
     expect(sheets[0].rows).toEqual([['Period', 'Monday'], ['Period 1', 'Archery']])
   })
 
+  // T282 — found by the shape corpus: a TSV whose cells hold commas (an unordered set, "Swim, Archery,
+  // Ceramics") was sniffed as CSV, so every row split on the commas and the tabs stayed inside cells.
+  // The import then read no choices at all, from a file a person reads at a glance.
+  it('reads a TSV whose cells contain commas as TSV, not as CSV', () => {
+    const sheets = readWorkbookRows(bytesOf('Camper Name\tActivities Chosen\nAri Feldspar\tSwim, Archery, Ceramics\n'), { type: 'array' })
+    expect(sheets[0].rows).toEqual([['Camper Name', 'Activities Chosen'], ['Ari Feldspar', 'Swim, Archery, Ceramics']])
+  })
+
+  it('still reads a CSV whose quoted cells contain tabs as CSV', () => {
+    const sheets = readWorkbookRows(bytesOf('Camper Name,Notes\nAri Feldspar,"a\tb"\n'), { type: 'array' })
+    expect(sheets[0].rows).toEqual([['Camper Name', 'Notes'], ['Ari Feldspar', 'a\tb']])
+  })
+
   it('does NOT trim cells — trimming here would be a second rule', () => {
     // `cell()` in src/ingest/preferenceSheet.js trims every value it reads and the
     // layout detectors trim every header, so a trim here would change nothing except

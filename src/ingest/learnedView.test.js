@@ -225,3 +225,30 @@ describe('progressLine past the bar', () => {
   })
 })
 
+
+// T280 — the elective preference import's answers appear in the view under their own labels.
+describe('elective sheet answers in the learned view', () => {
+  const at = '2026-10-01T10:00:00.000Z'
+  it('a remembered label reads as the activity it means', () => {
+    const groups = buildLearnedGroups({
+      viewerUserId: 'u1', canWrite: true,
+      answers: [{ id: 'm1', qkind: 'pref_label', role: 'instance', name: 'Quidditch', verdict: 'mapped', activity: 'Archery', confirmed_at: at, confirmed_by: 'u1' }],
+    })
+    const g = groups.find((x) => x.key === 'pref_label')
+    expect(g.label).toBe('Elective sheet labels')
+    expect(g.answers[0].title).toBe('Quidditch: Read as Archery')
+  })
+
+  it('a confirmed column layout is listed read-only, by header text', () => {
+    const groups = buildLearnedGroups({
+      viewerUserId: 'u1', canWrite: true,
+      columnLayouts: [{ id: 's1', name: 'Camper', division: 'Bunk', externalId: null, ranks: ['Pick A', 'Pick B'], confirmed_at: at, confirmed_by: 'u1', confirmedByName: 'Dana' }],
+    })
+    const g = groups.find((x) => x.key === 'pref_columns')
+    expect(g.label).toBe('Elective sheet columns')
+    expect(g.answers[0]).toMatchObject({
+      title: 'Columns: name in “Camper”, division in “Bunk”, choices in “Pick A”, “Pick B”',
+      readOnly: true, choices: [],
+    })
+  })
+})

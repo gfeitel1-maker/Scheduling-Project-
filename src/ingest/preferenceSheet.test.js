@@ -5,6 +5,7 @@
 // repo, and none may be added.
 import { describe, it, expect } from 'vitest'
 import {
+  detectGridLayout,
   hasContradictoryRanks,
   inferPreferenceLayout,
   inferPreferenceMapping,
@@ -538,5 +539,27 @@ describe('a bundle name in the catalogue', () => {
     )
     expect(residue.filter((r) => r.kind === 'UNRESOLVED_CHOICE_LABEL')).toEqual([])
     expect(preferences.map((p) => p.label)).toEqual(['Ropes Intensive'])
+  })
+})
+
+// T282 — found by the shape corpus: an offerings menu that packs its options into ONE cell per
+// (day, period) ("Basketball, Drama") had arity 1 by column count, so it read as a camper's own
+// planner and minted an unattributed camper from a document that names no child.
+describe('detectGridLayout — a menu told from a planner by what its cells hold', () => {
+  const menu = [
+    ['Period', 'Monday', 'Tuesday', 'Wednesday'],
+    ['Period 1', 'Basketball, Drama', 'Drama, Nature', 'Gaga, Dance'],
+    ['Period 2', 'Swim, Archery', 'Soccer, Tennis', 'Yoga, Music'],
+  ]
+  it('counts packed options per coordinate, so a packed menu is a menu', () => {
+    expect(detectGridLayout(menu, 0).optionsPerCoordinate).toBe(2)
+  })
+  it('keeps a planner with one packed cell a planner (the packed cell stays a question)', () => {
+    const planner = [
+      ['Period', 'Monday', 'Tuesday', 'Wednesday'],
+      ['Period 1', 'Basketball', 'Drama, Nature', 'Gaga'],
+      ['Period 2', 'Swim', 'Soccer', 'Yoga'],
+    ]
+    expect(detectGridLayout(planner, 0).optionsPerCoordinate).toBe(1)
   })
 })
