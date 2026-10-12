@@ -89,7 +89,7 @@ describe('RootMap domain layers', () => {
 // whole-camp "open and waiting" moment replaces the domain stack only when
 // every domain has zero children, and disappears the instant any one does.
 describe('RootMap whole-camp empty state', () => {
-  it('shows the forest-circle open-and-waiting moment when every domain is empty', () => {
+  it('shows the sprout mark open-and-waiting moment when every domain is empty', () => {
     const allEmptyModel = {
       domains: [
         { key: 'Structure', label: 'Structure', state: 'absent', children: [] },
@@ -108,6 +108,7 @@ describe('RootMap whole-camp empty state', () => {
       />,
     )
     expect(screen.getByText(/Nothing imported yet/)).toBeTruthy()
+    expect(document.querySelector('img[alt=""]').getAttribute('src')).toMatch(/173B63/i) // the sprout mark's navy (Vite inlines the SVG as a data URI)
     expect(screen.getByAltText('')).toBeTruthy()
     // Per-domain teaching notes don't also render underneath the whole-camp moment.
     expect(screen.queryByText(/No entities imported yet — this layer has no root\./)).toBeNull()

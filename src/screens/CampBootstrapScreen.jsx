@@ -2,7 +2,7 @@ import { useState } from 'react'
 import AuthWatermark from '../components/AuthWatermark'
 import { S, useEnterTransition } from '../styles/shared'
 import { WarningTriangleIcon } from '../components/icons'
-import forestCircle from '../assets/brand/forest-circle.png'
+import sproutMark from '../assets/brand/sprout-mark.svg'
 
 export default function CampBootstrapScreen({ onBack, onSubmit }) {
   const badgeEnter = useEnterTransition('liftFade')
@@ -43,7 +43,7 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
         </div>
 
         <img
-          src={forestCircle}
+          src={sproutMark}
           alt=""
           style={{ width: 64, height: 64, display: 'block', margin: '0 auto 14px', ...badgeEnter }}
         />

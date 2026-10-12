@@ -21,13 +21,14 @@ So the kit is split in two:
 | File | Rendered by | Largest display size |
 |---|---|---|
 | `tree-full-wide-login.png` | `LoginScreen` hero | 420px wide |
-| `forest-circle.png` | `CampBootstrapScreen` (64px), `RootMap` empty state (140px) | 140px |
+| `sprout-mark.svg` | `CampBootstrapScreen` (64px), `RootMap` empty state (140px) | vector |
 | `root-pattern-bg.jpg` | `ModeSelectScreen` background | tiled |
 | `root-system-celebration.png` | _(currently unused)_ | — |
 | `icons/decorative-sprout.png` | `SeedScreen` mark | — |
 
-`forest-circle.png` was 1200x1098 and 2.2MB against a 140px maximum; it is 280x256 and
-144KB now. That is the rule below, applied — and the mistake it exists to prevent.
+`sprout-mark.svg` is the app's own mark: the favicon's gold sprout on a navy disc, the same design as
+the app icon (`build/icon.png`). It replaced the painted `forest-circle.png` (T374), and as flat art
+it is vector rather than raster, so the raster rule below does not apply to it.
 
 ## The rule for adding one
 

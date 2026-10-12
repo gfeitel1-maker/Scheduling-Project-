@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { prefersReducedMotion, useEnterTransition } from '../../styles/shared'
 import { DOMAIN_LABELS } from './domainRollup.js'
 import { CONFIDENCE_COPY, plainEvidenceSentence } from './reconciliationCards.jsx'
-import forestCircle from '../../assets/brand/forest-circle.png'
+import sproutMark from '../../assets/brand/sprout-mark.svg'
 import { tileStates, isTileSelected, isNodeSelection } from './selectionModel.js'
 
 // RootMap — foundation-first stacked layout, replacing the SVG orb/backdrop
@@ -296,7 +296,7 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
       <div style={styles.domainStack}>
         {wholeCampEmpty ? (
           <div style={{ ...styles.wholeCampEmpty, ...wholeCampEnter }}>
-            <img src={forestCircle} alt="" style={styles.wholeCampEmptyIcon} />
+            <img src={sproutMark} alt="" style={styles.wholeCampEmptyIcon} />
             <div style={styles.wholeCampEmptyBody}>
               Nothing imported yet — bring in your roster to get started.
             </div>
