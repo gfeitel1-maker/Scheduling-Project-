@@ -266,7 +266,7 @@ export async function run(h) {
     return note
   })
 
-  await step(10, 'Undo then re-import: the fixed and recurring events come back exactly', async () => {
+  await step(10, 'Undo then re-import: the fixed and recurring events, and the elective bundles, come back exactly', async () => {
     // A Replace cannot be undone, so the undone import is a Keep import of campB on top of s07.
     // Reference run: Replace s07, Keep campB, snapshot. Test run: the same, Undo, re-import, snapshot.
     await importFile(S07, { replace: true }); await done()
@@ -284,7 +284,25 @@ export async function run(h) {
     const undoLeft = diff(base, afterUndo), reimport = diff(ref, again)
     const note = `undo "${undone}": ${undoLeft.length ? `NOT back to the pre-import state in ${undoLeft}` : 'back to the pre-import state'}; re-import ${reimport.length ? `DIFFERS from the reference in ${reimport}: ref=${JSON.stringify(reimport.map((k) => ref[k]))} got=${JSON.stringify(reimport.map((k) => again[k]))}` : `matches the reference (${ref.fixed.length} fixed, ${ref.recurring.length} recurring)`}`
     if (undoLeft.length || reimport.length || ref.fixed.length === 0) throw new Error(note)
-    return note
+    // The elective bundles (#961): undo a Keep import of the double-period file, re-import it, and
+    // the Electives screen must read exactly as it did after the first import.
+    const R9 = SYN('repro/r9-double-period-elective.txt')
+    try { featureIn(961, 'Elective bundles relink') } catch (e) { if (e.skip) return `${note}; bundles: ${e.skip}`; throw e }
+    if (!fs.existsSync(R9)) throw new Error(`${note}; ${R9} missing from this checkout (pull main)`)
+    const electives = async () => { await nav('Electives'); await sleep(800); return ev(`return __main().replace(/\\s+/g,' ').trim()`) }
+    await importFile(S07, { replace: true }); await done()
+    await importFile(R9); await done()
+    const e0 = await electives()
+    await importFile(S07, { replace: true }); await done()
+    await importFile(R9)
+    await click('Undo this import', true, 15000)
+    await waitFor(`return /Undo complete/.test(__main())`, 60000, 'undo result'); await done()
+    const eu = await electives()
+    await importFile(R9); await done()
+    const e1 = await electives()
+    const bnote = `${note}; bundles: first import ${/Pottery/.test(e0) ? 'shows' : 'does NOT show'} Pottery, after undo ${/Pottery/.test(eu) ? 'STILL shows' : 'gone'}, re-import ${e0 === e1 ? 'reads the same' : `DIFFERS: "${e0.slice(0, 300)}" vs "${e1.slice(0, 300)}"`}`
+    if (!/Pottery/.test(e0) || /Pottery/.test(eu) || e0 !== e1) throw new Error(bnote)
+    return bnote
   })
 
   await step(11, 'Double-period elective: imports as one cell, and Generate keeps it', async () => {
@@ -305,7 +323,7 @@ export async function run(h) {
     return note
   })
 
-  await step(12, 'Encryption disable through the UI: the app restarts by itself, the database is plain SQLite, data intact', async () => {
+  await step(12, 'Encryption disable through the UI: the app restarts by itself and signs everyone out, the database is plain SQLite, data intact', async () => {
     featureIn(960, 'At-rest encryption disable')
     const dbFiles = () => { const out = []; const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { if (!/Cache|GPU|blob_storage|backups?/i.test(e.name)) walk(p) } else if (/\.(db|sqlite3?)$/.test(e.name) && fs.statSync(p).size > 0) out.push(p) } }; try { walk(UD) } catch {} ; return out }
     const plain = (f) => { const b = Buffer.alloc(16); const fd = fs.openSync(f, 'r'); fs.readSync(fd, b, 0, 16, 0); fs.closeSync(fd); return b.toString('latin1') === 'SQLite format 3\0' }
@@ -326,8 +344,9 @@ export async function run(h) {
     const h1 = header()
     const changed = diff(snap0, snap1)
     const anyPlain = Object.values(h1).includes('plain')
-    const note = `"${said}"; relaunched in ${(ms / 1000).toFixed(1)}s, ${signedIn ? 'still signed in' : 'asked to sign in (the panel says it signs everyone out)'}; db before ${JSON.stringify(h0)} after ${JSON.stringify(h1)}; data ${changed.length ? `CHANGED in ${changed}` : 'intact'}`
-    if (changed.length || !anyPlain || Object.values(h0).includes('plain')) throw new Error(note)
+    // The panel copy is the spec: it restarts AND signs everyone out.
+    const note = `"${said}"; relaunched in ${(ms / 1000).toFixed(1)}s, ${signedIn ? 'came back STILL SIGNED IN (the panel says it signs everyone out)' : 'signed out as the panel says'}; db before ${JSON.stringify(h0)} after ${JSON.stringify(h1)}; data after signing back in ${changed.length ? `CHANGED in ${changed}` : 'intact'}`
+    if (signedIn || changed.length || !anyPlain || Object.values(h0).includes('plain')) throw new Error(note)
     return note
   })
 }
