@@ -158,6 +158,32 @@ describe('LocationsScreen', () => {
     expect(fieldsWritten).toEqual(expect.arrayContaining(['name', 'camp_id', 'capacity', 'notes']))
   })
 
+  // Design audit 2026-10-12 #1: the post-add reload refreshes in place. It used to set loading,
+  // which swapped the table (and the add row with it) for "Loading…" and dropped focus to <body>.
+  it('an Enter add keeps the same add row mounted and focused, with no Loading flash', async () => {
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
+    const input = screen.getByPlaceholderText('Pool')
+    const listCalls = localClient.list.mock.calls.length
+    // A real reload is an IPC round trip; an instant mock lets React batch loading on and off into
+    // one render and hides the flash.
+    const instant = localClient.list.getMockImplementation()
+    localClient.list.mockImplementation((...args) => new Promise((r) => setTimeout(() => r(instant ? instant(...args) : []), 30)))
+    let sawLoading = false
+    const obs = new MutationObserver(() => { if (screen.queryByText('Loading…')) sawLoading = true })
+    obs.observe(document.body, { childList: true, subtree: true })
+    input.focus()
+    fireEvent.change(input, { target: { value: 'Gym' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(localClient.list.mock.calls.length).toBeGreaterThan(listCalls))
+    await waitFor(() => expect(input.value).toBe(''))
+    obs.disconnect()
+    expect(sawLoading).toBe(false)
+    expect(input.isConnected).toBe(true)
+    expect(screen.getByPlaceholderText('Pool')).toBe(input)
+    expect(document.activeElement).toBe(input)
+  })
+
   it('the inline add row defaults capacity to 1 and writes it', async () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())

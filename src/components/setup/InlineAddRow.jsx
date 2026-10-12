@@ -41,6 +41,7 @@ function initialValues(fields) {
 // changedKey) -> values, for a default that follows another field.
 export default function InlineAddRow({ fields, onAdd, adding, trailingCells = null, disabled = false, validate, deriveValues }) {
   const rowRef = useRef()
+  const firstFieldRef = useRef()
   const [values, setValues] = useState(() => initialValues(fields))
 
   const flags = validate ? validate(values) : {}
@@ -54,10 +55,16 @@ export default function InlineAddRow({ fields, onAdd, adding, trailingCells = nu
     })
   }
 
-  async function commit() {
+  // `refocus`: an Enter or "+ Add" commit leaves the row ready for the next entry with focus in its
+  // first field (DESIGN_STANDARD §6a). A commit from tabbing out of the row leaves focus where the
+  // director moved it.
+  async function commit({ refocus = true } = {}) {
     if (!canAdd) return
     const ok = await onAdd(values)
-    if (ok) setValues(initialValues(fields))
+    if (ok) {
+      setValues(initialValues(fields))
+      if (refocus) firstFieldRef.current?.focus()
+    }
   }
 
   // Blur-to-commit, but only when focus leaves the row entirely (moving between
@@ -67,7 +74,7 @@ export default function InlineAddRow({ fields, onAdd, adding, trailingCells = nu
   function onRowBlur(e) {
     if (!canAdd) return
     if (rowRef.current && rowRef.current.contains(e.relatedTarget)) return
-    commit()
+    commit({ refocus: false })
   }
 
   function onKeyDown(e) {
@@ -80,10 +87,11 @@ export default function InlineAddRow({ fields, onAdd, adding, trailingCells = nu
       onBlur={onRowBlur}
       style={{ borderTop: '1px solid var(--border)', background: 'var(--bg)' }}
     >
-      {fields.map(field => (
+      {fields.map((field, i) => (
         <td key={field.key} style={S.td}>
           {field.type === 'select' ? (
             <select
+              ref={i === 0 ? firstFieldRef : undefined}
               value={values[field.key]}
               onChange={e => setValue(field.key, e.target.value)}
               onKeyDown={onKeyDown}
@@ -93,6 +101,7 @@ export default function InlineAddRow({ fields, onAdd, adding, trailingCells = nu
             </select>
           ) : (
             <input
+              ref={i === 0 ? firstFieldRef : undefined}
               type={field.type === 'time' ? 'time' : field.type === 'number' ? 'number' : 'text'}
               placeholder={field.placeholder}
               value={values[field.key]}
@@ -108,7 +117,7 @@ export default function InlineAddRow({ fields, onAdd, adding, trailingCells = nu
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button
           className="press-97"
-          onClick={commit}
+          onClick={() => commit()}
           disabled={!canAdd}
           style={canAdd ? { ...S.btnSecondary } : { ...S.btnSecondary, ...S.buttonDisabled }}
         >{adding ? 'Adding…' : '+ Add'}</button>

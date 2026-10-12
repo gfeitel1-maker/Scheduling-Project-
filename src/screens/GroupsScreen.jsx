@@ -185,8 +185,10 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
   useEffect(() => { load() }, [campId])
   useEffect(() => { loadExclusions() }, [weekId])
 
-  async function load() {
-    setLoading(true)
+  // A reload after a change is quiet: flipping `loading` swaps the table (and its add row) for a placeholder
+  // and drops focus to <body> after every add (design audit 2026-10-12 #1). Only the first load shows it.
+  async function load({ quiet = false } = {}) {
+    if (!quiet) setLoading(true)
     setError(null)
     try {
       const [gData, tData] = await Promise.all([
@@ -290,7 +292,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         tier_id: values.tier_id || null,
         availability: values.availability,
       })
-      await load()
+      await load({ quiet: true })
       return true
     } catch (err) {
       setError(
@@ -337,7 +339,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
   async function saveGroup(id, fields) {
     try {
       await repository.writeFields('groups', id, fields)
-      await load()
+      await load({ quiet: true })
     } catch (err) {
       setError(describeWriteFailure(err, 'That group could not be saved.'))
       throw err
@@ -383,7 +385,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         .filter(g => g.camp_id === campId)
         .map(g => g.id)
       const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('groups', ids)
-      await load()
+      await load({ quiet: true })
       if (failed > 0) {
         setError(
           failedDueToRole
@@ -505,7 +507,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
     }
     const { added, updated, stoppedAt } = await commitSetupImportBatch(repository, { batch, totalCount })
     setImportResult({ added, updated, unchanged, skipped, stoppedAt }); setImportStep('done')
-    setImporting(false); await load()
+    setImporting(false); await load({ quiet: true })
   }
 
   // Group by tier

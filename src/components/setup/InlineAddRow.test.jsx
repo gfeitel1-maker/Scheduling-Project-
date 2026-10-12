@@ -169,4 +169,38 @@ describe('InlineAddRow', () => {
     expect(document.querySelector('input[type="time"]')).not.toBeNull()
     expect(screen.getByDisplayValue('Morning')).not.toBeNull()
   })
+
+  // Design audit 2026-10-12 #1 (DESIGN_STANDARD §6a): after an Enter or "+ Add" commit the row is
+  // ready for the next entry, so focus returns to its first field instead of falling to <body>.
+  it('returns focus to the first field after a successful Enter commit', async () => {
+    renderRow()
+    const input = screen.getByPlaceholderText('Label (e.g. Monday)')
+    input.focus()
+    fireEvent.change(input, { target: { value: 'Thursday' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(input.value).toBe(''))
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('returns focus to the first field after a successful "+ Add" click', async () => {
+    renderRow()
+    const input = screen.getByPlaceholderText('Label (e.g. Monday)')
+    fireEvent.change(input, { target: { value: 'Thursday' } })
+    const add = screen.getByText('+ Add')
+    add.focus()
+    fireEvent.click(add)
+    await waitFor(() => expect(input.value).toBe(''))
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('a commit from tabbing out of the row does not pull focus back', async () => {
+    render(<><table><tbody><InlineAddRow fields={FIELDS} onAdd={vi.fn(() => Promise.resolve(true))} /></tbody></table><button>elsewhere</button></>)
+    const input = screen.getByPlaceholderText('Label (e.g. Monday)')
+    const elsewhere = screen.getByText('elsewhere')
+    fireEvent.change(input, { target: { value: 'Thursday' } })
+    elsewhere.focus()
+    fireEvent.blur(input, { relatedTarget: elsewhere })
+    await waitFor(() => expect(input.value).toBe(''))
+    expect(document.activeElement).toBe(elsewhere)
+  })
 })

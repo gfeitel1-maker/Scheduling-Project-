@@ -150,11 +150,13 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   // of leaving the screen stuck on "Loading…" forever.
   const showLoading = activeCohort ? loading : cohortsLoading
 
-  async function load() {
+  // A reload after a change is quiet: flipping `loading` swaps the table (and its add row) for a placeholder
+  // and drops focus to <body> after every add (design audit 2026-10-12 #1). Only the first load shows it.
+  async function load({ quiet = false } = {}) {
     if (!activeCohort) return
     const cohortIdAtStart = activeCohort.id
     const requestId = ++loadRequestRef.current
-    setLoading(true)
+    if (!quiet) setLoading(true)
     setError(null)
     try {
       const [tierData, groupData] = await Promise.all([
@@ -212,7 +214,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         cohort_id: activeCohort.id,
         sort_order: sortVal,
       })
-      await load()
+      await load({ quiet: true })
       return true
     } catch (err) {
       setError(
@@ -229,7 +231,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   async function saveTier(id, fields) {
     try {
       await repository.writeFields('tiers', id, fields)
-      await load()
+      await load({ quiet: true })
     } catch (err) {
       setError(describeWriteFailure(err, 'That age division could not be saved.'))
       throw err
@@ -253,7 +255,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         throw new Error('delete failed')
       }
       setPendingDelete(null)
-      await load()
+      await load({ quiet: true })
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
@@ -287,7 +289,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         .filter(t => t.camp_id === campId && t.cohort_id === activeCohort.id)
         .map(t => t.id)
       const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('tiers', ids)
-      await load()
+      await load({ quiet: true })
       if (failed > 0) {
         setError(
           failedDueToRole
@@ -406,7 +408,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       setError(describeWriteFailure(err, 'That import could not be completed.'))
       setImportStep(null); setImportRows([])
     } finally {
-      setImporting(false); await load()
+      setImporting(false); await load({ quiet: true })
     }
   }
 

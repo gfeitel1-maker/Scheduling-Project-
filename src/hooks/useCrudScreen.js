@@ -31,8 +31,11 @@ export function useCrudScreen({
   const [error, setError] = useState(null)
   const [adding, setAdding] = useState(false)
 
-  async function load() {
-    setLoading(true)
+  // Only the first load (and a change of entity/camp) shows "Loading…". A reload after a change
+  // refreshes the rows in place: flipping `loading` swapped the whole table, the add row with it,
+  // for a placeholder, which dropped focus to <body> after every add (design audit 2026-10-12 #1).
+  async function load({ quiet = false } = {}) {
+    if (!quiet) setLoading(true)
     setError(null)
     try {
       const data = await localClient.list(entity)
@@ -58,7 +61,7 @@ export function useCrudScreen({
       const id = crypto.randomUUID()
       const fields = buildCreateFields(formState)
       await repository.createRecord(entity, id, fields)
-      await load()
+      await load({ quiet: true })
       return true
     } catch (err) {
       setError(describeWriteFailure(err, addFailedText))
@@ -73,7 +76,7 @@ export function useCrudScreen({
   async function save(id, fields) {
     try {
       await repository.writeFields(entity, id, fields)
-      await load()
+      await load({ quiet: true })
     } catch (err) {
       setError(describeWriteFailure(err, saveFailedText))
       throw err
@@ -88,7 +91,7 @@ export function useCrudScreen({
       const freshRows = await localClient.list(entity)
       const ids = (freshRows || []).filter((row) => scopeFilter(row, campId)).map((row) => row.id)
       const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords(entity, ids)
-      await load()
+      await load({ quiet: true })
       if (failed > 0) {
         setError(
           failedDueToRole
@@ -155,9 +158,9 @@ export function useCrudScreen({
       seenRows.push({ id, ...fields })
     }
     const { added, updated, stoppedAt } = await commitSetupImportBatch(repository, { batch, totalCount: parsedRows.length })
-    await load()
+    await load({ quiet: true })
     return { added, updated, unchanged, skipped, stoppedAt }
   }
 
-  return { rows, loading, error, setError, adding, add, save, deleteAll, importRows, reload: load }
+  return { rows, loading, error, setError, adding, add, save, deleteAll, importRows, reload: () => load({ quiet: true }) }
 }

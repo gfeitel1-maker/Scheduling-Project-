@@ -255,8 +255,10 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
   const [adding, setAdding] = useState(false)
   const enterStyle = useEnterTransition('liftFade')
 
-  async function loadDays() {
-    setLoading(true)
+  // A reload after a change is quiet: flipping `loading` swaps the table (and its add row) for a placeholder
+  // and drops focus to <body> after every add (design audit 2026-10-12 #1). Only the first load shows it.
+  async function loadDays({ quiet = false } = {}) {
+    if (!quiet) setLoading(true)
     setError(null)
     try {
       const daysData = await localClient.list('special_days')
@@ -379,7 +381,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
     } finally {
       setCopying(false)
     }
-    await loadDays()
+    await loadDays({ quiet: true })
     if (outcome.failure) {
       setError(outcome.failure)
       return
@@ -434,7 +436,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
       if (result?.error) throw new Error(result.error)
       setPendingDelete(null)
       setSelected(null)
-      await Promise.all([loadDays(), loadSupportData()])
+      await Promise.all([loadDays({ quiet: true }), loadSupportData()])
     } catch (err) {
       setError(describeWriteFailure(err, 'That could not be deleted.'))
       setPendingDelete(null)
