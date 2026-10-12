@@ -3,7 +3,11 @@
 // stops), then block every later save so none can re-encrypt the decrypted document with the key being
 // shredded, then close the db and only then decrypt. Wired in electron/main.js.
 export function createAtRestDisableRunner({ flushDoc, shutdownSync, suspendDocSaves, closeDb, listDbPaths, disable, restart, log = console.error }) {
-  const flush = () => { try { flushDoc() } catch (err) { log('disable encryption: automerge flush failed:', err?.message ?? err) } }
+  const flush = () => {
+    try { flushDoc() } catch (err) {
+      throw Object.assign(new Error('Encryption was not changed: the latest camp changes could not be saved first. Nothing was touched.'), { code: 'flush_failed', cause: err })
+    }
+  }
   return async () => {
     try {
       flush()

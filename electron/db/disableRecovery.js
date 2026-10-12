@@ -38,25 +38,43 @@ export function disablePaths(userDataDir) {
 }
 
 // Whole-file replace that a kill cannot leave torn: the reader sees the old file or the complete new one.
+// fsync before the rename and on the folder after it: a process kill needs neither, a power loss needs both
+// (otherwise the renamed-in name can reach disk before the bytes do).
+export function syncFile(file, fsImpl = fs) {
+  const fd = fsImpl.openSync(file, 'r')
+  try { fsImpl.fsyncSync(fd) } finally { fsImpl.closeSync(fd) }
+}
+export function syncDir(dir, fsImpl = fs) {
+  try {
+    const fd = fsImpl.openSync(dir, 'r')
+    try { fsImpl.fsyncSync(fd) } finally { fsImpl.closeSync(fd) }
+  } catch { /* a folder cannot be opened for fsync on every platform */ }
+}
+
 export function atomicWrite(file, data, fsImpl = fs) {
   const tmp = `${file}.tmp`
   fsImpl.writeFileSync(tmp, data)
+  syncFile(tmp, fsImpl)
   fsImpl.renameSync(tmp, file)
+  syncDir(path.dirname(file), fsImpl)
 }
 
 export function writeJournal(userDataDir, journal, fsImpl = fs) {
   atomicWrite(disablePaths(userDataDir).journal, JSON.stringify({ version: JOURNAL_VERSION, ...journal }), fsImpl)
 }
 
-function parseJournal(raw) {
+const within = (dir, file) => { const r = path.relative(dir, file); return r !== '' && !r.startsWith('..') && !path.isAbsolute(r) }
+
+function parseJournal(raw, userDataDir) {
   let j
   try { j = JSON.parse(raw.toString('utf8')) } catch { return null }
   if (!j || j.version !== JOURNAL_VERSION) return null
   if (j.state !== 'staging' && j.state !== 'committing') return null
   if (typeof j.stamp !== 'string' || !STAMP_RE.test(j.stamp)) return null
-  if (!Array.isArray(j.files)) return null
+  if (!Array.isArray(j.files) || !j.files.some((f) => f?.kind === 'db')) return null
   for (const f of j.files) {
     if (!f || (f.kind !== 'db' && f.kind !== 'doc') || typeof f.path !== 'string' || !path.isAbsolute(f.path)) return null
+    if (!within(userDataDir, f.path)) return null
   }
   return { state: j.state, stamp: j.stamp, files: j.files.map((f) => ({ kind: f.kind, path: f.path })) }
 }
@@ -65,9 +83,13 @@ const exists = (p, fsImpl) => fsImpl.existsSync(p)
 const tryUnlink = (p, fsImpl) => { if (exists(p, fsImpl)) fsImpl.unlinkSync(p) }
 const dropDbSidecars = (file, fsImpl) => { for (const s of ['-wal', '-shm']) tryUnlink(`${file}${s}`, fsImpl) }
 
+const AUTOMERGE_MAGIC = Buffer.from([0x85, 0x6f, 0x4a, 0x83])
+
 function isPlainNow(f, fsImpl) {
   try {
-    return f.kind === 'db' ? isPlaintextSqliteFile(f.path, { fsImpl }) : !isEncrypted(fsImpl.readFileSync(f.path))
+    if (f.kind === 'db') return isPlaintextSqliteFile(f.path, { fsImpl })
+    const buf = fsImpl.readFileSync(f.path)
+    return buf.length > AUTOMERGE_MAGIC.length && buf.subarray(0, AUTOMERGE_MAGIC.length).equals(AUTOMERGE_MAGIC)
   } catch { return false }
 }
 function isEncryptedNow(f, fsImpl) {
@@ -83,6 +105,7 @@ export function swapStaged(files, fsImpl = fs) {
     if (!exists(staged, fsImpl)) continue
     if (f.kind === 'db') dropDbSidecars(f.path, fsImpl)
     fsImpl.renameSync(staged, f.path)
+    syncDir(path.dirname(f.path), fsImpl)
   }
 }
 
@@ -116,7 +139,7 @@ export function rollbackDisable({ userDataDir, journal, fsImpl = fs }) {
 export function finishDisable({ userDataDir, journal, fsImpl = fs, now = () => new Date() }) {
   const p = disablePaths(userDataDir)
   if (!exists(p.marker, fsImpl)) atomicWrite(p.marker, JSON.stringify({ disabledAt: now().toISOString() }), fsImpl)
-  if (exists(p.key, fsImpl)) fsImpl.renameSync(p.key, p.held)
+  if (exists(p.key, fsImpl)) { fsImpl.renameSync(p.key, p.held); syncDir(userDataDir, fsImpl) }
   const warnings = []
   try {
     if (exists(p.held, fsImpl)) {
@@ -151,7 +174,11 @@ export function recoverInterruptedDisable({ userDataDir, fsImpl = fs }) {
     if (err?.code === 'ENOENT') return { outcome: 'none' }
     return { outcome: 'unreadable_journal', message: exists(p.key, fsImpl) ? UNREADABLE_ON : UNREADABLE_OTHER }
   }
-  const journal = parseJournal(raw)
+  let journal = parseJournal(raw, userDataDir)
+  // A genuine commit always left an encrypted backup of every file. While the key is still at its own path,
+  // a "committing" journal without them is not ours, and rolling it forward would shred a key the data needs.
+  if (journal?.state === 'committing' && exists(p.key, fsImpl) &&
+      !journal.files.every((f) => exists(backupPathFor(f.path, journal.stamp), fsImpl))) journal = null
   if (!journal) {
     const keyThere = exists(p.key, fsImpl)
     if (keyThere) {

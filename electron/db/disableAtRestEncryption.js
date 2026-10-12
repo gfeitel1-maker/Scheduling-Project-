@@ -14,7 +14,7 @@ import { makeDocCipher, isEncrypted } from './docCipher.js'
 import { OPT_OUT_FILE } from './atRestEncryption.js'
 import { isPlaintextSqliteFile, readTableCounts, decryptEncryptedToPlaintext, rawKeyPragma } from './sqliteCipher.js'
 import {
-  writeJournal, atomicWrite, rollbackDisable, swapStaged, allPlain, finishDisable, stagedPathFor, backupPathFor,
+  writeJournal, atomicWrite, syncFile, syncDir, rollbackDisable, swapStaged, allPlain, finishDisable, stagedPathFor, backupPathFor,
 } from './disableRecovery.js'
 
 export const DISABLE_PHRASE = 'DISABLE ENCRYPTION'
@@ -87,7 +87,9 @@ export function disableAtRestEncryption({ userDataDir, dbPaths, safeStorage, Dat
       ...docs.filter((d) => d.encrypted).map((d) => ({ kind: 'doc', path: d.file })),
     ],
   }
-  const rollback = () => { try { rollbackDisable({ userDataDir, journal, fsImpl }) } catch { /* the journal and backups stay for the next boot */ } }
+  const rollback = () => {
+    try { rollbackDisable({ userDataDir, journal, fsImpl }); return true } catch { return false }
+  }
 
   try {
     writeJournal(userDataDir, journal, fsImpl)
@@ -112,6 +114,9 @@ export function disableAtRestEncryption({ userDataDir, dbPaths, safeStorage, Dat
       if (!ok) throw coded('verify_failed', 'Encryption was not changed: the decrypted camp document did not match.')
     }
 
+    for (const f of journal.files) syncFile(stagedPathFor(f.path), fsImpl)
+    syncDir(userDataDir, fsImpl)
+    syncDir(docDir, fsImpl)
     journal.state = 'committing'
     try {
       writeJournal(userDataDir, journal, fsImpl)
@@ -123,7 +128,10 @@ export function disableAtRestEncryption({ userDataDir, dbPaths, safeStorage, Dat
       throw coded('shred_failed', `Encryption was not changed: the switch could not be completed (${err?.message ?? err}).`)
     }
   } catch (err) {
-    rollback()
+    if (!rollback()) {
+      throw coded('disable_interrupted',
+        'Turning off encryption was interrupted and could not be undone right now. Nothing was deleted: it will be finished or undone, safely, when the app restarts.')
+    }
     throw err
   }
 

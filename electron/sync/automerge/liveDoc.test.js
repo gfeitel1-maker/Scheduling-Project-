@@ -78,6 +78,19 @@ describe('suspendDocSaves (T345 quiesce before the device key is shredded)', () 
   })
 })
 
+describe('suspendDocSaves also blocks the synchronous seed saves', () => {
+  it('the first write of a camp while suspended writes no document file', () => {
+    suspendDocSaves(true)
+    try {
+      recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A' })
+      flushPendingWrites()
+      expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(false)
+    } finally {
+      suspendDocSaves(false)
+    }
+  })
+})
+
 describe('recordLocalWrite', () => {
   it('mirrors a modeled-entity write into the persisted doc, keyed by the db camp id', () => {
     recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A' })

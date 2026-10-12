@@ -4166,7 +4166,12 @@ if (isElectronEntryPoint()) {
   const startAutomergeSyncNodeIfEnabled = () => syncStarterHolder.start()
   setAtRestDisableRunner(createAtRestDisableRunner({
     flushDoc: flushAutomergeDoc,
-    shutdownSync: () => syncStarterHolder.shutdown(),
+    // close(), not shutdown(): it settles a start still in flight and refuses any later one, and the
+    // race bounds a node that will not stop, so the screen can never stick on "working".
+    shutdownSync: () => Promise.race([
+      syncStarterHolder.close(),
+      new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('Encryption was not changed: sync did not stop in time. The app will restart.'), { code: 'sync_stop_timeout' })), 10000)),
+    ]),
     suspendDocSaves: suspendAutomergeDocSaves,
     closeDb: () => db.close(),
     listDbPaths: () => dataPathsForKey().filter((p) => fs.existsSync(p)),

@@ -222,7 +222,7 @@ function getDoc(db, userDataDir, campId, { persistSeed = true } = {}) {
     // recordLocalWrite. Saving the seed there writes a document that is missing
     // the very write that triggered it, and that partial document is what a
     // crash inside the debounce window would leave on disk.
-    if (persistSeed) saveDoc(userDataDir, campId, doc, docCipher)
+    if (persistSeed && !docSavesSuspended) saveDoc(userDataDir, campId, doc, docCipher)
   }
   docRegistry.set(db, doc)
   return doc
@@ -481,7 +481,7 @@ function applyLocalWritesNow(db, args) {
       doc = applyWrites(doc, writes.slice(i, i + DOC_CHANGE_CHUNK))
       docRegistry.set(db, doc)
     }
-    if (seeding) {
+    if (seeding && !docSavesSuspended) {
       // One synchronous save, once per camp per process — the same one-time cost
       // the seed already paid, just moved to after the writes instead of before.
       saveDoc(userDataDir, campId, doc, docCipher)

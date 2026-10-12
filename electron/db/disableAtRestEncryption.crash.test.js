@@ -212,7 +212,7 @@ describe('disable: unreadable or unrecognised journal fails closed', () => {
     })
   }
 
-  it('a commit-phase journal whose files are neither staged, swapped nor backed up: refuses, deletes nothing', () => {
+  it('a commit-phase journal whose files are neither staged, swapped nor backed up: not trusted, deletes nothing', () => {
     const env = setup()
     const stamp = '2026-10-11T00-00-00-000Z'
     fs.writeFileSync(path.join(env.dir, DISABLE_JOURNAL_FILE), JSON.stringify({
@@ -220,10 +220,9 @@ describe('disable: unreadable or unrecognised journal fails closed', () => {
     }))
     fs.writeFileSync(env.dbPath, `SQLite format 3\0${JSON.stringify(tables)}`, 'latin1')
     const before = fs.readFileSync(env.dbPath)
-    let err
-    try { recoverInterruptedDisable({ userDataDir: env.dir }) } catch (e) { err = e }
-    expect(err?.code).toBe('disable_recovery_failed')
-    expect(err.message).toMatch(/still on|not changed|nothing was deleted/i)
+    const res = recoverInterruptedDisable({ userDataDir: env.dir })
+    expect(res.outcome).toBe('unreadable_journal')
+    expect(res.message).toMatch(/still on|nothing was changed|nothing was deleted/i)
     expect(fs.readFileSync(env.dbPath).equals(before)).toBe(true)
     expect(fs.existsSync(env.keyPath)).toBe(true)
   })

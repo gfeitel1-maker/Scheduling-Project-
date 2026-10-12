@@ -161,6 +161,23 @@ describe('disableAtRestEncryption: a failure at each step leaves the device encr
     expect(fs.readdirSync(path.join(dir, 'automerge'))).toEqual(['camp-1.automerge'])
   })
 
+  it('when the rollback itself fails, the message says it was interrupted and will finish at restart, not "unchanged"', () => {
+    let swapped = false
+    const fsImpl = {
+      ...fs,
+      renameSync: (a, b, ...r) => {
+        if (String(b).endsWith('.automerge')) throw new Error('EIO')
+        swapped = true
+        return fs.renameSync(a, b, ...r)
+      },
+      copyFileSync: (a, b, ...r) => {
+        if (swapped && String(a).includes('.pre-disable-')) throw new Error('EIO restore')
+        return fs.copyFileSync(a, b, ...r)
+      },
+    }
+    expect(() => run({ fsImpl })).toThrow(expect.objectContaining({ code: 'disable_interrupted', message: expect.stringMatching(/restart/) }))
+  })
+
   it('rekey fails', () => {
     const before = snapshot()
     expect(() => run({ Database: fakeDriver({ failRekey: true }) })).toThrow(expect.objectContaining({ code: 'rekey_failed' }))

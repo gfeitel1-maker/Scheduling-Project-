@@ -30,23 +30,6 @@ describe('createAtRestDisableRunner', () => {
     expect(order).toEqual(['flush', 'shutdown', 'flush', 'suspend:true', 'close', 'list', 'disable:/a.sqlite', 'restart:1500'])
   })
 
-  it('a failing first flush does not stop the disable (it is logged, the later flush still runs)', async () => {
-    const order = []
-    let n = 0
-    const runner = createAtRestDisableRunner({
-      flushDoc: () => { order.push('flush'); if (++n === 1) throw new Error('disk') },
-      shutdownSync: async () => { order.push('shutdown') },
-      suspendDocSaves: (on) => order.push(`suspend:${on}`),
-      closeDb: () => order.push('close'),
-      listDbPaths: () => [],
-      disable: () => { order.push('disable'); return { warnings: [] } },
-      restart: (ms) => order.push(`restart:${ms}`),
-      log: () => {},
-    })
-    expect((await runner()).ok).toBe(true)
-    expect(order).toEqual(['flush', 'shutdown', 'flush', 'suspend:true', 'close', 'disable', 'restart:1500'])
-  })
-
   it('sync shutdown failing never reaches the disable and leaves saves enabled', async () => {
     const { order, runner } = harness({ shutdown: async () => { order.push('shutdown'); throw new Error('stuck') } })
     const res = await runner()
@@ -67,4 +50,27 @@ describe('createAtRestDisableRunner', () => {
     const main = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'main.js'), 'utf8')
     expect(main).toMatch(/setAtRestDisableRunner\(createAtRestDisableRunner\(/)
   })
+})
+
+describe('createAtRestDisableRunner: a flush that failed refuses the disable', () => {
+  for (const failing of [1, 2]) {
+    it(`flush #${failing} failing leaves encryption on and never closes the db`, async () => {
+      const order = []
+      let n = 0
+      const runner = createAtRestDisableRunner({
+        flushDoc: () => { if (++n === failing) throw new Error('disk') },
+        shutdownSync: async () => { order.push('shutdown') },
+        suspendDocSaves: (on) => order.push(`suspend:${on}`),
+        closeDb: () => order.push('close'),
+        listDbPaths: () => [],
+        disable: () => { order.push('disable'); return { warnings: [] } },
+        restart: (ms) => order.push(`restart:${ms}`),
+        log: () => {},
+      })
+      const res = await runner()
+      expect(res.ok).toBe(false)
+      expect(order).not.toContain('disable')
+      expect(order).not.toContain('close')
+    })
+  }
 })
