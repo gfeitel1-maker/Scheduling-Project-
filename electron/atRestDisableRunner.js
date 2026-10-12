@@ -11,7 +11,7 @@ export function boundedSyncStop(close, ms) {
   return Promise.race([close(), timeout]).finally(() => clearTimeout(timer))
 }
 
-export function createAtRestDisableRunner({ flushDoc, shutdownSync, suspendDocSaves, closeDb, listDbPaths, disable, restart, log = console.error }) {
+export function createAtRestDisableRunner({ flushDoc, shutdownSync, suspendDocSaves, closeDb, listDbPaths, disable, endSessions = () => {}, restart, log = console.error }) {
   const flush = () => {
     try { flushDoc() } catch (err) {
       throw Object.assign(new Error('Encryption was not changed: the latest camp changes could not be saved first. Nothing was touched.'), { code: 'flush_failed', cause: err })
@@ -25,8 +25,17 @@ export function createAtRestDisableRunner({ flushDoc, shutdownSync, suspendDocSa
       suspendDocSaves(true)
       closeDb()
       const res = disable({ dbPaths: listDbPaths() })
+      // The panel promises this signs everyone out: every session issued before now stops verifying,
+      // here and after the relaunch. Only after the disable succeeded; a failed one changed nothing.
+      // Encryption is already off here, so a failure to record the sign-out is reported as a warning
+      // on a successful result, never as "encryption stays on" (Security review, #979).
+      const warnings = [...(res?.warnings ?? [])]
+      try { endSessions() } catch (err) {
+        log('could not record the sign-out after turning encryption off:', err?.message ?? err)
+        warnings.push('Encryption is off, but this computer could not sign everyone out. Sign out and sign in again.')
+      }
       restart(1500)
-      return { ok: true, restarting: true, warnings: res.warnings }
+      return { ok: true, restarting: true, warnings }
     } catch (err) {
       // Saves stay blocked until the restart: once the disable has begun, the files may be mid-swap and a
       // save landing now would be lost to the rollback or re-encrypt under a key about to go.

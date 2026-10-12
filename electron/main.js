@@ -7,12 +7,13 @@ import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, encryptingDatabaseCtor, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
-import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, isHostDevice, issueDeviceToken } from './auth/localAuth.js'
+import { createUser, verifySessionToken, isSessionEnded, attemptLogin, ensureHostSigningKey, isHostDevice, issueDeviceToken } from './auth/localAuth.js'
 import { promoteToAdmin } from './ops/promoteToAdmin.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
 import { listPendingConflicts, latestOpSeq } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
 import { applyUserDataPath } from './db/userDataPath.js'
+import { endAllSessions, loadSessionsValidAfter } from './sessionsValidAfter.js'
 import { readBuildInfo, formatBuildLabel, readAppVersion, buildAboutPanelOptions } from './buildInfo.js'
 import { installMenu } from './menu.js'
 import { formatStartupFailureLog, handleStartupFailure } from './startupFailure.js'
@@ -1774,6 +1775,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
   function verifySession({ token } = {}) {
     const session = verifySessionToken(db, token)
+    if (isSessionEnded(session)) return { valid: false }
     // Finding 2 fix: a 'device' token (issueDeviceToken) proves connection
     // admission only and carries no userId — reject it explicitly here too,
     // rather than relying on the userRow lookup below incidentally missing
@@ -3506,6 +3508,8 @@ if (isElectronEntryPoint()) {
   // infers the directory from argv, which put every dev clone in one shared
   // "Electron" directory while the packaged app used "shoresh".
   const userDataPath = applyUserDataPath(app)
+  // Before any session is verified: sessions ended on this device (turning encryption off) stay ended.
+  loadSessionsValidAfter(userDataPath)
   // T340 switch-on: resolved once, before any sync start reads the env (syncStarter.js stays strict-equality).
   applyPackagedWanDefaults(process.env, app.isPackaged)
   const defaultDbPath = path.join(userDataPath, 'shoresh.sqlite')
@@ -4173,6 +4177,7 @@ if (isElectronEntryPoint()) {
     closeDb: () => db.close(),
     listDbPaths: () => dataPathsForKey().filter((p) => fs.existsSync(p)),
     disable: ({ dbPaths }) => disableAtRestEncryption({ userDataDir: userDataPath, dbPaths, safeStorage, Database: encryptingDatabaseCtor() }),
+    endSessions: () => endAllSessions(userDataPath),
     restart: (ms) => setTimeout(() => { app.relaunch(); app.exit(0) }, ms),
   }))
   const initialHandlers = makeHandlers(db, deviceId, {
