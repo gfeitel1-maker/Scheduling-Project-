@@ -832,6 +832,30 @@ describe('a double-period elective imports as one span (T219)', () => {
   })
 })
 
+// Final audit (packaged 5813133): with nothing confirmed the list cell stays an ACTIVITY with
+// span_blocks 2. Generate re-spans it; the imported version must too, or a Manual restore shows
+// one session as two cells.
+describe('an unconfirmed double-period list cell stays one span in the imported version', () => {
+  it('marks the activity head + tail in the version, as Generate places it', async () => {
+    const { d, id } = seedCamp('audit-span')
+    const imp = importFile(d, id, fs.readFileSync(path.join(DIR, 'repro/r9-double-period-elective.txt'), 'utf8'))
+    const writeClient = {
+      async write({ entity, entity_id, field, value, author_user_id }) {
+        return { status: 'applied', op: appendOp(d, { entity, entity_id, field, value, author_user_id, device_id: deviceId }) }
+      },
+    }
+    await materializeImportedVersion(d, writeClient, { campId: id, authorUserId: userId, placements: imp.placements, sourceFileName: 'r9.txt' })
+    const act = d.prepare("SELECT id, span_blocks FROM activities WHERE camp_id = ? AND name = 'Pottery / Drama'").get(id)
+    // Positive control: this run is the audit's case, an activity spanning two blocks.
+    expect(act?.span_blocks).toBe(2)
+    const snap = d.prepare("SELECT s.slots FROM schedule_snapshots s JOIN schedule_templates t ON t.id = s.template_id WHERE t.kind = 'manual' AND t.camp_id = ? ORDER BY s.created_at DESC LIMIT 1").get(id)
+    const cells = JSON.parse(snap.slots).filter((s) => s.activity_id === act.id)
+    expect(cells).toHaveLength(4)
+    expect(cells.map((s) => s.is_span_head).sort()).toEqual([false, false, true, true])
+    d.close()
+  })
+})
+
 // T219 (keeper ruling): two chugim with a time gap between them are two sessions, never one span.
 describe('two chugim around a break stay two sessions (T219)', () => {
   it('marks no span and links nothing when the periods do not meet', async () => {

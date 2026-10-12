@@ -3,11 +3,11 @@
 // live catalog maps. No I/O; the caller (materializeImportedVersion.js)
 // builds the maps from the db and owns everything else.
 //
-// v1 scope (matches capturePlacements.js's own documented limitation):
-// multi-block ACTIVITY spans flatten to one slot per (group, day, block) cell
-// (Generate re-spans them from activities.span_blocks). An ELECTIVE held in
-// adjacent blocks is marked head + tails here (T219, markElectiveSpans), since
-// a set has no span_blocks to re-span from.
+// Spans: an ACTIVITY with span_blocks N printed in back-to-back blocks is marked
+// head + tails in runs of N (markActivitySpans), the shape Generate places, so a
+// version restored on Manual shows one session, not N cells (final audit,
+// packaged 5813133). An ELECTIVE held in back-to-back blocks is marked the same
+// way (T219, markElectiveSpans); a set has no span_blocks, so its run is the span.
 
 import { normalizeName } from '../../src/ingest/preview.js'
 import { strictSplit } from '../../src/ingest/splitListCell.js'
@@ -100,6 +100,7 @@ export function resolveImportedPlacements(placements, maps) {
   }
 
   markElectiveSpans(slots, maps.blockOrder, maps.blockContinues)
+  markActivitySpans(slots, maps.blockOrder, maps.blockContinues, maps.activitySpanBlocks)
   return { slots, unresolved }
 }
 
@@ -159,4 +160,36 @@ export function describeUnresolved(unresolved, timeBlocks = []) {
       reason: u.reason,
     }
   })
+}
+
+/**
+ * One group's activity in back-to-back blocks of one day, cut into sessions of the activity's
+ * span_blocks: each session's first block is the head, the rest tails. A run shorter than
+ * span_blocks (or the remainder of a longer one) is left unmarked, as single cells.
+ *
+ * @param {Map<string, number>} [activitySpanBlocks] activity_id -> span_blocks (> 1 only)
+ */
+export function markActivitySpans(slots, blockOrder, blockContinues, activitySpanBlocks) {
+  if (!blockOrder || !blockContinues || !activitySpanBlocks?.size) return
+  const byGroupDayActivity = new Map()
+  for (const s of slots) {
+    if (!s.activity_id || s.is_fixed_event || !activitySpanBlocks.has(s.activity_id) || !blockOrder.has(s.time_block_id)) continue
+    const k = `${s.group_id}|${s.day_id}|${s.activity_id}`
+    if (!byGroupDayActivity.has(k)) byGroupDayActivity.set(k, [])
+    byGroupDayActivity.get(k).push(s)
+  }
+  for (const list of byGroupDayActivity.values()) {
+    const n = activitySpanBlocks.get(list[0].activity_id)
+    list.sort((a, b) => blockOrder.get(a.time_block_id) - blockOrder.get(b.time_block_id))
+    const cut = (run) => {
+      for (let i = 0; i + n <= run.length; i += n) run.slice(i, i + n).forEach((s, j) => { s.is_span_head = j === 0 })
+    }
+    let run = [list[0]]
+    for (let i = 1; i < list.length; i++) {
+      const next = list[i].time_block_id
+      if (blockOrder.get(next) === blockOrder.get(run[run.length - 1].time_block_id) + 1 && blockContinues.has(next)) run.push(list[i])
+      else { cut(run); run = [list[i]] }
+    }
+    cut(run)
+  }
 }

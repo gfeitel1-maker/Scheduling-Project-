@@ -220,3 +220,64 @@ describe('undo, then re-import the same file', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundle_periods').get().n).toBe(4)
   })
 })
+
+// Final audit (packaged 5813133): the director deleted a set, an import recreated it under the same
+// derived id, the import was undone, and a re-import of the same file then created no set at all.
+// Semantics (keeper ruling): undo leaves no rejection, and an import that succeeded in recreating a
+// row the director had deleted ends that rejection for the row. Both orders are pinned.
+describe('a set the director deleted, recreated by an import', () => {
+  const setup = () => handlers.ingestCommit({
+    token,
+    approved: { groups: ['Otters 1'], tiers: [], days_of_operation: ['Monday'], time_blocks: ['9:00-10:00', '10:00-11:00'], activities: [] },
+    links: {},
+  })
+  const importChug = () => handlers.ingestCommit({
+    token,
+    captureInverse: true,
+    approved: { groups: ['Otters 1'], tiers: [], days_of_operation: ['Monday'], time_blocks: ['9:00-10:00', '10:00-11:00'], activities: [] },
+    links: {},
+    confirmedElectiveSets: [{ name: 'Chugim', choices: ['Pottery', 'Drama'] }],
+    placements: ['9:00-10:00', '10:00-11:00'].map((b) => ({ groupName: 'Otters 1', dayName: 'Monday', blockLabel: b, activityName: 'Chugim', electiveSetName: 'Chugim', choices: ['Pottery', 'Drama'] })),
+    sourceFileName: 'week.txt',
+  })
+  const directorDeletesSets = async () => {
+    for (const { id } of db.prepare('SELECT id FROM elective_sets').all()) {
+      const res = await handlers.deleteElectiveSet({ token, electiveSetId: id })
+      expect(res?.error).toBeUndefined()
+    }
+    expect(count('elective_sets')).toBe(0)
+  }
+
+  it('director delete, import, undo, re-import: the set and its bundles come back (the audit order)', async () => {
+    await setup()
+    // The audit's campB: an earlier import brought its own elective, which the director deleted.
+    await handlers.ingestCommit({
+      token,
+      approved: { groups: ['Otters 1'], tiers: [], days_of_operation: ['Monday'], time_blocks: ['9:00-10:00', '10:00-11:00'], activities: [] },
+      links: {},
+      confirmedElectiveSets: [{ name: 'Indoor Elective', choices: ['Chess'] }],
+    })
+    await directorDeletesSets()
+    const first = await importChug()
+    expect(count('elective_sets')).toBe(1)
+    const undone = await handlers.ingestUndo({ token, importRunId: first.importRunId, client_write_id: randomUUID(), invertibleOps: [], createdEntityIds: [] })
+    expect(undone.kept).toEqual([])
+    expect(count('elective_sets')).toBe(0)
+
+    await importChug()
+
+    expect(count('elective_sets')).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(2)
+  })
+
+  it('import, director delete, re-import: the director wins only until the import succeeds', async () => {
+    await setup()
+    await importChug()
+    await directorDeletesSets()
+    await importChug()
+    // The set is recreated by the import (a set has no import rejection), and its double period
+    // is linked again: the earlier rejection ended when this import recreated the rows.
+    expect(count('elective_sets')).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(2)
+  })
+})

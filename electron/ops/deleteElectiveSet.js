@@ -15,8 +15,13 @@ import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 // no cascade write into template_slots is needed or correct.
 //
 // Cascade order — load-bearing, do not reorder:
-//   1. elective_set_activities (real FK -> elective_sets, must go first)
-//   2. elective_sets            (the parent row itself, last)
+//   1. elective_bundle_periods / elective_bundle_tiers (soft pointers to their bundle)
+//   2. elective_bundles         (real FK -> elective_sets; without this a set with a
+//                                bundle, e.g. an imported double period, cannot be deleted)
+//   3. elective_set_activities (real FK -> elective_sets)
+//   4. elective_sets            (the parent row itself, last)
+//
+// Every delete is the director's, so each is a rejection (source 'human', T375).
 //
 // Not called from any IPC handler yet — the setup-CRUD UI that would call
 // this (create/edit/delete an elective set) is this slice's explicit
@@ -34,10 +39,17 @@ export function deleteElectiveSet(db, { electiveSetId }, { author_user_id, devic
   }
 
   const del = (entity, entity_id) =>
-    appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
+    appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id, source: 'human' })
 
   const outcome = runAtomic(db, () => {
     const ops = []
+
+    const bundles = db.prepare('SELECT id FROM elective_bundles WHERE elective_set_id = ?').all(electiveSetId)
+    for (const b of bundles) {
+      for (const p of db.prepare('SELECT id FROM elective_bundle_periods WHERE bundle_id = ?').all(b.id)) ops.push(del('elective_bundle_periods', p.id))
+      for (const t of db.prepare('SELECT id FROM elective_bundle_tiers WHERE bundle_id = ?').all(b.id)) ops.push(del('elective_bundle_tiers', t.id))
+      ops.push(del('elective_bundles', b.id))
+    }
 
     const members = db
       .prepare('SELECT id FROM elective_set_activities WHERE elective_set_id = ?')
