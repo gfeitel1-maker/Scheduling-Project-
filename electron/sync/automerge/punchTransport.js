@@ -37,6 +37,10 @@ const MAX_MESSAGE_BYTES = 16 * 1024
 const BUFFER_HIGH_WATER = 256 * 1024
 const BUFFER_LOW_WATER = 64 * 1024
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000
+// T369: ICE 'disconnected' before the data channel opens can be transient (consent checks missed under
+// load). It gets this long to recover to 'connected' before the attempt fails. 'failed' and 'closed' stay
+// immediate, and the open timeout still bounds the whole attempt. Nothing crosses the connection before open.
+const DEFAULT_DISCONNECT_GRACE_MS = 3_000
 const DEFAULT_MAX_PENDING_INBOUND = 4
 const CLOSE_SETTLE_TIMEOUT_MS = 1_000
 // libdatachannel releases a pinned UDP port a little AFTER pc.close() reports 'closed'; binding it
@@ -127,7 +131,7 @@ function validateFile(value, label) {
 
 function validateOptions(opts) {
   if (opts == null || typeof opts !== 'object') throw invalid('options are required')
-  const { signaling, role, onEstablished, iceServers = [], portRange, certificatePemFile, keyPemFile, ice, connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS, maxPendingInbound = DEFAULT_MAX_PENDING_INBOUND } = opts
+  const { signaling, role, onEstablished, iceServers = [], portRange, certificatePemFile, keyPemFile, ice, connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS, maxPendingInbound = DEFAULT_MAX_PENDING_INBOUND, disconnectGraceMs = DEFAULT_DISCONNECT_GRACE_MS } = opts
   if (!signaling || typeof signaling.sendSignal !== 'function' || typeof signaling.onSignal !== 'function') throw invalid('signaling must provide sendSignal(msg) and onSignal(cb)')
   if (onEstablished != null && typeof onEstablished !== 'function') throw invalid('onEstablished must be a function')
   if (role != null && role !== 'offerer' && role !== 'answerer') throw invalid("role must be 'offerer' or 'answerer'")
@@ -145,7 +149,8 @@ function validateOptions(opts) {
   validateIceCredentials(ice)
   if (!Number.isInteger(connectTimeoutMs) || connectTimeoutMs <= 0) throw invalid('connectTimeoutMs must be a positive integer')
   if (!Number.isInteger(maxPendingInbound) || maxPendingInbound <= 0) throw invalid('maxPendingInbound must be a positive integer')
-  return { signaling, role, onEstablished, portRange, certificatePemFile, keyPemFile, ice, connectTimeoutMs, maxPendingInbound }
+  if (!Number.isInteger(disconnectGraceMs) || disconnectGraceMs < 0) throw invalid('disconnectGraceMs must be a non-negative integer')
+  return { signaling, role, onEstablished, portRange, certificatePemFile, keyPemFile, ice, connectTimeoutMs, maxPendingInbound, disconnectGraceMs }
 }
 
 function rtcConfigFrom(opts) {
@@ -212,7 +217,7 @@ function remoteAddrFromPair(pc) {
 // checks `phase`, so a node-datachannel call that is only legal in a given phase is unreachable in
 // any other.
 class PunchSession {
-  constructor({ ndc, name, rtcConfig, ice, role, sid, sendSignal, log, direction, remoteAddr, onClosed, silent = false }) {
+  constructor({ ndc, name, rtcConfig, ice, role, sid, sendSignal, log, direction, remoteAddr, onClosed, silent = false, disconnectGraceMs = DEFAULT_DISCONNECT_GRACE_MS }) {
     if (nativeShutDown) throw new Error('punch: native layer is shut down')
     this.sid = sid
     this.role = role
@@ -248,9 +253,25 @@ class PunchSession {
     })
     pc.onStateChange((state) => {
       if (state === 'closed') this.markClosed()
-      if (state === 'failed' || state === 'closed' || state === 'disconnected') {
+      if (state === 'connected' && this.disconnectTimer) {
+        // Logged so a real two-network test shows how often this happens (T369).
+        this.log('punch: connection recovered from disconnected after %dms before open', Date.now() - this.disconnectedAt)
+        clearTimeout(this.disconnectTimer)
+        this.disconnectTimer = null
+      }
+      const fail = () => {
         this.opened.reject(new PunchConnectionFailedError(`punch: connection ${state} before the data channel opened`))
         this.close()
+      }
+      if (state === 'failed' || state === 'closed') fail()
+      else if (state === 'disconnected') {
+        // Once open, a disconnect ends the session as before; before open it gets a bounded grace.
+        if (this.maConn || disconnectGraceMs === 0) fail()
+        else if (!this.disconnectTimer) {
+          this.disconnectedAt = Date.now()
+          this.disconnectTimer = setTimeout(() => { this.disconnectTimer = null; if (!this.closed) fail() }, disconnectGraceMs)
+          this.disconnectTimer.unref?.()
+        }
       }
     })
   }
@@ -393,6 +414,7 @@ class PunchSession {
   close() {
     if (this.closed) return
     this.closed = true
+    if (this.disconnectTimer) { clearTimeout(this.disconnectTimer); this.disconnectTimer = null }
     this.opened.reject(new Error('punch: session closed'))
     liveSessions.delete(this)
     try { this.dc?.close() } catch { /* already closing */ }
@@ -561,6 +583,7 @@ class PunchTransport {
       direction,
       remoteAddr,
       silent,
+      disconnectGraceMs: this.opts.disconnectGraceMs,
       onClosed: (s) => {
         this.lastCloseAt = Date.now()
         this.sessions.delete(s.sid)
