@@ -40,21 +40,31 @@ export function getFixedEventRowSpan(slots, timeBlocks, groupId, dayId, blockId)
   return span
 }
 
+// An activity span, or (T219) an imported double-period elective: the same
+// head/tail chain keyed on whichever of the two the cell holds.
+function spanKey(slot) {
+  if (!slot || slot.is_fixed_event) return null
+  if (slot.activity_id) return `a:${slot.activity_id}`
+  if (slot.elective_set_id) return `e:${slot.elective_set_id}`
+  return null
+}
+
 export function isActivityTail(slots, groupId, dayId, blockId) {
   const slot = getSlot(slots, groupId, dayId, blockId)
-  if (slot?.is_fixed_event || !slot?.activity_id) return false
+  if (!spanKey(slot)) return false
   return slot.is_span_head === false
 }
 
 export function getActivityRowSpan(slots, timeBlocks, groupId, dayId, blockId) {
   const slot = getSlot(slots, groupId, dayId, blockId)
-  if (!slot?.activity_id || slot.is_fixed_event) return 1
+  const key = spanKey(slot)
+  if (!key) return 1
   const startIdx = timeBlocks.findIndex(b => b.id === blockId)
   if (startIdx === -1) return 1
   let span = 1
   for (let i = startIdx + 1; i < timeBlocks.length; i++) {
     const nextSlot = getSlot(slots, groupId, dayId, timeBlocks[i].id)
-    if (nextSlot?.activity_id === slot.activity_id && nextSlot.is_span_head === false) {
+    if (spanKey(nextSlot) === key && nextSlot.is_span_head === false) {
       span++
     } else {
       break

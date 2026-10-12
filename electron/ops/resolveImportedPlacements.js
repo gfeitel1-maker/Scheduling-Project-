@@ -4,8 +4,10 @@
 // builds the maps from the db and owns everything else.
 //
 // v1 scope (matches capturePlacements.js's own documented limitation):
-// multi-block spans flatten to one slot per (group, day, block) cell, no
-// span-head merging.
+// multi-block ACTIVITY spans flatten to one slot per (group, day, block) cell
+// (Generate re-spans them from activities.span_blocks). An ELECTIVE held in
+// adjacent blocks is marked head + tails here (T219, markElectiveSpans), since
+// a set has no span_blocks to re-span from.
 
 import { normalizeName } from '../../src/ingest/preview.js'
 import { strictSplit } from '../../src/ingest/splitListCell.js'
@@ -97,7 +99,41 @@ export function resolveImportedPlacements(placements, maps) {
     unresolved.push({ ...placement, reason: 'activity' })
   }
 
+  markElectiveSpans(slots, maps.blockOrder)
   return { slots, unresolved }
+}
+
+/**
+ * T219: one group's elective set in consecutive blocks of one day is ONE
+ * session. The first block gets is_span_head: true and the rest false, which
+ * is the shape the grid and Generate already read for activity spans. A slot
+ * not in a run of two or more is left without the field.
+ *
+ * @param {Array} slots resolved slots, mutated in place
+ * @param {Map<string, number>} [blockOrder] time_block_id -> position in the
+ *        camp's day; without it nothing is marked
+ */
+export function markElectiveSpans(slots, blockOrder) {
+  if (!blockOrder) return
+  const byGroupDaySet = new Map()
+  for (const s of slots) {
+    if (!s.elective_set_id || !blockOrder.has(s.time_block_id)) continue
+    const k = `${s.group_id}|${s.day_id}|${s.elective_set_id}`
+    if (!byGroupDaySet.has(k)) byGroupDaySet.set(k, [])
+    byGroupDaySet.get(k).push(s)
+  }
+  for (const list of byGroupDaySet.values()) {
+    list.sort((a, b) => blockOrder.get(a.time_block_id) - blockOrder.get(b.time_block_id))
+    let run = [list[0]]
+    const close = () => {
+      if (run.length > 1) run.forEach((s, i) => { s.is_span_head = i === 0 })
+    }
+    for (let i = 1; i < list.length; i++) {
+      if (blockOrder.get(list[i].time_block_id) === blockOrder.get(run[run.length - 1].time_block_id) + 1) run.push(list[i])
+      else { close(); run = [list[i]] }
+    }
+    close()
+  }
 }
 
 // What the director needs to find a left-out placement again: the name, the

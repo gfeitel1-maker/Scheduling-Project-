@@ -49,6 +49,55 @@ export function nameMap(db, table, campId, nameColumn = 'name') {
   return map
 }
 
+// T219: one bundle per (set, choice, day, span blocks). Content-keyed, so a
+// re-import, or a second group with the same span, converges on one row.
+export function deriveImportedBundleId(electiveSetId, activityId, dayId, blockIds) {
+  return `elective-bundle-import:${electiveSetId}:${activityId}:${dayId}:${blockIds.join(',')}`
+}
+
+// T219: an imported elective span (head + tails from markElectiveSpans) links
+// each of the set's choices across the span's periods, so the solver gives a
+// camper the same choice for the whole double period
+// (docs/adr/2026-09-29-linked-elective-bundles.md). Only choices the set holds
+// now are linked; a choice the director adds later is linked by hand.
+async function writeSpanBundles(db, syncClient, slots, blockOrder, authorUserId) {
+  const spans = new Map()
+  const blockAt = new Map([...blockOrder].map(([id, i]) => [i, id]))
+  const byCell = new Map(slots.map((s) => [`${s.group_id}|${s.day_id}|${s.time_block_id}`, s]))
+  for (const head of slots.filter((s) => s.elective_set_id && s.is_span_head === true)) {
+    // Walk forward from the head through this group's consecutive tails only.
+    const blockIds = [head.time_block_id]
+    for (let i = blockOrder.get(head.time_block_id) + 1; blockAt.has(i); i++) {
+      const next = byCell.get(`${head.group_id}|${head.day_id}|${blockAt.get(i)}`)
+      if (next?.elective_set_id !== head.elective_set_id || next.is_span_head !== false) break
+      blockIds.push(next.time_block_id)
+    }
+    const k = `${head.elective_set_id}|${head.day_id}|${blockIds.join(',')}`
+    if (!spans.has(k)) spans.set(k, { setId: head.elective_set_id, dayId: head.day_id, blockIds })
+  }
+  if (spans.size === 0) return
+  const dayLabel = db.prepare('SELECT label FROM days_of_operation WHERE id = ?')
+  const choices = db.prepare(`SELECT esa.activity_id AS id, a.name AS name FROM elective_set_activities esa
+    LEFT JOIN activities a ON a.id = esa.activity_id WHERE esa.elective_set_id = ? ORDER BY esa.activity_id`)
+  const exists = (table, id) => Boolean(db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id))
+  for (const { setId, dayId, blockIds } of spans.values()) {
+    const day = dayLabel.get(dayId)?.label ?? ''
+    for (const choice of choices.all(setId)) {
+      const bundleId = deriveImportedBundleId(setId, choice.id, dayId, blockIds)
+      if (!exists('elective_bundles', bundleId)) {
+        await writeFields(syncClient, 'elective_bundles', bundleId, {
+          elective_set_id: setId, activity_id: choice.id, name: `${choice.name ?? 'Choice'} — ${day}`.trim(), scope_mode: 'all',
+        }, authorUserId)
+      }
+      for (const blockId of blockIds) {
+        const periodId = `${bundleId}:${blockId}`
+        if (exists('elective_bundle_periods', periodId)) continue
+        await writeFields(syncClient, 'elective_bundle_periods', periodId, { bundle_id: bundleId, day_id: dayId, time_block_id: blockId }, authorUserId)
+      }
+    }
+  }
+}
+
 /**
  * @param {import('better-sqlite3').Database} db
  * @param {{write: Function}} syncClient
@@ -89,6 +138,12 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     groupIdByName: nameMap(db, 'groups', campId),
     dayIdByName: nameMap(db, 'days_of_operation', campId, 'label'),
     blockIdByName: nameMap(db, 'time_blocks', campId),
+    // T219: the day's block order (the engine's sort_order order), so an
+    // elective held in adjacent blocks resolves as one span.
+    blockOrder: new Map(
+      db.prepare('SELECT id FROM time_blocks WHERE camp_id = ? ORDER BY sort_order IS NULL, sort_order, start_time, id').all(campId)
+        .map((b, i) => [b.id, i]),
+    ),
   }
 
   const { slots, unresolved } = resolveImportedPlacements(placements, maps)
@@ -100,6 +155,8 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
   if (slots.length === 0) {
     return { created: false, snapshotId: null, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
   }
+
+  await writeSpanBundles(db, syncClient, slots, maps.blockOrder, authorUserId)
 
   // The director lands on Generated, so the imported week must be findable
   // there as well as on Manual: one identical version per candidate route.

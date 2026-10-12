@@ -312,6 +312,69 @@ describe('materializeImportedVersion', () => {
       ])
     })
 
+    // T219: a chug printed in two adjacent blocks is one double-period session.
+    it('marks an elective held in adjacent blocks as one span and links each choice across it with a bundle', async () => {
+      const db = makeDb()
+      const campId = seedCamp(db)
+      seedWeek(db, campId)
+      seedGroup(db, campId, 'Bunk 1')
+      seedGroup(db, campId, 'Bunk 2')
+      const dayId = seedDay(db, campId, 'Monday')
+      const b1 = seedBlock(db, campId, '09:00')
+      const b2 = seedBlock(db, campId, '10:00')
+      db.prepare('UPDATE time_blocks SET sort_order = ? WHERE id = ?').run(0, b1)
+      db.prepare('UPDATE time_blocks SET sort_order = ? WHERE id = ?').run(1, b2)
+      const setId = randomUUID()
+      db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(setId, campId, 'Chugim')
+      const pottery = seedActivity(db, campId, 'Pottery')
+      const drama = seedActivity(db, campId, 'Drama')
+      for (const a of [pottery, drama]) {
+        db.prepare("INSERT INTO elective_set_activities (id, elective_set_id, activity_id, status) VALUES (?, ?, ?, 'potential')").run(randomUUID(), setId, a)
+      }
+      const cell = (g, block) => ({ groupName: g, dayName: 'Monday', blockLabel: block, electiveSetName: 'Chugim', activityName: 'Chugim', choices: [] })
+      const placements = [cell('Bunk 1', '09:00'), cell('Bunk 1', '10:00'), cell('Bunk 2', '09:00'), cell('Bunk 2', '10:00')]
+
+      const result = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements })
+
+      const slots = JSON.parse(db.prepare('SELECT slots FROM schedule_snapshots WHERE id = ?').get(result.snapshotId).slots)
+      expect(slots.map((s) => [s.time_block_id === b1 ? 'b1' : 'b2', s.is_span_head]).sort()).toEqual([['b1', true], ['b1', true], ['b2', false], ['b2', false]])
+      const bundles = db.prepare('SELECT id, activity_id, elective_set_id FROM elective_bundles').all()
+      expect(bundles.map((b) => b.activity_id).sort()).toEqual([pottery, drama].sort())
+      expect(bundles.every((b) => b.elective_set_id === setId)).toBe(true)
+      for (const b of bundles) {
+        const periods = db.prepare('SELECT day_id, time_block_id FROM elective_bundle_periods WHERE bundle_id = ?').all(b.id)
+        expect(periods.map((p) => [p.day_id, p.time_block_id]).sort()).toEqual([[dayId, b1], [dayId, b2]].sort())
+      }
+
+      // A re-import converges: no second bundle, no second period.
+      await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements })
+      expect(db.prepare('SELECT COUNT(*) c FROM elective_bundles').get().c).toBe(2)
+      expect(db.prepare('SELECT COUNT(*) c FROM elective_bundle_periods').get().c).toBe(4)
+    })
+
+    it('two separate spans of one set on one day get separate bundles', async () => {
+      const db = makeDb()
+      const campId = seedCamp(db)
+      seedWeek(db, campId)
+      seedGroup(db, campId, 'Bunk 1')
+      seedDay(db, campId, 'Monday')
+      const ids = ['09:00', '10:00', '11:00', '12:00', '13:00'].map((n, i) => {
+        const id = seedBlock(db, campId, n)
+        db.prepare('UPDATE time_blocks SET sort_order = ? WHERE id = ?').run(i, id)
+        return id
+      })
+      const setId = randomUUID()
+      db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(setId, campId, 'Chugim')
+      db.prepare("INSERT INTO elective_set_activities (id, elective_set_id, activity_id, status) VALUES (?, ?, ?, 'potential')").run(randomUUID(), setId, seedActivity(db, campId, 'Pottery'))
+      const cell = (block) => ({ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: block, electiveSetName: 'Chugim', activityName: 'Chugim', choices: [] })
+
+      await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements: ['09:00', '10:00', '12:00', '13:00'].map(cell) })
+
+      const sets = db.prepare('SELECT id FROM elective_bundles').all().map((b) =>
+        db.prepare('SELECT time_block_id FROM elective_bundle_periods WHERE bundle_id = ?').all(b.id).map((p) => ids.indexOf(p.time_block_id)).sort().join(','))
+      expect(sets.sort()).toEqual(['0,1', '3,4'])
+    })
+
     it('a held import (no elective set written) yields zero elective slots and one left-out entry per name, without throwing', async () => {
       const db = makeDb()
       const campId = seedCamp(db)

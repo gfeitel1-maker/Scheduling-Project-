@@ -409,6 +409,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   // through preplacedSlots entries carrying an electiveSetId (rather than an
   // activityId) so callers don't need a third top-level array.
   const electiveLookup = new Map() // "groupId|dayId|blockId" → electiveSetId
+  const electiveTailKeys = new Set() // T219: cells that continue a double-period elective
   // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
   // placement.md §6): same posture as electiveLookup above — a
   // template_slots cell carrying event_id is authored content, never engine
@@ -417,6 +418,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   for (const pre of (preplacedSlots || [])) {
     if (pre.electiveSetId != null) {
       electiveLookup.set(`${pre.groupId}|${pre.dayId}|${pre.blockId}`, pre.electiveSetId)
+      if (pre.isSpanHead === false) electiveTailKeys.add(`${pre.groupId}|${pre.dayId}|${pre.blockId}`)
     }
     if (pre.eventId != null) {
       eventLookup.set(`${pre.groupId}|${pre.dayId}|${pre.blockId}`, pre.eventId)
@@ -498,7 +500,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
           // Excluded from openSlots entirely: the engine never fills this
           // cell and never counts it as unfilled (no UNFILLABLE flag), the
           // same way a fixed event slot above is excluded.
-          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'elective', activityId: null, fixedEventId: null, electiveSetId, is_span_head: true, flags: {} })
+          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'elective', activityId: null, fixedEventId: null, electiveSetId, is_span_head: !electiveTailKeys.has(key), flags: {} })
           // Owner-resolved model (§1): the set doesn't have one location —
           // each DISTINCT offering location contends, simultaneously. But an
           // occupant is a GROUP AT A LOCATION, not an offering — two

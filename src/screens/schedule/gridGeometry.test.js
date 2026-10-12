@@ -164,3 +164,17 @@ describe('decideCell', () => {
     expect(d.slot.is_overridden).toBe(true)
   })
 })
+
+// T219: an imported double-period elective is a head plus tails, like an activity span.
+describe('a spanning elective', () => {
+  const el = (block, head) => slot({ id: `e-${block}`, time_block_id: block, activity_id: null, elective_set_id: 'set-1', is_span_head: head })
+  const slots = [el('b1', true), el('b2', false), slot({ id: 'x', time_block_id: 'b3', activity_id: null, elective_set_id: 'set-2', is_span_head: true })]
+  it('the tail is covered by the head', () => {
+    expect(isActivityTail(slots, 'g1', 'd1', 'b2')).toBe(true)
+    expect(isActivityTail(slots, 'g1', 'd1', 'b1')).toBe(false)
+  })
+  it('the head spans its tails and stops at a different set', () => {
+    expect(getActivityRowSpan(slots, timeBlocks, 'g1', 'd1', 'b1')).toBe(2)
+    expect(getActivityRowSpan(slots, timeBlocks, 'g1', 'd1', 'b3')).toBe(1)
+  })
+})
