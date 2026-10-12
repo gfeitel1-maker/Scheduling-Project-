@@ -311,9 +311,9 @@ describe('ScheduleDayView — row header shows a time-named block once (I3)', ()
       </DndContext>
     )
     const headers = [...container.querySelectorAll('[role="rowheader"]')]
-    expect(headers[0].textContent).toBe('12:55–1:35 PM')
+    expect(headers[0].textContent).toBe('12:55 PM – 1:35 PM')
     expect(headers[0].querySelector('.block-time')).toBeNull()
     expect(headers[1].querySelector('.block-name').textContent).toBe('Swim Period')
-    expect(headers[1].querySelector('.block-time').textContent).toBe('4:00–4:45 PM')
+    expect(headers[1].querySelector('.block-time').textContent).toBe('4:00 PM – 4:45 PM')
   })
 })

@@ -121,8 +121,8 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings, overlaps }
         {duplicateSiblings?.length > 0 && <DuplicateNameDot row={block} siblings={duplicateSiblings} entityLabel="time block" />}
         {overlaps?.map(o => <div key={o.id} style={overlapFlagStyle}>Overlaps {o.name}</div>)}
       </td>
-      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.start_time)}</td>
-      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.end_time)}{isBackwardsBlock(block) && <div style={{ ...S.fieldFlag, fontFamily: 'var(--font-sans)' }}>{BACKWARDS_FLAG}</div>}</td>
+      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>{fmt(block.start_time)}</td>
+      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>{fmt(block.end_time)}{isBackwardsBlock(block) && <div style={{ ...S.fieldFlag, fontFamily: 'var(--font-sans)' }}>{BACKWARDS_FLAG}</div>}</td>
       <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{POD_OPTIONS.find(o => o.value === block.part_of_day)?.label ?? '—'}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button

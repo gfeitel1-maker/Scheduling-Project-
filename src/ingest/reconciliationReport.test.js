@@ -1272,6 +1272,21 @@ describe('buildReconciliationReport — blastRadiusIndex (R2\'a additive input)'
 
 // docs/adr/2026-08-20-per-field-unknown-reconciliation-state.md, decisions 3/4.
 describe('buildReconciliationReport — unknownFieldEvidence (per-field UNKNOWN ADR)', () => {
+  // Owner, 2026-10-12: "the - this file doesn't tell you how important something is - is exactly
+  // what we wanted to root out." A schedule file never states priority, and frequency is derived
+  // from its placements (activityRules.js); the review flags neither. Priority defaults to low and
+  // an activity the file never places to once a week, silently, both editable on Activities.
+  it('flags neither priority nor frequency, for a create or for a field still unknown', () => {
+    const planItems = [
+      { op: 'create', entity: 'activities', entity_id: null, fields: {}, evidence: { tier: 'new' }, _name: 'Art', _rule: { min_per_week: 2, support: { appearances: 3 } } },
+      { op: 'create', entity: 'activities', entity_id: null, fields: {}, evidence: { tier: 'new' }, _name: 'Drama', _rule: { min_per_week: 1, support: { appearances: 0 }, eligible_group_names: ['Bunk 1'] } },
+      { op: 'unchanged', entity: 'activities', entity_id: 'a1', fields: {}, evidence: { tier: 'exact_name', matched_name: 'Swim' }, _name: 'Swim' },
+    ]
+    const report = buildReconciliationReport({ planItems, readiness: [], unknownFieldEvidence: new Map([['a1:min_per_week', true], ['a1:priority', true]]) })
+    expect(report.decisions).toEqual([])
+    expect(report.unknownFields).toBeUndefined()
+  })
+
   it('omitting unknownFieldEvidence is byte-identical to before this input existed', () => {
     const planItems = [
       {
@@ -1300,13 +1315,13 @@ describe('buildReconciliationReport — unknownFieldEvidence (per-field UNKNOWN 
     ]
     const stillUnknown = new Map([['a1:min_per_week', true]])
     const withUnknown = buildReconciliationReport({ planItems, readiness: [], unknownFieldEvidence: stillUnknown })
-    expect(withUnknown.unknownFields.min_per_week).toEqual(['Swim'])
+    expect(withUnknown.unknownFields).toBeUndefined()
 
     // A director hand-edited min_per_week; the caller rebuilds its map
     // filtered against the new source and no longer includes this key.
     const healed = buildReconciliationReport({ planItems, readiness: [], unknownFieldEvidence: new Map() })
     expect(healed.decisions).toEqual([])
-    expect(healed.unknownFields.min_per_week).toEqual([])
+    expect(healed.unknownFields).toBeUndefined()
     expect(healed.buckets.understood).toBe(1)
   })
 
@@ -1323,7 +1338,7 @@ describe('buildReconciliationReport — unknownFieldEvidence (per-field UNKNOWN 
     expect(report.buckets.understood).toBe(1)
     expect(report.buckets.needsAttention).toBe(0)
     expect(report.decisions).toEqual([])
-    expect(report.unknownFields).toEqual({ priority: ['Swim'], min_per_week: ['Swim'] })
+    expect(report.unknownFields).toBeUndefined()
   })
 
   it('summarises a create whose rule supplies no priority, even though it has no entity_id yet', () => {
@@ -1333,17 +1348,17 @@ describe('buildReconciliationReport — unknownFieldEvidence (per-field UNKNOWN 
     ]
     const report = buildReconciliationReport({ planItems, readiness: [] })
     expect(report.decisions).toEqual([])
-    expect(report.unknownFields).toEqual({ priority: ['Art'], min_per_week: ['Drama'] })
+    expect(report.unknownFields).toBeUndefined()
   })
 
   it('a create with no eligible group is not flagged for a weekly minimum (the commit floors only for some group)', () => {
     const planItems = [{ op: 'create', entity: 'activities', entity_id: null, _name: 'Orphan', _rule: { priority: 'high', min_per_week: null, eligible_group_names: [] } }]
-    expect(buildReconciliationReport({ planItems, readiness: [] }).unknownFields).toEqual({ priority: [], min_per_week: [] })
+    expect(buildReconciliationReport({ planItems, readiness: [] }).unknownFields).toBeUndefined()
   })
 
   it('reports empty lists when nothing is unknown', () => {
     const report = buildReconciliationReport({ planItems: [], readiness: [] })
-    expect(report.unknownFields).toEqual({ priority: [], min_per_week: [] })
+    expect(report.unknownFields).toBeUndefined()
   })
 
   it('leaves a real decision on the same row exactly as it is (the flag carries the unknown; the card keeps Keep mine, the answer still applies)', () => {
@@ -1362,7 +1377,7 @@ describe('buildReconciliationReport — unknownFieldEvidence (per-field UNKNOWN 
     expect(decision.field).toEqual(['max_per_week']) // the ordinary decision's own field shape, untouched
     expect(decision.unknownField).toBeUndefined()
     expect(decision.unknowns ?? []).toEqual([])
-    expect(report.unknownFields.min_per_week).toEqual(['Swim'])
+    expect(report.unknownFields).toBeUndefined()
   })
 })
 

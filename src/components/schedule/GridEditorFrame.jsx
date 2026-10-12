@@ -9,6 +9,7 @@ import { ArrowIcon, CloseIcon } from '../icons'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { blockLabelParts } from '../../utils/timeBlockLabel'
+import { RangeLines } from './BlockRowLabel'
 import './scheduleGrid.css'
 
 // Same device as the day view: the frame's min-width is the scroll floor, so many groups
@@ -67,7 +68,7 @@ export default function GridEditorFrame({
                         <button type="button" className="cell-action" title="Move up" onClick={() => onMoveBlock(block.id, -1)} disabled={blockIndex === 0}><ArrowIcon direction="up" /></button>
                         <button type="button" className="cell-action" title="Move down" onClick={() => onMoveBlock(block.id, 1)} disabled={blockIndex === timeBlocks.length - 1}><ArrowIcon direction="down" /></button>
                       </div>
-                      <InlineName {...blockLabelParts(block)} editValue={block.name} onRename={(name) => onRenameBlock(block.id, name)} />
+                      <InlineName {...blockLabelParts(block)} block={block} editValue={block.name} onRename={(name) => onRenameBlock(block.id, name)} />
                       <button type="button" className="cell-action" title="Remove block" onClick={() => onRemoveBlock(block.id)} style={{ color: 'var(--danger)' }}><CloseIcon size={10} /></button>
                     </div>
                   </div>
@@ -93,7 +94,7 @@ export default function GridEditorFrame({
 }
 
 // Click-to-rename label for a block row header or an event group column header.
-export function InlineName({ name, time, editValue = name, onRename }) {
+export function InlineName({ name, time, block = null, editValue = name, onRename }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(editValue)
 
@@ -119,7 +120,7 @@ export function InlineName({ name, time, editValue = name, onRename }) {
       {name}
       {time && (
         <span style={{ display: 'block', fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
-          {time}
+          {block ? <RangeLines block={block} /> : time}
         </span>
       )}
     </span>

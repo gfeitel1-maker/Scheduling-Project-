@@ -114,88 +114,35 @@ describe('unknown fields', () => {
     }
   }
 
-  it('shows one flag with a link to Activities, and asks no question', async () => {
+  it('asks no question and shows no flag for fields the file never states', async () => {
     localClient.ingestReconcile.mockResolvedValue(unknownResult())
-    const onNavigate = vi.fn()
-    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={onNavigate} />)
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
 
     await screen.findByText(/0 of 0 question/)
-    expect(screen.getByText(/The file doesn.t say how important 2 activities are\. Any you keep count as low priority\./)).toBeTruthy()
-    await userEvent.click(screen.getByRole('button', { name: /Set them in Activities/ }))
-    expect(onNavigate).toHaveBeenCalledWith('activities')
+    expect(screen.queryByText(/doesn.t say how important/)).toBeNull()
+    expect(screen.queryByRole('button', { name: /Set them in Activities/ })).toBeNull()
     expect(screen.queryByText(/Not enough information in the source/)).toBeNull()
   })
 })
 
-describe('unknown field dismissal', () => {
-  const result = {
-    planItems: [
-      { op: 'unchanged', entity: 'activities', entity_id: 'a1', _name: 'Swim', fields: {}, evidence: { tier: 'exact_name' } },
-      { op: 'unchanged', entity: 'activities', entity_id: 'a2', _name: 'Art', fields: {}, evidence: { tier: 'exact_name' } },
-    ],
-    fixedEventsReport: {},
-    legacyPriorityActivities: [],
-    fieldProvenance: {},
-    evidenceSupport: {},
-    unknownFieldEvidence: { 'a1:priority': true, 'a2:priority': true, 'a1:min_per_week': true },
-  }
-
-  it('accepting swaps the line for a true statement, and Undo brings the flag back', async () => {
-    localClient.ingestReconcile.mockResolvedValue(result)
-    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 0 question/)
-
-    await userEvent.click(screen.getByRole('button', { name: 'Low is fine' }))
-    expect(screen.getByText('Low priority kept for 2 activities.')).toBeTruthy()
-    expect(screen.queryByText(/doesn.t say how important/)).toBeNull()
-    expect(screen.getByText(/doesn.t say how often/)).toBeTruthy()
-
-    await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    expect(screen.getByText(/doesn.t say how important 2 activities are/)).toBeTruthy()
-
-    await userEvent.click(screen.getByRole('button', { name: 'Leave as is' }))
-    expect(screen.getByText('Once a week kept for 1 activity.')).toBeTruthy()
-  })
-})
-
-describe('an accepted flag never claims more than was accepted', () => {
-  it('a new unknown activity after the re-run shows the flag again, not "kept for 3"', async () => {
-    const withUnknowns = (ids) => ({
-      planItems: ids.map(([id, name]) => ({ op: 'unchanged', entity: 'activities', entity_id: id, _name: name, fields: {}, evidence: { tier: 'exact_name' } })),
-      fixedEventsReport: {}, legacyPriorityActivities: [], fieldProvenance: {}, evidenceSupport: {},
-      unknownFieldEvidence: Object.fromEntries(ids.map(([id]) => [`${id}:priority`, true])),
-    })
-    localClient.ingestReconcile
-      .mockResolvedValueOnce(withUnknowns([['a1', 'Swim'], ['a2', 'Art']]))
-      .mockResolvedValue(withUnknowns([['a1', 'Swim'], ['a2', 'Art'], ['a3', 'Drama']]))
-    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/doesn.t say how important 2 activities are/)
-    await userEvent.click(screen.getByRole('button', { name: 'Low is fine' }))
-    await screen.findByText(/doesn.t say how important 3 activities are/)
-    expect(screen.queryByText(/Low priority kept for 3/)).toBeNull()
-  })
-})
-
-describe('an accepted flag is committed through the normal exit', () => {
-  it('"Low is fine" then the main button, with a question still open, sends one confirm resolution per activity', async () => {
+// Owner, 2026-10-12: "the - this file doesn't tell you how important something is - is exactly
+// what we wanted to root out." Priority and frequency are not asked about at import.
+describe('the review asks nothing a schedule file cannot say', () => {
+  it('shows no priority or frequency flag, even for fields still unknown', async () => {
     localClient.ingestReconcile.mockResolvedValue({
       planItems: [
         { op: 'unchanged', entity: 'activities', entity_id: 'a1', _name: 'Swim', fields: {}, evidence: { tier: 'exact_name' } },
-        { op: 'unchanged', entity: 'activities', entity_id: 'a2', _name: 'Art', fields: {}, evidence: { tier: 'exact_name' } },
-        { op: 'update', entity: 'activities', entity_id: 'a3', _name: 'Drama', fields: { min_per_week: { to: 2 } }, evidence: { tier: 'low' } },
+        { op: 'create', entity: 'activities', entity_id: null, _name: 'Art', fields: {}, evidence: { tier: 'new' }, _rule: { min_per_week: 1, support: { appearances: 0 }, eligible_group_names: ['Bunk 1'] } },
       ],
       fixedEventsReport: {}, legacyPriorityActivities: [], fieldProvenance: {}, evidenceSupport: {},
-      unknownFieldEvidence: { 'a1:priority': true, 'a2:priority': true },
+      unknownFieldEvidence: { 'a1:priority': true, 'a1:min_per_week': true },
     })
-    localClient.ingestCommit.mockResolvedValue({ created: {}, total: 0 })
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 1 question/)
-    await userEvent.click(screen.getByRole('button', { name: 'Low is fine' }))
-    await userEvent.click(screen.getByRole('button', { name: /Use what Shoresh understood/ }))
-    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
-    const sent = localClient.ingestCommit.mock.calls.at(-1)[0].resolutions ?? []
-    expect(sent.filter((r) => r.reason === 'unknown_field').map((r) => [r.name, r.field, r.choice]).sort())
-      .toEqual([['Art', 'priority', 'confirm'], ['Swim', 'priority', 'confirm']])
+    // Positive control: the review rendered the file.
+    expect(await screen.findByText(/camp\.xlsx/)).toBeTruthy()
+    expect(screen.queryByText(/doesn.t say how/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Low is fine' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Leave as is' })).toBeNull()
   })
 })
 

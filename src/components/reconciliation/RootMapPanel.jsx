@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { groupIdenticalDecisions } from './groupIdenticalDecisions'
 import { DecisionCard, RequiredGapCard, RequiredGapSummaryCard } from './reconciliationCards.jsx'
 import { DOMAIN_LABELS, understoodRosterByDomain } from './domainRollup.js'
@@ -109,6 +109,57 @@ function usePanelCrossfade(dep) {
   }
 }
 
+// Design audit finding 4: a card that leaves the list (answered, so no longer "needs your
+// attention") is held in its place for --motion-settle and collapses, so the cards below slide up
+// instead of jumping. Held entries are re-inserted at the index they last had.
+const LEAVE_MS = 340
+function useHeldOut(entries) {
+  const keys = entries.map((e) => e.decision.id).join('\u0000')
+  const [prev, setPrev] = useState({ keys, entries })
+  const [held, setHeld] = useState([])
+  if (keys !== prev.keys) {
+    const now = new Set(entries.map((e) => e.decision.id))
+    const gone = prev.entries.map((entry, index) => ({ entry, index })).filter((x) => !now.has(x.entry.decision.id))
+    setPrev({ keys, entries })
+    setHeld((h) => [...h.filter((x) => !now.has(x.entry.decision.id)), ...gone])
+  }
+  useEffect(() => {
+    if (held.length === 0) return
+    const t = setTimeout(() => setHeld([]), LEAVE_MS)
+    return () => clearTimeout(t)
+  }, [held])
+  const out = entries.map((entry) => ({ entry, leaving: false }))
+  for (const { entry, index } of [...held].sort((a, b) => a.index - b.index)) {
+    out.splice(Math.min(index, out.length), 0, { entry, leaving: true })
+  }
+  return out
+}
+
+// Collapses its card to nothing: max-height, opacity, margin and padding, on the merge card's own
+// transition. Under reduced motion it only fades (140ms). Styled on the DOM node in a layout effect
+// so the first frame is the card at full height.
+function CardShell({ id, leaving, children }) {
+  const ref = useRef(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!leaving || !el) return
+    const reduced = prefersReducedMotion()
+    el.style.overflow = 'hidden'
+    el.style.transition = reduced ? 'opacity 140ms var(--ease-out)' : S.mergeCard.transition
+    if (!reduced) el.style.maxHeight = `${el.scrollHeight}px`
+    const frame = requestAnimationFrame(() => {
+      el.style.opacity = '0'
+      if (!reduced) Object.assign(el.style, { maxHeight: '0px', marginTop: '0px', marginBottom: '0px', paddingTop: '0px', paddingBottom: '0px' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [leaving])
+  return (
+    <div ref={ref} data-card-id={id} data-leaving={leaving ? '' : undefined} aria-hidden={leaving || undefined}>
+      {children}
+    </div>
+  )
+}
+
 export default function RootMapPanel({
   model, selection, lanes, dismissedGaps, answers, onAnswer, onDismissGap, onUndismissGap,
   expandedEvidence, onToggleEvidence, onNavigate, onClearSelection, locations, recall = null, cardProps = null,
@@ -184,6 +235,7 @@ export default function RootMapPanel({
   // Only confirm_value cards have a plain "use the file's value" answer.
   // confirm_change overwrites what the director already has, and choice cards
   // have no file-value option, so those stay individual.
+  const heldOut = useHeldOut(groupIdenticalDecisions(rest.filter((d) => answers[d.id] === undefined)))
   const bulkIds = rest.filter((d) => d.kind === 'confirm_value' && answers[d.id] === undefined).map((d) => d.id)
   // Design polish #2 — the crossfade should fire only when the panel's
   // CONTENT TYPE/heading actually changes (a node selection, or a
@@ -364,19 +416,21 @@ export default function RootMapPanel({
               {`Use the file's values for all ${bulkIds.length} remaining`}
             </button>
           )}
-          {groupIdenticalDecisions(rest.filter((d) => answers[d.id] === undefined)).map(({ decision: d, ids, count }) => (
-            <DecisionCard
-              key={d.id}
-              decision={d}
-              repeatCount={count}
-              rank={lanes.hold.includes(d) ? 'hold' : 'standard'}
-              answer={answers[d.id]}
-              onAnswer={(a) => onAnswer(ids, a)}
-              expanded={expandedEvidence.has(d.id)}
-              onToggleEvidence={() => onToggleEvidence(d.id)}
-              locations={locations}
-              {...(cardProps?.(d, ids) ?? {})}
-            />
+          {/* With Show all on, an answered card is listed below already; it is not held here too. */}
+          {heldOut.filter((x) => !(x.leaving && showResolved)).map(({ entry: { decision: d, ids, count }, leaving }) => (
+            <CardShell key={d.id} id={d.id} leaving={leaving}>
+              <DecisionCard
+                decision={d}
+                repeatCount={count}
+                rank={lanes.hold.includes(d) ? 'hold' : 'standard'}
+                answer={answers[d.id]}
+                onAnswer={(a) => onAnswer(ids, a)}
+                expanded={expandedEvidence.has(d.id)}
+                onToggleEvidence={() => onToggleEvidence(d.id)}
+                locations={locations}
+                {...(cardProps?.(d, ids) ?? {})}
+              />
+            </CardShell>
           ))}
           {rest.filter((d) => answers[d.id] !== undefined).map((d) => (
             <DecisionCard

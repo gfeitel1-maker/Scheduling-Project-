@@ -475,38 +475,44 @@ export default function SlotCell({
             {electiveLabel || eventLabel || activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')}
           </div>
         )}
-        {isOverlapping && (
-          <div
-            className="flag flag--overlap"
-            style={{ background: FLAG_COLORS.OVERLAP }}
-            title={flags.OVERLAP_reason || 'Over capacity'}
-          />
-        )}
-        {isWeekClosed && (
-          <div
-            className="flag flag--week-closed"
-            style={{ background: FLAG_COLORS.WEEK_CLOSED }}
-            title={flags.WEEK_CLOSED_reason || 'Off this week'}
-          />
-        )}
-        {isUnfillable && (
-          <div className="flag flag--unfillable" title="Unfillable">
-            <UnfillableIcon />
-          </div>
-        )}
-        {isContentRaced && (
-          <button
-            type="button"
-            className="flag flag--content-race"
-            style={{ background: FLAG_COLORS.CONTENT_RACE, border: 'none', padding: 0, cursor: 'pointer' }}
-            title="Changed on another device"
-            aria-label="Changed on another device"
-            onClick={e => { e.stopPropagation(); onDismissContentRace?.() }}
-          />
-        )}
-        {showOutdoorIcon && (
-          <div className="flag flag--outdoor" title="Outdoor">
-            <OutdoorIcon />
+        {/* Every badge sits in ONE row under the cell's name (owner, 2026-10-12), never scattered to
+            the corners: the corners belong to the cell's controls (split, open elective). */}
+        {(isOverlapping || isWeekClosed || isUnfillable || isContentRaced || showOutdoorIcon) && (
+          <div className="cell-flags">
+            {isOverlapping && (
+              <div
+                className="flag flag--overlap"
+                style={{ background: FLAG_COLORS.OVERLAP }}
+                title={flags.OVERLAP_reason || 'Over capacity'}
+              />
+            )}
+            {isWeekClosed && (
+              <div
+                className="flag flag--week-closed"
+                style={{ background: FLAG_COLORS.WEEK_CLOSED }}
+                title={flags.WEEK_CLOSED_reason || 'Off this week'}
+              />
+            )}
+            {isUnfillable && (
+              <div className="flag flag--unfillable" title="Unfillable">
+                <UnfillableIcon />
+              </div>
+            )}
+            {isContentRaced && (
+              <button
+                type="button"
+                className="flag flag--content-race"
+                style={{ background: FLAG_COLORS.CONTENT_RACE, border: 'none', padding: 0, cursor: 'pointer' }}
+                title="Changed on another device"
+                aria-label="Changed on another device"
+                onClick={e => { e.stopPropagation(); onDismissContentRace?.() }}
+              />
+            )}
+            {showOutdoorIcon && (
+              <div className="flag flag--outdoor" title="Outdoor">
+                <OutdoorIcon />
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -15,11 +15,11 @@ const campB = fs.readFileSync(path.join(process.cwd(), 'docs/work/specs/samples/
 
 describe('formatBlockTime12h', () => {
   it('reads a bare camp-day range as 12-hour with one meridiem when both ends agree', () => {
-    expect(formatBlockTime12h('02:25-03:15')).toBe('2:25–3:15 PM')
-    expect(formatBlockTime12h('09:00–09:40')).toBe('9:00–9:40 AM')
+    expect(formatBlockTime12h('02:25-03:15')).toBe('2:25 PM – 3:15 PM')
+    expect(formatBlockTime12h('09:00–09:40')).toBe('9:00 AM – 9:40 AM')
   })
   it('shows both meridiems when the range crosses noon', () => {
-    expect(formatBlockTime12h('11:30-12:10')).toBe('11:30 AM–12:10 PM')
+    expect(formatBlockTime12h('11:30-12:10')).toBe('11:30 AM – 12:10 PM')
   })
   it('leaves a named period alone', () => {
     expect(formatBlockTime12h('Block 2')).toBe('Block 2')
@@ -45,7 +45,7 @@ describe('campB all-camp-override question copy', () => {
   it('reads day, 12-hour time, full name, who, and what the excluded group has instead', () => {
     const thursday = questions.find((q) => q.evidence.day === 'Thursday')
     expect(thursday.reason).toContain(
-      'Thursday 2:25–3:15 PM · All Camp Activity · every group except CIT (CIT Block 3)',
+      'Thursday 2:25 PM – 3:15 PM · All Camp Activity · every group except CIT (CIT Block 3)',
     )
   })
 
