@@ -470,6 +470,22 @@ describe('part_of_day derived from start_time when a block has none', () => {
   })
 })
 
+// Keeper question 2026-10-12: is a fixed event set to "Week 2 only" (its Weeks column) honoured? The
+// engine keeps an event when schedule_week_id is null (every week) or equals the week being built.
+describe('a fixed event set to one week only', () => {
+  const lunch = { id: 'lunch', name: 'Lunch', priority: 'high', max_per_week: 10, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+  const week2Only = { id: 'w2-lunch', activity_id: 'lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1, schedule_week_id: 'w2' }
+  const placed = (weekId, extra = {}) => buildSchedule(minimal({ activities: [lunch], fixedEvents: [week2Only], weekId, ...extra })).slots.filter(s => s.type === 'fixed_event' && s.fixedEventId === 'w2-lunch')
+  it('Generate for Week 1 does not place it; Generate for Week 2 does', () => {
+    expect(placed('w1')).toHaveLength(0)
+    expect(placed('w2').length).toBeGreaterThan(0)
+  })
+  it('Manual\'s fixed-events-only placement honours it the same way', () => {
+    expect(placed('w1', { fixedEventsOnly: true })).toHaveLength(0)
+    expect(placed('w2', { fixedEventsOnly: true }).length).toBeGreaterThan(0)
+  })
+})
+
 describe('WEATHER_RISK', () => {
   it('is no longer emitted anywhere in flags — outdoor exposure is read at render time from activity.is_outdoor', () => {
     const act = { id: 'a1', name: 'Swimming', priority: 'low', max_per_week: 5, min_per_week: 0, is_outdoor: true, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
