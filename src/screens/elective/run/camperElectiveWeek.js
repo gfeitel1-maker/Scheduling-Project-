@@ -52,6 +52,7 @@ import { UNKNOWN_CAMPER_LABEL } from './runStateCopy.js'
 // (buildElectiveAssignments.js) and the ETL (preferenceSheet.js), so the
 // 2-value allow-list is defined once. See rankKind.js's own header.
 import { hasOrderingEvidence } from '../../../engine/rankKind.js'
+import { blockDisplayName } from '../../../utils/timeBlockLabel.js'
 
 // Module-level so the defaults are a stable reference across renders and a
 // useMemo keyed on them can actually hit — the same reason useRunState.js keeps
@@ -257,7 +258,7 @@ export function buildCamperElectiveWeek({
   // sibling occurrenceLabel in runStateCopy.js to read the same way, so the two
   // no longer disagree on the same catalog.
   const dayNameById = new Map(days.map((d) => [d.id, d.label ?? d.name ?? null]))
-  const blockNameById = new Map(timeBlocks.map((t) => [t.id, t.name ?? null]))
+  const blockNameById = new Map(timeBlocks.map((t) => [t.id, blockDisplayName(t)]))
   const dayOrder = orderIndex(days)
   const blockOrder = orderIndex(timeBlocks)
 

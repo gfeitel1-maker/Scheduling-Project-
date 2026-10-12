@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { formatClock12 } from '../../utils/timeBlockLabel.js'
 import { S } from '../../styles/shared'
 import { ChevronIcon } from '../icons'
 
@@ -8,7 +9,7 @@ function formatTime(isoString) {
   const isToday = d.toDateString() === now.toDateString()
   const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1)
   const isYesterday = d.toDateString() === yesterday.toDateString()
-  const timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const timeStr = formatClock12(d)
   if (isToday) return `today ${timeStr}`
   if (isYesterday) return `yesterday ${timeStr}`
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + timeStr

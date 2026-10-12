@@ -106,16 +106,12 @@ You can import the same file, or an updated copy of it, onto a camp that already
 
 [shot: reconcile/questions]
 
-### Flags for things the file doesn't say
+### Importance and how often
 
-Sometimes a file lists activities without saying how important they are, or how often they should run. Shoresh flags them and you choose:
-
-- **Low is fine** — the activities you keep count as low priority.
-- **Leave as is** — the activities you keep are scheduled once a week.
-
-Each flag counts the activities it covers.
-
-<!-- shot: reconcile/unknown-field-flags -->
+A schedule file doesn't say how important an activity is, so Shoresh doesn't ask. Every imported
+activity starts at low priority. How often each one runs comes from the file: Shoresh counts how
+many times a week each group has it. An activity the file never places starts at once a week.
+Change either on **Activities**.
 
 ### Undo this import
 

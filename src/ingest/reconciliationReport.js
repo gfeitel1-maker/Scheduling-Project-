@@ -19,7 +19,6 @@ import { formatBlockTime12h } from './blockTimeText.js'
 import { describeAppearance } from './appearsAt.js'
 import { decisionTitle } from './decisionTitle.js'
 import { isMealName } from './eventKeptWhenUnanswered.js'
-import { unknownFieldsOnCreate } from './unknownOnCreate.js'
 
 // T257 — a group's `unit` delta may carry a discriminated token
 // ({kind, id?, name}) rather than a bare string. Director-facing copy
@@ -368,34 +367,6 @@ function blastRadiusKeyFor(entity, entityId, entityName) {
     : `${entity}:name:${normalizeName(String(entityName ?? ''))}`
 }
 
-// docs/adr/2026-08-20-per-field-unknown-reconciliation-state.md, decision 3/4.
-// The two fields this ADR scopes: an activity's committed value was
-// manufactured (floored min_per_week, or priority left NULL), never a
-// director's judgment. unknownFieldEvidence is a caller-built
-// Map<"entityId:field", true>, pre-filtered against `source !== 'human'` —
-// the same additive-degradation contract fieldProvenance/blastRadiusIndex
-// already use; an omitted map means every lookup misses, byte-identical to
-// pre-ADR output.
-const UNKNOWN_FIELD_CANDIDATES = ['min_per_week', 'priority']
-
-function unknownFieldsFor(entityId, unknownFieldEvidence) {
-  if (entityId == null) return []
-  return UNKNOWN_FIELD_CANDIDATES.filter((f) => unknownFieldEvidence.has(`${entityId}:${f}`))
-}
-
-// No decision is ever synthesized or tagged for an unknown field: grids never state priority, so a
-// question per activity on every unchanged re-import was noise, and tagging a real create/change
-// with unknownField hid its decline button and turned its "Looks right" into a no-op. The review
-// shows one flag per field instead (ADR 2026-08-20, amendment 2026-10-11).
-
-// The fields a CREATE will commit as unknown — mirrors the tag:'unknown' evidence writes in
-// electron/ops/ingest.js commitCreate (priority: no 'high'/'low' in the rule; min_per_week:
-// floored, or inferred from zero appearances).
-function unknownFieldsForCreate(item) {
-  const names = Array.isArray(item._rule?.eligible_group_names) ? item._rule.eligible_group_names : []
-  return unknownFieldsOnCreate(item._rule, names.length)
-}
-
 export function buildReconciliationReport(input) {
   const {
     planItems = [], readiness = [], now = null, fixedEventsReport = {},
@@ -408,7 +379,6 @@ export function buildReconciliationReport(input) {
     // this is the same additive-degradation contract fieldProvenance uses.
     evidenceSupport = {},
     blastRadiusIndex = new Map(),
-    unknownFieldEvidence = new Map(),
     // Where each activity sits in the file's grid, so a card can say so.
     placements = [], allGroupNames = [],
   } = input ?? {}
@@ -436,18 +406,10 @@ export function buildReconciliationReport(input) {
     decisionsByKey.set(decision.id, mergeDecisions(existing, decision))
   }
 
-  // Decision 3/4 (per-field UNKNOWN ADR): a second pass over the same
-  // planItems, independent of classifyItem's outcome — an activity's
-  // min_per_week/priority can be "still unknown" regardless of whether this
-  // row also has an ordinary create/update decision this run.
-  const unknownFieldNames = { priority: [], min_per_week: [] }
-  for (const item of planItems) {
-    if (item.entity !== 'activities') continue
-    const unknownFields = item.op === 'create' ? unknownFieldsForCreate(item) : unknownFieldsFor(item.entity_id, unknownFieldEvidence)
-    if (unknownFields.length === 0) continue
-    for (const f of unknownFields) unknownFieldNames[f].push(item._name)
-  }
-
+  // Owner, 2026-10-12: a schedule file never states priority, and frequency is derived from its
+  // placements (activityRules.js), so the review flags neither ("the file doesn't tell you how
+  // important something is" is what the copy audit set out to remove). The commit still records
+  // which fields were inferred (unknownOnCreate.js), so Activities can mark them.
   // Rule 6: readiness rows with state 'optional' contribute to notInSource
   // ONLY — zero decisions, by design (see ADR "Bucketing" rule 6).
   for (const row of readiness) {
@@ -791,7 +753,6 @@ export function buildReconciliationReport(input) {
     // fieldProvenance/evidenceSupport/blastRadiusIndex already use; existing
     // callers that ignore this field see byte-identical buckets/decisions.
     readiness,
-    unknownFields: unknownFieldNames,
     meta: { generatedAt: now, planItemCount: planItems.length },
   }
 }

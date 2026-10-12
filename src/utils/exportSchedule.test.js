@@ -130,15 +130,15 @@ describe('exportToExcel — multi-period span (T248 leftover)', () => {
     // header + one row per time block — assert the whole population, not just the row we expect.
     expect(dayRows).toEqual([
       ['Time Block', 'Bunk 1'],
-      ['Period 1 (9:00–10:00 AM)', 'Swimming'],
-      ['Period 2 (10:00–11:00 AM)', 'Swimming'],
+      ['Period 1 (9:00 AM – 10:00 AM)', 'Swimming'],
+      ['Period 2 (10:00 AM – 11:00 AM)', 'Swimming'],
     ])
 
     const masterRows = sheetRows(wb, 'All Groups')
     expect(masterRows).toEqual([
       ['Group', 'Day', 'Time Block', 'Activity'],
-      ['Bunk 1', 'Monday', 'Period 1 (9:00–10:00 AM)', 'Swimming'],
-      ['Bunk 1', 'Monday', 'Period 2 (10:00–11:00 AM)', 'Swimming'],
+      ['Bunk 1', 'Monday', 'Period 1 (9:00 AM – 10:00 AM)', 'Swimming'],
+      ['Bunk 1', 'Monday', 'Period 2 (10:00 AM – 11:00 AM)', 'Swimming'],
     ])
   })
 })
@@ -164,12 +164,12 @@ describe('exportToExcel — replaced day', () => {
     expect(sheetRows(wb, 'Tuesday')).toEqual([
       ['Week 1 – Tuesday – Color War', ''],
       ['Time Block', 'Bunk 1'],
-      ['Opening (9:00–9:30 AM)', 'Kayaking'],
+      ['Opening (9:00 AM – 9:30 AM)', 'Kayaking'],
       ['Notes', 'Wear team colours'],
     ])
     const master = sheetRows(wb, 'All Groups')
-    expect(master).toContainEqual(['Bunk 1', 'Tuesday', 'Opening (9:00–9:30 AM)', 'Kayaking'])
-    expect(master).not.toContainEqual(['Bunk 1', 'Tuesday', 'Period 1 (9:00–10:00 AM)', 'Swimming'])
+    expect(master).toContainEqual(['Bunk 1', 'Tuesday', 'Opening (9:00 AM – 9:30 AM)', 'Kayaking'])
+    expect(master).not.toContainEqual(['Bunk 1', 'Tuesday', 'Period 1 (9:00 AM – 10:00 AM)', 'Swimming'])
   })
 
   it('an empty special day prints its name, a single dash line, and notes', () => {
@@ -188,7 +188,7 @@ describe('exportToExcel — replaced day', () => {
     XLSX.writeFile.mockClear()
     const withEmptyMap = capturedWorkbook({ ...base, week, replacements: new Map() })
     for (const name of plain.SheetNames) expect(sheetRows(withEmptyMap, name)).toEqual(sheetRows(plain, name))
-    expect(sheetRows(plain, 'Tuesday')).toEqual([['Time Block', 'Bunk 1'], ['Period 1 (9:00–10:00 AM)', 'Swimming']])
+    expect(sheetRows(plain, 'Tuesday')).toEqual([['Time Block', 'Bunk 1'], ['Period 1 (9:00 AM – 10:00 AM)', 'Swimming']])
   })
 })
 
@@ -202,7 +202,7 @@ describe('exportToExcel — a time-named block prints its range once (I3)', () =
         { id: 'b2', name: 'Lunch', start_time: '11:30:00', end_time: '12:15:00' },
       ],
     })
-    expect(sheetRows(wb, 'Monday').map(r => r[0])).toEqual(['Time Block', '12:55–1:35 PM', 'Lunch (11:30 AM–12:15 PM)'])
+    expect(sheetRows(wb, 'Monday').map(r => r[0])).toEqual(['Time Block', '12:55 PM – 1:35 PM', 'Lunch (11:30 AM – 12:15 PM)'])
   })
 
   it('the All Groups sheet uses the same label as the day sheets (not the raw block name)', () => {
@@ -217,6 +217,6 @@ describe('exportToExcel — a time-named block prints its range once (I3)', () =
         { id: 'b2', name: 'Lunch', start_time: '11:30:00', end_time: '12:15:00' },
       ],
     })
-    expect(sheetRows(wb, 'All Groups').map(r => r[2])).toEqual(['Time Block', '12:55–1:35 PM', 'Lunch (11:30 AM–12:15 PM)'])
+    expect(sheetRows(wb, 'All Groups').map(r => r[2])).toEqual(['Time Block', '12:55 PM – 1:35 PM', 'Lunch (11:30 AM – 12:15 PM)'])
   })
 })

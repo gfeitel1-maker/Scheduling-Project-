@@ -21,7 +21,7 @@ import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describe
 import { resolveRowAction } from '../ingest/resolveRowAction.js'
 import { resolveRowCohort, describeCohortNote } from '../ingest/resolveRowCohort.js'
 import { commitSetupImportBatch } from '../ingest/setupImportCommit.js'
-import { formatTime12 } from '../utils/timeBlockLabel'
+import { formatTime12, blockDisplayName } from '../utils/timeBlockLabel'
 import { timeBlocksListed } from './setupListSelectors'
 
 const TIME_BLOCKS_CATALOG = ENTITY_FIELD_CATALOGS.time_blocks
@@ -113,16 +113,16 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings, overlaps }
         <span
           role="button"
           tabIndex={0}
-          aria-label={`Edit ${block.name}`}
+          aria-label={`Edit ${blockDisplayName(block)}`}
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
           style={{ cursor: 'pointer' }}
-        >{block.name}</span>
+        >{blockDisplayName(block)}</span>
         {block.events_only ? <div style={{ ...S.fieldFlag, color: 'var(--text-secondary)' }}>Events only — Generate won't place activities here</div> : null}
         {duplicateSiblings?.length > 0 && <DuplicateNameDot row={block} siblings={duplicateSiblings} entityLabel="time block" />}
         {overlaps?.map(o => <div key={o.id} style={overlapFlagStyle}>Overlaps {o.name}</div>)}
       </td>
-      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.start_time)}</td>
-      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.end_time)}{isBackwardsBlock(block) && <div style={{ ...S.fieldFlag, fontFamily: 'var(--font-sans)' }}>{BACKWARDS_FLAG}</div>}</td>
+      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>{fmt(block.start_time)}</td>
+      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>{fmt(block.end_time)}{isBackwardsBlock(block) && <div style={{ ...S.fieldFlag, fontFamily: 'var(--font-sans)' }}>{BACKWARDS_FLAG}</div>}</td>
       <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{POD_OPTIONS.find(o => o.value === block.part_of_day)?.label ?? '—'}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button

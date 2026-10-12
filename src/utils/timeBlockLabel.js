@@ -1,7 +1,6 @@
 // The ONE formatter for a time block's label wherever it is shown with its
 // times (schedule grid row headers, Fixed Events, the Excel export). 12-hour
-// clock, en dash, one AM/PM when both ends share it ("9:00–9:45 AM"), both
-// when the range spans noon ("11:30 AM–12:15 PM").
+// clock, AM/PM on both ends, spaced en dash: "9:00 AM – 9:45 AM".
 //
 // Audit I3 — an imported camp's blocks are named after their own printed
 // times, in whatever shape the file used ("12:55-01:35", "03:20-03:40",
@@ -28,9 +27,17 @@ export function timeRangeLabel(block) {
   const s = parts(block?.start_time)
   const e = parts(block?.end_time)
   if (!s || !e) return ''
-  const sTxt = `${s.h12}:${s.mm}`
-  const eTxt = `${e.h12}:${e.mm}`
-  return s.suffix === e.suffix ? `${sTxt}–${eTxt} ${e.suffix}` : `${sTxt} ${s.suffix}–${eTxt} ${e.suffix}`
+  // Both ends always carry AM/PM (owner, 2026-10-12), so every block's time reads and wraps the same
+  // way: "9:00 AM – 10:00 AM". A narrow header breaks it at the spaced dash, never mid-time.
+  return `${s.h12}:${s.mm} ${s.suffix} – ${e.h12}:${e.mm} ${e.suffix}`
+}
+
+// The range as the two lines a narrow row header shows: ["9:00 AM –", "10:00 AM"], or null.
+export function timeRangeLines(block) {
+  const range = timeRangeLabel(block)
+  if (!range) return null
+  const at = range.indexOf(' – ')
+  return [range.slice(0, at + 2), range.slice(at + 3)]
 }
 
 // One end of a range: "9", "09:15", "9.15", "3:20pm", "3:20 P.M.".
@@ -56,8 +63,25 @@ export function blockLabelParts(block) {
   return isTimeRangeName(name) ? { name: range, time: '' } : { name, time: range }
 }
 
-// Single-line form: "Period 1 (9:00–9:45 AM)", or just "12:55–1:35 PM".
+// Single-line form: "Period 1 (9:00 AM – 9:45 AM)", or just "12:55 PM – 1:35 PM".
 export function timeBlockLabel(block) {
   const { name, time } = blockLabelParts(block)
   return time ? `${name} (${time})` : name
 }
+
+// A time block as a director reads it anywhere a name stands alone: the 12-hour range when the
+// block is named after its own times ("13:35-14:15" -> "1:35 PM – 2:15 PM"), else its name. Same
+// rule as the row headers (blockLabelParts). Owner, 2026-10-12: "all times need the am pm fix".
+export function blockDisplayName(block) {
+  if (!block) return null
+  return blockLabelParts(block).name || block.name || null
+}
+
+// A moment's clock time, always 12-hour: "2:13 PM". Never the browser locale's default, which can
+// be 24-hour.
+export function formatClock12(date) {
+  const d = date instanceof Date ? date : new Date(date)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+}
+

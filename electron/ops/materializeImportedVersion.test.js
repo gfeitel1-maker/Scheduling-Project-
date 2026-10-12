@@ -243,7 +243,7 @@ describe('materializeImportedVersion', () => {
     const result = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements })
 
     expect(result.unresolvedItems).toEqual([
-      { activityName: 'Nonexistent', groupName: 'Bunk 1', dayName: 'Monday', blockText: '09:00 (1:35–2:20 PM)', reason: 'activity' },
+      { activityName: 'Nonexistent', groupName: 'Bunk 1', dayName: 'Monday', blockText: '09:00 (1:35 PM – 2:20 PM)', reason: 'activity' },
     ])
   })
 

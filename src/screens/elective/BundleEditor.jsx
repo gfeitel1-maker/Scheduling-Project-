@@ -15,6 +15,7 @@ import { useState } from 'react'
 import { S, prefersReducedMotion } from '../../styles/shared'
 import { useLatestTimeout } from '../../hooks/useLatestTimeout'
 import { resolveScope, findBundleOverlap } from './bundleOverlap.js'
+import { blockDisplayName } from '../../utils/timeBlockLabel.js'
 
 const SCOPE_SEGMENTS = [
   { mode: 'all', label: 'All divisions' },
@@ -101,7 +102,7 @@ export default function BundleEditor({
     .sort((a, b) => (blockOrder.get(a) ?? 0) - (blockOrder.get(b) ?? 0))
   const cellByKey = new Map(occurrenceCells.map((c) => [cellKey(c.day_id, c.time_block_id), c]))
   const dayLabel = (id) => days.find((d) => d.id === id)?.label ?? days.find((d) => d.id === id)?.name ?? id
-  const blockName = (id) => timeBlocks.find((b) => b.id === id)?.name ?? id
+  const blockName = (id) => blockDisplayName(timeBlocks.find((b) => b.id === id)) ?? id
   const tierName = (id) => tiers.find((t) => t.id === id)?.name ?? id
   const isSelected = (dayId, timeBlockId) =>
     bundle.periods.some((p) => p.day_id === dayId && p.time_block_id === timeBlockId)

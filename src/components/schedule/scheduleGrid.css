@@ -229,6 +229,13 @@
   margin-top: 2px;
 }
 
+/* A block's range is always two lines, "9:00 AM –" then "10:00 AM", each kept whole, so every row
+   header lays its time out the same way (owner, 2026-10-12). */
+.block-range-line {
+  display: block;
+  white-space: nowrap;
+}
+
 /* ---------- cell contents ---------- */
 
 .cell-name {
@@ -273,6 +280,22 @@
 .flag {
   position: absolute;
   line-height: 1;
+}
+
+/* Owner, 2026-10-12: a cell's badges sit in one place, a row under its name, in a fixed order
+   (overlap, off this week, unfillable, changed elsewhere, outdoor). The corner offsets below
+   apply only to a flag outside this row (the day-pill placement conflict). */
+.cell-flags {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 3px;
+  min-height: 12px;
+}
+.cell-flags .flag {
+  position: static;
+  flex-shrink: 0;
 }
 
 .flag--overlap {

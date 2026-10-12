@@ -162,7 +162,7 @@ describe('copyCampTimeBlocks write safety', () => {
     rows.special_day_slots.push({ id: 'manual', special_day_id: SD, group_id: 'g2', time_block_id: 'sdb-sd1-b3', activity_id: 'a-swim' })
     const done = await r.offer.apply()
     expect(done.written).toBe(0)
-    expect(done.notice).toBe('Swim kept in B Swim (1:00–1:40 PM) — Group Time not added there')
+    expect(done.notice).toBe('Swim kept in B Swim (1:00 PM – 1:40 PM) — Group Time not added there')
     expect(rows.special_day_slots.filter((s) => s.group_id === 'g2' && s.time_block_id === 'sdb-sd1-b3')).toHaveLength(1)
   })
 

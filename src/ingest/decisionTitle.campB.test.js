@@ -28,7 +28,7 @@ describe('decisionTitle says what will happen (audit 714 item 2)', () => {
 
   it('falls back to the fixed event’s own block when the grid says nothing', () => {
     expect(decisionTitle(decision({ entity: 'fixed_events', entityName: 'Ghost', timeBlock: '15:40-16:00', days: ['Monday'] }), ctx))
-      .toBe('Make Ghost a fixed event at 3:40–4:00 PM?')
+      .toBe('Make Ghost a fixed event at 3:40 PM – 4:00 PM?')
   })
 
   it('a new activity with no placements is still a plain sentence', () => {

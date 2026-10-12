@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import RootMapPanel from './RootMapPanel.jsx'
 import { S } from '../../styles/shared'
 
@@ -844,5 +844,39 @@ describe('RootMapPanel "use the file\'s values for all remaining"', () => {
   it('is hidden when nothing is unanswered', () => {
     show({ a: { action: 'edited' }, b: { action: 'edited' }, c: { action: 'edited' } }, noop)
     expect(screen.queryByText(/for all \d+ remaining/)).toBeNull()
+  })
+})
+
+// Design audit finding 4 (2026-10-12): resolving a card removed it in one frame and the list below
+// jumped (CLS 0.038). A resolved card is held in place and collapses for --motion-settle (340ms),
+// then leaves.
+describe('a resolved card collapses before it leaves', () => {
+  const twoCards = { hold: [], standard: [
+    { id: 'd1', kind: 'confirm_value', entity: 'activities', entityName: 'Swim', reason: 'r1' },
+    { id: 'd2', kind: 'confirm_value', entity: 'activities', entityName: 'Art', reason: 'r2' },
+  ] }
+  const panel = (answers) => (
+    <RootMapPanel model={emptyModel()} selection={{ type: 'none' }} lanes={twoCards} dismissedGaps={new Set()}
+      answers={answers} onAnswer={noop} onDismissGap={noop} onUndismissGap={noop} expandedEvidence={new Set()}
+      onToggleEvidence={noop} onNavigate={noop} onClearSelection={noop} />
+  )
+
+  it('holds the resolved card in its place, collapsing, then removes it', async () => {
+    vi.useFakeTimers()
+    const { container, rerender } = render(panel({}))
+    // Positive control: both cards are shown, d1 first.
+    expect([...container.querySelectorAll('[data-card-id]')].map((n) => n.getAttribute('data-card-id'))).toEqual(['d1', 'd2'])
+
+    rerender(panel({ d1: { action: 'looks_right' } }))
+
+    const held = container.querySelector('[data-card-id="d1"]')
+    expect(held).toBeTruthy()
+    expect(held.hasAttribute('data-leaving')).toBe(true)
+    expect([...container.querySelectorAll('[data-card-id]')].map((n) => n.getAttribute('data-card-id'))).toEqual(['d1', 'd2'])
+
+    await act(async () => { vi.advanceTimersByTime(400) })
+    expect(container.querySelector('[data-card-id="d1"]')).toBeNull()
+    expect(container.querySelector('[data-card-id="d2"]')).toBeTruthy()
+    vi.useRealTimers()
   })
 })

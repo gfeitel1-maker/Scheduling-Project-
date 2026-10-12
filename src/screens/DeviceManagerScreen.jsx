@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { formatClock12 } from '../utils/timeBlockLabel.js'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import { deriveDeviceRowState } from './deviceRowState'
@@ -237,7 +238,9 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
   function fmt(iso) {
     if (!iso) return '—'
     try {
-      return new Date(iso).toLocaleString()
+      const d = new Date(iso)
+      if (Number.isNaN(d.getTime())) return iso
+      return `${d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })}, ${formatClock12(d)}`
     } catch {
       return iso
     }

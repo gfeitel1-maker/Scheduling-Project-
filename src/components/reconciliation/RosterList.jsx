@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatBlockTime12h } from '../../ingest/blockTimeText.js'
 
 // RosterList — Roots census roster, panel-only.
 // docs/adr/2026-08-19-roots-census-and-persistent-inspector.md §(b).
@@ -50,7 +51,8 @@ function RosterRow({ entry, onRowClick }) {
       style={clickable ? { ...styles.row, cursor: 'pointer' } : styles.row}
     >
       <span style={{ ...styles.dot, background: STATE_DOT[entry.state] ?? STATE_DOT.understood }} />
-      <span style={styles.name}>{entry.name}</span>
+      {/* A block named after its file times reads as 12-hour AM/PM (owner, 2026-10-12). */}
+      <span style={styles.name}>{formatBlockTime12h(entry.name)}</span>
       {entry.group && <span style={styles.groupLabel}>{` — ${entry.group}`}</span>}
     </div>
   )
