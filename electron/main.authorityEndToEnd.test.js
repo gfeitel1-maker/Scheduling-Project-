@@ -243,9 +243,50 @@ describe('T376 R3 — removing a device is available on any admin device, not on
 
       const handlers = makeHandlers(clientDb, 'device-a', { getAutomergeSyncNode: () => a })
       const { token } = await handlers.login({ name: 'Director', pin: '135790' })
-      expect(handlers.revokeDevice({ token, deviceId: 'device-c', reason: 'lost' }).revoked).toBe(true)
+      const revoked = handlers.revokeDevice({ token, deviceId: 'device-c', reason: 'lost' })
+      expect(revoked).toMatchObject({ revoked: true, fleetWide: true })
       await waitFor(() => authorityCacheStatus(clientDb, 'device-c') === 'revoked')
       expect(clientDb.prepare("SELECT signer_device_id FROM applied_authority_log WHERE target_device_id = 'device-c'").get()).toEqual({ signer_device_id: 'device-a' })
+    } finally {
+      await Promise.all([f.stop(), a?.stop()])
+      hostDb.close()
+      clientDb.close()
+    }
+  })
+})
+
+describe('T376 R3 — a computer never made an admin cannot remove a device fleet-wide', () => {
+  it('an admin user on an ungranted client reports fleetWide false and no signed revoke takes effect', async () => {
+    const hostDb = freshDb('r3n-host')
+    const clientDb = freshDb('r3n-client')
+    const genesis = createEmptyDoc()
+    const f = await startSyncNode({ deviceId: 'device-f', db: hostDb, doc: A.clone(genesis) })
+    let a
+    try {
+      const campId = randomUUID()
+      await seedCampAndAdmin(hostDb, { campId, deviceId: 'device-f', name: 'Director', pin: '135790' })
+      const pub = hostDb.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key
+      mintGenesisEntry(hostDb, { founderDeviceId: 'device-f', founderPeerId: f.peerId.toString() })
+      const clientIdentity = await ensureDeviceIdentity(clientDb)
+
+      clientDb.prepare('INSERT INTO camps (id, name, signing_public_key) VALUES (?, ?, ?)').run(campId, 'E2E Camp', pub)
+      for (const u of hostDb.prepare('SELECT * FROM users').all()) {
+        const cols = Object.keys(u)
+        clientDb.prepare(`INSERT INTO users (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...cols.map((c) => u[c]))
+      }
+      db_insertDevicesRow(clientDb, 'device-a')
+      clientDb.prepare("UPDATE devices SET authorized_at = ?, pairing_status = 'authorized', device_secret_identifier = 'r3-secret' WHERE id = 'device-a'").run(new Date().toISOString())
+      db_rosterRow(clientDb, 'device-c', 'peer-c')
+      a = await startSyncNode({ deviceId: 'device-a', db: clientDb, doc: A.clone(f.getDoc()) })
+      projectEntity(clientDb, a.getDoc(), 'camp_authority_log')
+      expect(clientDb.prepare('SELECT 1 FROM host_signing_key').get()).toBeUndefined()
+            expect(authorityCacheStatus(clientDb, 'device-c')).toBeNull()
+
+      const handlers = makeHandlers(clientDb, 'device-a', { getAutomergeSyncNode: () => a })
+      const { token } = await handlers.login({ name: 'Director', pin: '135790' })
+      const revoked = handlers.revokeDevice({ token, deviceId: 'device-c', reason: 'lost' })
+      expect(revoked).toMatchObject({ revoked: true, fleetWide: false })
+      expect(clientDb.prepare("SELECT 1 FROM applied_authority_log WHERE kind = 'revoke' AND target_device_id = 'device-c'").get()).toBeUndefined()
     } finally {
       await Promise.all([f.stop(), a?.stop()])
       hostDb.close()

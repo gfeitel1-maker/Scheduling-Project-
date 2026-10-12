@@ -52,7 +52,9 @@ const isField = (v) => typeof v === 'string' && v.length > 0 && v.length <= 512
 /**
  * R1 (ADR 2026-10-12): an entry a peer presents about ITSELF is self-certifying. True only when the Host signature
  * verifies against camps.signing_public_key, the entry binds exactly the claimed device id to the Noise-proven
- * `peerId`, and neither the device nor the peer id is revoked in authority_cache.
+ * `peerId`, the device is not revoked in authority_cache, and the roster does not already bind that device to a
+ * different peer id (a stale entry from a reinstalled device must not roll the shared record back). The peer id's own
+ * revocation is refused afterwards by evaluateAuthenticate.
  */
 export function verifyPresentedRosterEntry(db, entry, { deviceId, peerId }) {
   if (!entry || typeof entry !== 'object' || !isField(deviceId) || !isField(peerId)) return false
@@ -62,9 +64,12 @@ export function verifyPresentedRosterEntry(db, entry, { deviceId, peerId }) {
   if (!camp?.signing_public_key) return false
   const revoked = db.prepare("SELECT 1 FROM authority_cache WHERE status = 'revoked' AND device_id = ?").get(deviceId)
   if (revoked) return false
+  const bound = db.prepare('SELECT peer_id FROM roster_cache WHERE device_id = ?').get(deviceId)
+  if (bound && bound.peer_id !== peerId) return false
   return verifyRosterEntry(camp.signing_public_key, { id: deviceId, camp_id: camp.id, device_id: deviceId, device_peer_id: peerId, added_at: entry.added_at }, entry.sig)
 }
 
+// added_by_device_id is outside the signature, so it is never taken from the wire.
 export function presentedEntryWrites(entry) {
-  return DEVICE_ROSTER_FIELDS.map((field) => ({ entity: DEVICE_ROSTER_ENTITY, entity_id: entry.device_id, field, value: typeof entry[field] === 'string' ? entry[field] : '' }))
+  return DEVICE_ROSTER_FIELDS.map((field) => ({ entity: DEVICE_ROSTER_ENTITY, entity_id: entry.device_id, field, value: field === 'added_by_device_id' ? '' : entry[field] }))
 }

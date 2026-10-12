@@ -114,4 +114,19 @@ describe('R1 negatives (each has a genuine twin that admits)', () => {
     expect(inCache(b, stranger.deviceId)).toBe(false)
     expect((await settle(stranger.node.authenticateWith(b.node.peerId, frameWith(stranger.deviceId, entry)))).type).toBe('auth_ok')
   }, 120000)
+
+  it('never takes added_by_device_id from the wire (unsigned): the merged record carries an empty one', async () => {
+    const { stranger, b, entry } = await strangerWithHostSignedEntry()
+    const junk = { ...entry, added_by_device_id: 'x'.repeat(5000) }
+    expect((await settle(stranger.node.authenticateWith(b.node.peerId, frameWith(stranger.deviceId, junk)))).type).toBe('auth_ok')
+    expect(readRecord(b.getDoc(), 'device_roster', stranger.deviceId)?.added_by_device_id ?? '').toBe('')
+  }, 120000)
+
+  it('does not merge a stale entry for a device the roster already binds to a different peer id', async () => {
+    const { stranger, b, entry } = await strangerWithHostSignedEntry()
+    b.db.prepare('INSERT INTO roster_cache (device_id, peer_id, verified_at) VALUES (?, ?, ?)').run(stranger.deviceId, 'newer-peer-id', new Date().toISOString())
+    const reply = await settle(stranger.node.authenticateWith(b.node.peerId, frameWith(stranger.deviceId, entry)))
+    expect(reply.type).toBe('auth_failed')
+    expect(readRecord(b.getDoc(), 'device_roster', stranger.deviceId)).toBeFalsy()
+  }, 120000)
 })

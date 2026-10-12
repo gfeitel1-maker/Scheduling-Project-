@@ -703,7 +703,7 @@ Stolen-device model (the honest-failure model scopes a malicious admin or host o
 | Host | Everything above plus signing roster entries, credentials and purge tombstones. The worst case; there is no key rotation | Recovery is the existing rule: export the last file, start a new camp, re-upload |
 
 **If a device is lost or stolen, remove it from Devices right away; until you do, it can still sync.**
-Removal is one action (Devices screen, Revoke) available on any admin device, not only the host.
+Removal is one action (Devices screen, Revoke) available on any computer that was made an admin, not only the host; an admin user on a computer that was never made an admin removes the device on that computer only, and the app says so.
 
 **Accepted costs, stated plainly.** (1) There is **no automatic expiry** any more: the 24-hour token
 used to bound a stolen, unreported client (only while the host was also unreachable); now a stolen

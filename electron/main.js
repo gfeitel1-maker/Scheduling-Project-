@@ -1764,7 +1764,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const node = getAutomergeNode()
     runRendezvousRotation(db, { deviceId, broadcast: node ? node.broadcastLocalDoc : null })
 
-    return { deviceId: targetDeviceId, revoked: true }
+    const fleetWide = !!db.prepare("SELECT 1 FROM applied_authority_log WHERE kind = 'revoke' AND target_device_id = ? AND signer_device_id = ?").get(targetDeviceId, deviceId)
+    return { deviceId: targetDeviceId, revoked: true, fleetWide }
   }
 
   function verifySession({ token } = {}) {

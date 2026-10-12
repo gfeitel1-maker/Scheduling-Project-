@@ -509,7 +509,7 @@ Keep the host computer on, with **Add a device** open, until the new computer sh
 
 **If a device is lost or stolen, remove it from Devices right away; until you do, it can still sync.** Shoresh no longer cuts off a device on its own after a day, so removing it is the only way to stop it.
 
-**Removing a device** works the same way: remove it from any director's computer (it does not have to be the host; open Devices and press **Revoke** on the device's row) (Settings gear, **LAN & Devices**) and every computer that hears about the removal stops syncing with it. A computer that has not heard yet, because it has been off or out of range, keeps syncing with the removed one until it does. Removed devices cannot be added back. To use the same computer again, erase Shoresh's data on it (or reinstall Shoresh) so it gets a new identity, then add it as a new device.
+**Removing a device** works the same way: remove it from any computer that was made an admin (it does not have to be the host): open Settings gear, **LAN & Devices**, and press **Revoke** on the device's row. Every computer that hears about the removal stops syncing with it. A computer that has not heard yet, because it has been off or out of range, keeps syncing with the removed one until it does. Removed devices cannot be added back. To use the same computer again, erase Shoresh's data on it (or reinstall Shoresh) so it gets a new identity, then add it as a new device.
 
 ### Moving hosting to another computer
 

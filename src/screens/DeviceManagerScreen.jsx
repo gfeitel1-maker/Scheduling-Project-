@@ -195,7 +195,8 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
   async function handleRevoke(deviceId) {
     setBusy((b) => ({ ...b, [deviceId]: true }))
     try {
-      await localClient.revokeDevice(deviceId)
+      const result = await localClient.revokeDevice(deviceId)
+      if (result?.fleetWide === false) setError('Removed on this computer only. Other computers will keep syncing with it until it is removed from a computer that was made an admin.')
       load()
     } catch (err) {
       setError(err?.message || 'Failed to revoke device')
