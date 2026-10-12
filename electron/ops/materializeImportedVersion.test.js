@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
-import { appendOp } from './operations.js'
+import { appendOp, DELETE_FIELD } from './operations.js'
 import { materializeImportedVersion, cleanSourceFileName } from './materializeImportedVersion.js'
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
 import { leftOutPlacements } from '../../src/ingest/leftOutPlacements.js'
@@ -78,6 +78,12 @@ function seedBlock(db, campId, name) {
   const id = randomUUID()
   db.prepare('INSERT INTO time_blocks (id, camp_id, name) VALUES (?, ?, ?)').run(id, campId, name)
   return id
+}
+
+// T219: position N runs (9+N):00 to (10+N):00, so consecutive positions are back to back.
+function orderBlock(db, id, position) {
+  const hh = (h) => String(h).padStart(2, '0') + ':00'
+  db.prepare('UPDATE time_blocks SET sort_order = ?, start_time = ?, end_time = ? WHERE id = ?').run(position, hh(9 + position), hh(10 + position), id)
 }
 
 function seedActivity(db, campId, name) {
@@ -322,8 +328,8 @@ describe('materializeImportedVersion', () => {
       const dayId = seedDay(db, campId, 'Monday')
       const b1 = seedBlock(db, campId, '09:00')
       const b2 = seedBlock(db, campId, '10:00')
-      db.prepare('UPDATE time_blocks SET sort_order = ? WHERE id = ?').run(0, b1)
-      db.prepare('UPDATE time_blocks SET sort_order = ? WHERE id = ?').run(1, b2)
+      orderBlock(db, b1, 0)
+      orderBlock(db, b2, 1)
       const setId = randomUUID()
       db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(setId, campId, 'Chugim')
       const pottery = seedActivity(db, campId, 'Pottery')
@@ -360,7 +366,7 @@ describe('materializeImportedVersion', () => {
       seedDay(db, campId, 'Monday')
       const ids = ['09:00', '10:00', '11:00', '12:00', '13:00'].map((n, i) => {
         const id = seedBlock(db, campId, n)
-        db.prepare('UPDATE time_blocks SET sort_order = ? WHERE id = ?').run(i, id)
+        orderBlock(db, id, i)
         return id
       })
       const setId = randomUUID()
@@ -387,7 +393,7 @@ describe('materializeImportedVersion', () => {
       seedDay(db, campId, 'Monday')
       ;['09:00', '10:00', '11:00'].forEach((n, i) => {
         const id = seedBlock(db, campId, n)
-        db.prepare('UPDATE time_blocks SET sort_order = ? WHERE id = ?').run(i, id)
+        orderBlock(db, id, i)
       })
       const setId = randomUUID()
       db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(setId, campId, 'Chugim')
@@ -410,7 +416,7 @@ describe('materializeImportedVersion', () => {
       seedDay(db, campId, 'Monday')
       ;['09:00', '10:00'].forEach((n, i) => {
         const id = seedBlock(db, campId, n)
-        db.prepare('UPDATE time_blocks SET sort_order = ? WHERE id = ?').run(i, id)
+        orderBlock(db, id, i)
       })
       const setId = randomUUID()
       db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(setId, campId, 'Chugim')
@@ -424,6 +430,37 @@ describe('materializeImportedVersion', () => {
       expect(result.created).toBe(true)
       expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(2)
       expect(result.linkFailed).toMatch(/disk full/)
+    })
+
+    // Keeper ruling: a director's deletion survives a re-import of the same file (a Keep
+    // re-import asks nothing and undoes nothing), as "Don't add" and "Keep mine" do.
+    it('does not bring back a bundle or a period the director deleted, on re-import', async () => {
+      const db = makeDb()
+      const campId = seedCamp(db)
+      seedWeek(db, campId)
+      seedGroup(db, campId, 'Bunk 1')
+      seedDay(db, campId, 'Monday')
+      ;['09:00', '10:00', '11:00'].forEach((n, i) => orderBlock(db, seedBlock(db, campId, n), i))
+      const setId = randomUUID()
+      db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(setId, campId, 'Chugim')
+      for (const name of ['Pottery', 'Drama']) {
+        db.prepare("INSERT INTO elective_set_activities (id, elective_set_id, activity_id, status) VALUES (?, ?, ?, 'potential')").run(randomUUID(), setId, seedActivity(db, campId, name))
+      }
+      const cell = (block) => ({ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: block, electiveSetName: 'Chugim', activityName: 'Chugim', choices: [] })
+      const placements = ['09:00', '10:00', '11:00'].map(cell)
+      await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements })
+      const [gone, kept] = db.prepare('SELECT id FROM elective_bundles ORDER BY id').all().map((r) => r.id)
+      const del = (entity, id) => appendOp(db, { entity, entity_id: id, field: DELETE_FIELD, value: null, author_user_id: authorUserId, device_id: deviceId, source: 'human' })
+      for (const p of db.prepare('SELECT id FROM elective_bundle_periods WHERE bundle_id = ?').all(gone)) del('elective_bundle_periods', p.id)
+      del('elective_bundles', gone)
+      const droppedPeriod = db.prepare('SELECT id FROM elective_bundle_periods WHERE bundle_id = ? ORDER BY id LIMIT 1').get(kept).id
+      del('elective_bundle_periods', droppedPeriod)
+
+      await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements, sourceFileName: 'again.txt' })
+
+      expect(db.prepare('SELECT id FROM elective_bundles').all().map((r) => r.id)).toEqual([kept])
+      expect(db.prepare('SELECT 1 FROM elective_bundle_periods WHERE id = ?').get(droppedPeriod)).toBeUndefined()
+      expect(db.prepare('SELECT COUNT(*) c FROM elective_bundle_periods WHERE bundle_id = ?').get(kept).c).toBe(2)
     })
 
     it('a held import (no elective set written) yields zero elective slots and one left-out entry per name, without throwing', async () => {

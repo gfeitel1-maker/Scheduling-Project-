@@ -17,6 +17,8 @@ import { normalizeName } from '../../src/ingest/preview.js'
 import { resolveImportedPlacements, describeUnresolved } from './resolveImportedPlacements.js'
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
 import { defaultWeekId, defaultWeekFields } from '../../src/ingest/defaultWeek.js'
+import { blocksThatContinue } from '../../src/engine/blockOverlap.js'
+import { latestOp, DELETE_FIELD } from './operations.js'
 
 // The renderer supplies the file name; it becomes a stored version name, so it
 // is coerced to a bare, bounded string at the boundary.
@@ -60,7 +62,7 @@ export function deriveImportedBundleId(electiveSetId, activityId, dayId, blockId
 // camper the same choice for the whole double period
 // (docs/adr/2026-09-29-linked-elective-bundles.md). Only choices the set holds
 // now are linked; a choice the director adds later is linked by hand.
-async function writeSpanBundles(db, syncClient, slots, blockOrder, authorUserId, onRowCreated) {
+async function writeSpanBundles(db, syncClient, slots, blockOrder, blockContinues, authorUserId, onRowCreated) {
   const blockAt = new Map([...blockOrder].map(([id, i]) => [i, id]))
   // Each group's runs of consecutive blocks holding a set on a day, marked or not.
   const runsBySetDay = new Map() // `${set}|${day}` -> [[blockId, ...], ...]
@@ -77,7 +79,7 @@ async function writeSpanBundles(db, syncClient, slots, blockOrder, authorUserId,
     const runs = runsBySetDay.get(setDay) ?? []
     let run = [sorted[0]]
     for (let i = 1; i <= sorted.length; i++) {
-      if (i < sorted.length && sorted[i] === run[run.length - 1] + 1) { run.push(sorted[i]); continue }
+      if (i < sorted.length && sorted[i] === run[run.length - 1] + 1 && blockContinues.has(blockAt.get(sorted[i]))) { run.push(sorted[i]); continue }
       runs.push(run.map((p) => blockAt.get(p)))
       if (i < sorted.length) run = [sorted[i]]
     }
@@ -102,11 +104,16 @@ async function writeSpanBundles(db, syncClient, slots, blockOrder, authorUserId,
   const choices = db.prepare(`SELECT esa.activity_id AS id, a.name AS name FROM elective_set_activities esa
     LEFT JOIN activities a ON a.id = esa.activity_id WHERE esa.elective_set_id = ? ORDER BY esa.activity_id`)
   const exists = (table, id) => Boolean(db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id))
+  // A bundle or period the director deleted keeps its delete in the op log under the same derived
+  // id: that is the tombstone, so a re-import of the same file never brings it back (undo of an
+  // import counts too, the way an undone fixed event is not resurrected).
+  const deleted = (table, id) => !exists(table, id) && Boolean(latestOp(db, table, id, DELETE_FIELD))
   try {
     for (const { setId, dayId, blockIds } of spans) {
       const day = dayLabel.get(dayId)?.label ?? ''
       for (const choice of choices.all(setId)) {
         const bundleId = deriveImportedBundleId(setId, choice.id, dayId, blockIds)
+        if (deleted('elective_bundles', bundleId)) continue
         if (!exists('elective_bundles', bundleId)) {
           await writeFields(syncClient, 'elective_bundles', bundleId, {
             elective_set_id: setId, activity_id: choice.id, name: [choice.name ?? 'Choice', day].filter(Boolean).join(' — '), scope_mode: 'all',
@@ -115,7 +122,7 @@ async function writeSpanBundles(db, syncClient, slots, blockOrder, authorUserId,
         }
         for (const blockId of blockIds) {
           const periodId = `${bundleId}:${blockId}`
-          if (exists('elective_bundle_periods', periodId)) continue
+          if (exists('elective_bundle_periods', periodId) || deleted('elective_bundle_periods', periodId)) continue
           await writeFields(syncClient, 'elective_bundle_periods', periodId, { bundle_id: bundleId, day_id: dayId, time_block_id: blockId }, authorUserId)
           onRowCreated?.('elective_bundle_periods', periodId)
         }
@@ -159,6 +166,7 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     await writeFields(syncClient, 'schedule_weeks', weekId, defaultWeekFields(campId), authorUserId)
   }
 
+  const orderedBlocks = db.prepare('SELECT id, start_time, end_time FROM time_blocks WHERE camp_id = ? ORDER BY sort_order IS NULL, sort_order, start_time, id').all(campId)
   const maps = {
     activityIdByName: nameMap(db, 'activities', campId),
     fixedEventIdByName: nameMap(db, 'fixed_events', campId),
@@ -168,13 +176,12 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     groupIdByName: nameMap(db, 'groups', campId),
     dayIdByName: nameMap(db, 'days_of_operation', campId, 'label'),
     blockIdByName: nameMap(db, 'time_blocks', campId),
-    // T219: the day's block order, so an elective held in adjacent blocks
-    // resolves as one span. sort_order is the order the engine and the grid
-    // sort by; start_time then id only break ties they leave undefined.
-    blockOrder: new Map(
-      db.prepare('SELECT id FROM time_blocks WHERE camp_id = ? ORDER BY sort_order IS NULL, sort_order, start_time, id').all(campId)
-        .map((b, i) => [b.id, i]),
-    ),
+    // T219: the day's block order, and which blocks begin exactly when the one before ends,
+    // so an elective held in back-to-back blocks resolves as one span and two chugim around a
+    // break stay two. sort_order is the order the engine and the grid sort by; start_time then
+    // id only break ties they leave undefined.
+    blockOrder: new Map(orderedBlocks.map((b, i) => [b.id, i])),
+    blockContinues: blocksThatContinue(orderedBlocks),
   }
 
   const { slots, unresolved } = resolveImportedPlacements(placements, maps)
@@ -222,7 +229,7 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
 
   // After the versions, so a failed link cannot cost the version. Each row is reported as it is
   // written, like the versions, so undo owns it (T219).
-  const links = await writeSpanBundles(db, syncClient, slots, maps.blockOrder, authorUserId, onRowCreated)
+  const links = await writeSpanBundles(db, syncClient, slots, maps.blockOrder, maps.blockContinues, authorUserId, onRowCreated)
   const linkReport = { ...(links.unlinkedSpans.length ? { unlinkedSpans: links.unlinkedSpans } : {}), ...(links.linkFailed ? { linkFailed: links.linkFailed } : {}) }
 
   if (!snapshotId) return { created: false, snapshotId: null, unchanged: true, ...linkReport, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }

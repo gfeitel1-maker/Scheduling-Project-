@@ -99,12 +99,12 @@ export function resolveImportedPlacements(placements, maps) {
     unresolved.push({ ...placement, reason: 'activity' })
   }
 
-  markElectiveSpans(slots, maps.blockOrder)
+  markElectiveSpans(slots, maps.blockOrder, maps.blockContinues)
   return { slots, unresolved }
 }
 
 /**
- * T219: one group's elective set in consecutive blocks of one day is ONE
+ * T219: one group's elective set in back-to-back blocks of one day is ONE
  * session. The first block gets is_span_head: true and the rest false, which
  * is the shape the grid and Generate already read for activity spans. A slot
  * not in a run of two or more is left without the field.
@@ -112,9 +112,12 @@ export function resolveImportedPlacements(placements, maps) {
  * @param {Array} slots resolved slots, mutated in place
  * @param {Map<string, number>} [blockOrder] time_block_id -> position in the
  *        camp's day; without it nothing is marked
+ * @param {Set<string>} [blockContinues] blocks that start exactly when the block before them
+ *        ends (blocksThatContinue); a run breaks at any other block, so a time gap keeps
+ *        two periods separate; without it nothing is marked
  */
-export function markElectiveSpans(slots, blockOrder) {
-  if (!blockOrder) return
+export function markElectiveSpans(slots, blockOrder, blockContinues) {
+  if (!blockOrder || !blockContinues) return
   const byGroupDaySet = new Map()
   for (const s of slots) {
     if (!s.elective_set_id || !blockOrder.has(s.time_block_id)) continue
@@ -129,7 +132,8 @@ export function markElectiveSpans(slots, blockOrder) {
       if (run.length > 1) run.forEach((s, i) => { s.is_span_head = i === 0 })
     }
     for (let i = 1; i < list.length; i++) {
-      if (blockOrder.get(list[i].time_block_id) === blockOrder.get(run[run.length - 1].time_block_id) + 1) run.push(list[i])
+      const next = list[i].time_block_id
+      if (blockOrder.get(next) === blockOrder.get(run[run.length - 1].time_block_id) + 1 && blockContinues.has(next)) run.push(list[i])
       else { close(); run = [list[i]] }
     }
     close()

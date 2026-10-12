@@ -142,6 +142,7 @@ describe('resolveImportedPlacements — spanning electives (T219)', () => {
       electiveSets: [['Chugim', 'set1']],
     }),
     blockOrder: new Map([['b1', 0], ['b2', 1], ['b3', 2], ['b4', 3]]),
+    blockContinues: new Set(['b2', 'b3', 'b4']),
   })
   const at = (groupName, blockLabel) => ({ groupName, dayName: 'Monday', blockLabel, activityName: 'Chugim', electiveSetName: 'Chugim' })
   const heads = (slots) => slots.map((s) => [s.group_id, s.time_block_id, s.is_span_head])
@@ -154,5 +155,11 @@ describe('resolveImportedPlacements — spanning electives (T219)', () => {
   it('a gap starts a new session; other groups and single blocks are untouched', () => {
     const { slots } = resolveImportedPlacements([at('Bunk 1', '9:00'), at('Bunk 1', '11:00'), at('Bunk 1', '12:00'), at('Bunk 2', '9:00')], m())
     expect(heads(slots).sort()).toEqual([['g1', 'b1', undefined], ['g1', 'b3', true], ['g1', 'b4', false], ['g2', 'b1', undefined]])
+  })
+
+  it('a time gap between two blocks (lunch, a break) keeps two chugim separate', () => {
+    const gap = { ...m(), blockContinues: new Set(['b2', 'b4']) } // b3 starts after b2 ends
+    const { slots } = resolveImportedPlacements([at('Bunk 1', '10:00'), at('Bunk 1', '11:00')], gap)
+    expect(heads(slots).sort()).toEqual([['g1', 'b2', undefined], ['g1', 'b3', undefined]])
   })
 })

@@ -832,6 +832,27 @@ describe('a double-period elective imports as one span (T219)', () => {
   })
 })
 
+// T219 (keeper ruling): two chugim with a time gap between them are two sessions, never one span.
+describe('two chugim around a break stay two sessions (T219)', () => {
+  it('marks no span and links nothing when the periods do not meet', async () => {
+    const { d, id } = seedCamp('t219-break')
+    const imp = importFile(d, id, fs.readFileSync(path.join(DIR, 'repro/r10-two-chugim-around-a-break.txt'), 'utf8'), { answerFor: CONFIRM_ALL })
+    const writeClient = {
+      async write({ entity, entity_id, field, value, author_user_id }) {
+        return { status: 'applied', op: appendOp(d, { entity, entity_id, field, value, author_user_id, device_id: deviceId }) }
+      },
+    }
+    await materializeImportedVersion(d, writeClient, { campId: id, authorUserId: userId, placements: imp.placements, sourceFileName: 'r10.txt' })
+    const snap = d.prepare("SELECT s.slots FROM schedule_snapshots s JOIN schedule_templates t ON t.id = s.template_id WHERE t.kind = 'manual' AND t.camp_id = ? ORDER BY s.created_at DESC LIMIT 1").get(id)
+    const electiveCells = JSON.parse(snap.slots).filter((s) => s.elective_set_id)
+    // Positive control: the list cells are elective cells (2 groups x 2 periods).
+    expect(electiveCells).toHaveLength(4)
+    expect(electiveCells.every((s) => s.is_span_head === undefined)).toBe(true)
+    expect(d.prepare('SELECT COUNT(*) AS n FROM elective_bundles').get().n).toBe(0)
+    d.close()
+  })
+})
+
 // A normal test run (CI, the gate, a developer's vitest) must not rewrite tracked evidence.
 const fillsAgain = (g) => ({ stillNeeded: g?.stillNeeded ?? null, unfillable: g?.unfillable ?? null, ...(g?.error ? { error: g.error } : {}) })
 

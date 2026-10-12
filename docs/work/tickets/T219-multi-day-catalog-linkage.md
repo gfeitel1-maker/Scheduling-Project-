@@ -145,6 +145,11 @@ Activity spans were already handled in the live import: F5 (#910, #941) infers `
 - `docs/adr/2026-09-29-linked-elective-bundles.md` is accepted for import.
 - Fresh camps only: no migration and no backfill.
 
+**Keeper rulings on Red Hat's low items (2026-10-11):**
+- Adjacency is by time: a block continues the one before only when it starts exactly as that one ends (`blocksThatContinue` in `src/engine/blockOverlap.js`). So two chugim around a break, a lunch, or an event period stay two sessions (repro `docs/work/specs/samples/synthetic/repro/r10-two-chugim-around-a-break.txt`).
+- A bundle or period the director deleted keeps its delete op under the same derived id. That op is the tombstone, so a re-import of the same file does not bring it back.
+- The concurrent-import name conflict is T375.
+
 **Known limit:** only choices the set holds at import are linked. A choice the director adds later is linked by hand in the set's detail view.
 
 Pinned by:
