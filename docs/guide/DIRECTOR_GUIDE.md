@@ -507,7 +507,7 @@ The host computer is only needed to **add a brand-new device**. Once a device ha
 
 Keep the host computer on, with **Add a device** open, until the new computer shows your camp. After that it is no longer needed for that device.
 
-**Removing a device** works the same way: remove it from any director's computer (Settings gear, **LAN & Devices**) and every computer that hears about the removal stops syncing with it. A computer that has not heard yet, because it has been off or out of range, keeps syncing with the removed one until it does. Removed devices cannot be added back; add the computer again as a new device.
+**Removing a device** works the same way: remove it from any director's computer (Settings gear, **LAN & Devices**) and every computer that hears about the removal stops syncing with it. A computer that has not heard yet, because it has been off or out of range, keeps syncing with the removed one until it does. Removed devices cannot be added back. To use the same computer again, erase Shoresh's data on it (or reinstall Shoresh) so it gets a new identity, then add it as a new device.
 
 ### Moving hosting to another computer
 

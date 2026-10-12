@@ -188,6 +188,30 @@ describe('T331 end-to-end — a director\'s real revokeDevice action drives Gate
   })
 })
 
+describe('T376 — revoking a rostered device this admin has never met', () => {
+  it('a client admin with only a roster_cache row for the device can still mint the signed revoke', async () => {
+    const db = freshDb('founder-roster-only')
+    const genesis = createEmptyDoc()
+    const f = await startSyncNode({ deviceId: 'device-f', db, doc: A.clone(genesis) })
+    try {
+      const campId = randomUUID()
+      await seedCampAndAdmin(db, { campId, deviceId: 'device-f', name: 'Director', pin: '135790' })
+      mintGenesisEntry(db, { founderDeviceId: 'device-f', founderPeerId: f.peerId.toString() })
+      projectEntity(db, f.getDoc(), 'camp_authority_log')
+      db_rosterRow(db, 'device-c', 'peer-c-never-met')
+      expect(db.prepare('SELECT id FROM devices WHERE id = ?').get('device-c')).toBeUndefined()
+
+      const handlers = makeHandlers(db, 'device-f', { getAutomergeSyncNode: () => f })
+      const { token } = await handlers.login({ name: 'Director', pin: '135790' })
+      expect(handlers.revokeDevice({ token, deviceId: 'device-c', reason: 'stolen' }).revoked).toBe(true)
+      await waitFor(() => authorityCacheStatus(db, 'device-c') === 'revoked')
+    } finally {
+      await f.stop()
+      db.close()
+    }
+  })
+})
+
 describe('T331 end-to-end — N=3 admin-target quorum, driven through the REAL revokeDevice handler', () => {
   let dbF, keyA, keyB
   beforeEach(() => {

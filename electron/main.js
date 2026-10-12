@@ -1275,13 +1275,20 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       const { peerId: founderPeerId } = await ensureDeviceIdentity(db)
       mintGenesisEntry(db, { founderDeviceId: deviceId, founderPeerId })
       projectAuthorityLogLocally()
-      // T376 (docs/adr/2026-10-12-shared-signed-device-roster.md): the Host's own roster entry, so every device it pairs
-      // can admit it from the signed roster with no Host-issued token. After the authority projection above, which the
-      // roster projection reads.
-      mintRosterEntry(db, { deviceId, peerId: founderPeerId })
-      projectEntity(db, getCurrentDoc(db), 'device_roster')
     } catch (err) {
       console.error(`bootstrapCamp: minting the genesis authority entry failed (non-fatal): ${err?.message ?? err}`)
+    }
+    // T376 (docs/adr/2026-10-12-shared-signed-device-roster.md): the Host's own roster entry, so every device it pairs
+    // can admit it from the signed roster with no Host-issued token. NOT swallowed: without it every client refuses the
+    // Host, so a failure here must fail the bootstrap loudly rather than leave a camp that looks fine until the first redial.
+    {
+      const { peerId: rosterPeerId } = await ensureDeviceIdentity(db)
+      mintRosterEntry(db, { deviceId, peerId: rosterPeerId })
+      try {
+        projectEntity(db, getCurrentDoc(db), 'device_roster')
+      } catch (err) {
+        console.error(`bootstrapCamp: local device-roster projection failed (non-fatal, re-derived on the next pass): ${err?.message ?? err}`)
+      }
     }
 
     // A Host trivially has 100% of its own data from the instant of its own
@@ -1693,8 +1700,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       throw new Error('You cannot remove your own device.')
     }
 
+    // T376: a client admin that has never met the target knows it only from the signed roster (roster_cache); it must still
+    // be able to remove it, so the missing devices row is stubbed rather than refused.
     const existing = db.prepare('SELECT id FROM devices WHERE id = ?').get(targetDeviceId)
-    if (!existing) throw new Error('device not found')
+    if (!existing) {
+      if (!db.prepare('SELECT 1 FROM roster_cache WHERE device_id = ?').get(targetDeviceId)) throw new Error('device not found')
+      db.prepare("INSERT OR IGNORE INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run(targetDeviceId, `Device ${targetDeviceId.slice(0, 8)}`)
+    }
 
     // T332 fold-in — read BEFORE minting this vote: was the target already a currently-granted
     // admin/founder? This is what decides whether the local write below is gated on quorum at

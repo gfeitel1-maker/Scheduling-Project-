@@ -858,7 +858,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   // symmetrically on both sides, so in practice neither client ever gets far enough to
   // dial the other in the first place: wireMutualAuth runs the identical predicate on
   // every node, so client A's createBoundPeerTrust(peerB) and client B's
-  // createBoundPeerTrust(peerA) both return false before either token is sent. That
+  // createBoundPeerTrust(peerA) both return false before either side authenticates. That
   // symmetry, not the absence of a row, is why this limitation predates T208 and is
   // unchanged by it.
   // T212 (docs/work/tickets/T212-wan-connectivity-measurement.md): the env read is deliberately

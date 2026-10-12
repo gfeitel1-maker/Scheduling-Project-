@@ -167,22 +167,29 @@ function openGossipValue(value, addressKey) {
  * Queried fresh on every call so a revocation takes effect at once.
  */
 export function deviceRegistryFromDb(db) {
+  const revoked = (deviceId) => {
+    if (db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(deviceId)?.status === 'revoked') return true
+    return Boolean(db.prepare('SELECT 1 FROM devices WHERE id = ? AND revoked_at IS NOT NULL').get(deviceId))
+  }
   const trusted = (row) => {
     if (!row?.libp2p_peer_id) return false
     const trust = deviceTrustStatus(db, row.id)
-    if (!trust.authorized || trust.revoked) return false
-    return db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(row.id)?.status !== 'revoked'
+    return trust.authorized && !trust.revoked && !revoked(row.id)
   }
+  // T376: the signed roster is the membership list, so a client learned only from it (no authorized devices row) is trusted.
+  const fromRoster = (row) => (row && !revoked(row.device_id) ? row : null)
   return {
     peerIdForDevice(deviceId) {
       if (typeof deviceId !== 'string') return null
       const row = db.prepare('SELECT id, libp2p_peer_id FROM devices WHERE id = ?').get(deviceId)
-      return trusted(row) ? row.libp2p_peer_id : null
+      if (trusted(row)) return row.libp2p_peer_id
+      return fromRoster(db.prepare('SELECT device_id, peer_id FROM roster_cache WHERE device_id = ?').get(deviceId))?.peer_id ?? null
     },
     deviceIdForPeer(peerId) {
       if (typeof peerId !== 'string') return null
       const row = db.prepare('SELECT id, libp2p_peer_id FROM devices WHERE libp2p_peer_id = ?').get(peerId)
-      return trusted(row) ? row.id : null
+      if (trusted(row)) return row.id
+      return fromRoster(db.prepare('SELECT device_id, peer_id FROM roster_cache WHERE peer_id = ?').get(peerId))?.device_id ?? null
     },
   }
 }
