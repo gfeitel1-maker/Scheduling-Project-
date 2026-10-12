@@ -418,13 +418,13 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   return (
     <>
     <SetupScreenShell
+      screenKey="tiers"
+      onNavigate={onNavigate}
       countLabel={`${tiers.length} age division${tiers.length !== 1 ? 's' : ''}`}
       role={role}
       actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll, deleteAllDisabled: !activeCohort }}
       fileInputRef={fileRef}
       onFileChange={onFileChange}
-      nextLabel="Groups →"
-      onNext={() => onNavigate('groups')}
       error={error}
       cohortPicker={<CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />}
     >

@@ -5,6 +5,7 @@ import { aoaToSanitizedSheet, readEntitySheet } from '../utils/exportSanitize.js
 import { mapWithCollisions } from '../ingest/mapWithCollisions.js'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
+import AddRecordRow from '../components/setup/AddRecordRow'
 import ModalCard from '../components/ModalCard'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
@@ -908,13 +909,13 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
   return (
     <div>
       <SetupScreenShell
+        screenKey={kind === 'fixed' ? 'fixedevents' : 'recurringevents'}
+        onNavigate={onNavigate}
         countLabel={`${fixedEvents.length} ${kind} event${fixedEvents.length !== 1 ? 's' : ''}`}
         role={role}
         actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
         fileInputRef={fileRef}
         onFileChange={onFileChange}
-        nextLabel="Go to Schedule"
-        onNext={() => onNavigate('schedule')}
         error={error}
         cohortPicker={<CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />}
       >
@@ -923,12 +924,6 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
           No time blocks found. Set these up before adding {eventLabelPlural}.
         </div>
       )}
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <button className="press-97" onClick={() => setModal({ fixedEvent: null })} style={S.btnPrimary}>
-          + Add {kind === 'fixed' ? 'Fixed' : 'Recurring'} Event
-        </button>
-      </div>
 
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
@@ -999,6 +994,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
                   </td>
                 </tr>
               ))}
+              <AddRecordRow label={`Add ${kind === 'fixed' ? 'Fixed' : 'Recurring'} Event`} colSpan={6} onClick={() => setModal({ fixedEvent: null })} />
             </tbody>
           </table>
           {fixedEvents.length > 0 && (

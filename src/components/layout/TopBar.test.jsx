@@ -20,6 +20,15 @@ describe('TopBar — Roots return affordance', () => {
     expect(onNavigate).toHaveBeenCalledWith('roots')
   })
 
+  // Consistency audit 2026-10-12 C1: every setup screen in the sidebar, Fixed and Recurring Events included.
+  it('shows "Roots" on Fixed Events and Recurring Events', () => {
+    for (const s of ['fixedevents', 'recurringevents']) {
+      const { unmount } = render(<TopBar screen={s} onNavigate={vi.fn()} />)
+      expect(screen.queryByText(/Roots/)).not.toBeNull()
+      unmount()
+    }
+  })
+
   it('does not show the control when already on roots', () => {
     render(<TopBar screen="roots" onNavigate={vi.fn()} />)
 

@@ -8,6 +8,7 @@ import { resolveElectiveOfferingLocations } from './electiveOccupancy.js'
 import { findRouteConflicts } from './routeConflicts.js'
 import { resolveWeekCatalog } from './weekCatalog.js'
 import { overlappingBlockPeers } from './blockOverlap.js'
+import { partOfDayForStart } from '../utils/timeBlockRange.js'
 import { dropReplacedPreplaced, requireReplacedDayIds, replacedTargetFinding } from './effectiveDays.js'
 
 // Pure function — zero React dependencies, zero Supabase calls.
@@ -216,6 +217,13 @@ function fixedEventOverlapFindings(fixedEvents, groups, days) {
 
 function fixedEventCoveredGroupIds(fixedEvent, liveGroups) {
   return resolveFixedEventGroupIds(fixedEvent, liveGroups)
+}
+
+// A block's part of day: the stored value, else derived from its start time. An imported block carries
+// none, and reading that as "no part of day" made a morning-only group unavailable in every block of
+// the camp (consistency audit 2026-10-12, A3).
+function blockPartOfDay(block) {
+  return block.part_of_day ?? partOfDayForStart(block.start_time)
 }
 
 export function fixedEventActivityIdsByGroupDay(fixedEvents, activities, groups, { days = [], weekId = null } = {}) {
@@ -534,7 +542,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
         }
 
         const avail = group.availability
-        const pod = block.part_of_day
+        const pod = blockPartOfDay(block)
         if (avail !== 'all' && avail !== pod) {
           slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'unavailable', activityId: null, fixedEventId: null, is_span_head: true, flags: {} })
           continue
@@ -633,7 +641,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
         if (assigned.has(nextKey) || fixedEventLookup.has(nextKey) || electiveLookup.has(nextKey) || eventLookup.has(nextKey)) return 'span'
         // Tail block must also be within the group's available part of day
         if (nextBlock.events_only) return 'span'
-        if (avail !== 'all' && avail !== nextBlock.part_of_day) return 'span'
+        if (avail !== 'all' && avail !== blockPartOfDay(nextBlock)) return 'span'
         // Tail block occupies the place too — same capacity + same_tier_only
         // guard as the head.
         if (placeBlocked(act, group, dayId, nextBlock.id)) return 'place'

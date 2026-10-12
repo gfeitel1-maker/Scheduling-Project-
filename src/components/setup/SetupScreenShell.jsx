@@ -1,8 +1,10 @@
 import { S } from '../../styles/shared'
+import { nextSetupScreen } from '../layout/navSections'
+import WeekContextBar from '../schedule/WeekContextBar'
 
-// One width for every setup screen (design inventory 2026-10-08, D1). Only
-// Activities, with eight columns, passes a wider maxWidth.
-export const SETUP_MAX_WIDTH = 760
+// One width for every setup screen (design inventory 2026-10-08, D1; consistency audit 2026-10-12,
+// C10). 820 fits Activities' eight columns, so no screen widens itself and Fixed Events is not crowded.
+export const SETUP_MAX_WIDTH = 820
 
 // The frame every germination (setup) screen renders inside.
 //
@@ -18,10 +20,22 @@ export const SETUP_MAX_WIDTH = 760
 // the group that destroys data, and it should not sit flush against Import.
 // It is NOT hidden behind an overflow menu: a director who needs it needs to
 // see that it exists.
+//
+// The footer's forward link is the next setup screen in sidebar order (navSections), from `screenKey`;
+// the last one leads to the schedule. Screens no longer name their own next, so the chain cannot skip
+// a screen or diverge from the sidebar (consistency audit C2/C4).
+//
+// `week`: on a week-scoped screen (its records can be turned off for one week), the props for the one
+// week bar. The shell renders it, first, so it has the same place, size and wording on every screen
+// that has one. A screen whose data is not per-week passes nothing and shows no bar.
 export default function SetupScreenShell({
+  screenKey, onNavigate, week,
   countLabel, role, actions = {}, fileInputRef, onFileChange,
-  nextLabel, onNext, error, cohortPicker, children, maxWidth = SETUP_MAX_WIDTH,
+  error, cohortPicker, children,
 }) {
+  const next = screenKey ? nextSetupScreen(screenKey) : null
+  const nextLabel = next ? `${next.label} →` : 'Schedule →'
+  const onNext = screenKey && onNavigate ? () => onNavigate(next ? next.key : 'schedule') : null
   const { onDownloadTemplate, onImport, onDeleteAll, deleteAllDisabled = false } = actions
   const deleteBlocked = deleteAllDisabled || role !== 'admin'
   const deleteStyle = deleteBlocked
@@ -31,7 +45,8 @@ export default function SetupScreenShell({
   const hasUtilities = Boolean(onDownloadTemplate || onImport || onDeleteAll)
 
   return (
-    <div style={{ maxWidth }}>
+    <div style={{ maxWidth: SETUP_MAX_WIDTH }}>
+      {week && week.weeks.length > 0 && <WeekContextBar {...week} />}
       {error && <div style={S.errorBanner}>{error}</div>}
       {cohortPicker}
       <div style={{ marginBottom: 20 }}>
