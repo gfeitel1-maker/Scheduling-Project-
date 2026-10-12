@@ -1,3 +1,10 @@
+---
+title: "UX copy, clarity and accessibility audit"
+document_type: evidence
+status: active
+created: 2026-10-12
+archive_when: the audited screens change substantially
+---
 # Copy, clarity, accessibility & consistency audit — 2026-10-12 (build 3ae9fb9)
 
 Not covered (load 150–280): Rebuild/Weather/Manual blank/Restore/Add-a-device dialogs. Label-class axe items skipped per owner.
