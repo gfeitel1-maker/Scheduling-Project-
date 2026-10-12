@@ -101,7 +101,7 @@ You can import the same file, or an updated copy of it, onto a camp that already
    - **Use this setup** — everything is decided.
    - **Apply N decisions** — some answered, the rest kept for later.
    - **Add to camp** — first import, nothing answered yet.
-5. Changed your mind? Click **Undo this import**. See [Undo this import](#undo-this-import).
+5. Changed your mind? Click **Undo this import** (not offered after **Replace them**). See [Undo this import](#undo-this-import).
 6. Click **Continue**.
 
 [shot: reconcile/questions]
