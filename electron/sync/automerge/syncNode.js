@@ -13,7 +13,7 @@ import { isRemovalRefusal, isRemovedFromCamp, markRemovedFromCamp } from './self
 import * as A from '@automerge/automerge'
 import { createJoinTagAdvertiser } from './joinTagDiscovery.js'
 import { startTransport } from './transport.js'
-import { projectAll } from '../../automerge/projector.js'
+import { projectAll, projectEntity } from '../../automerge/projector.js'
 import { reconcileAndRecordConflicts } from '../../automerge/reconcileForProjection.js'
 import { synthesizeOpEvents } from './docDiffEvents.js'
 import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../../auth/connectionAuth.js'
@@ -556,7 +556,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     if (msg.roster_entry && heldDoc && hasAnyRecord(heldDoc, 'camps') && !db.prepare('SELECT 1 FROM roster_cache WHERE peer_id = ?').get(fromPeerId) && verifyPresentedRosterEntry(db, msg.roster_entry, { deviceId: msg.device_id, peerId: fromPeerId })) {
       let doc = heldDoc
       for (const write of presentedEntryWrites(msg.roster_entry)) doc = applyWrite(doc, write)
-      await applyLocalDoc(doc)
+      await applyLocalDoc(doc, 'device_roster')
     }
     const result = evaluateAuthenticate(db, { device_id: msg.device_id, peerId: fromPeerId, appliedTombstones: msg.appliedTombstones })
     if (result.ok) {
@@ -704,7 +704,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     if (!writes) return
     let doc = getCurrentDoc(db)
     for (const write of writes) doc = applyWrite(doc, write)
-    await applyLocalDoc(doc)
+    await applyLocalDoc(doc, 'device_roster')
   }
 
   // The planned host handoff (docs/adr/2026-10-09-host-succession-simple.md). `transport` is assigned
@@ -900,7 +900,9 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     }
     onAuthRejected?.(peerId, reply)
   }
-  async function applyLocalDoc(newDoc) {
+  // `onlyEntity` scopes the projection to one entity: projectAll delete-reconciles every table, which would drop
+  // SQLite rows the document does not hold. A roster write must touch roster state only.
+  async function applyLocalDoc(newDoc, onlyEntity = null) {
     // A local write cannot create a conflict on its own, but the document it
     // is built on may already carry one — and projectAll now refuses a
     // document with an unrecorded conflict. Reconciling here keeps that
@@ -909,7 +911,8 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     const doc = reconcileForProjection(newDoc)
     setCurrentDoc(db, doc)
     try {
-      projectAll(db, doc)
+      if (onlyEntity) projectEntity(db, doc, onlyEntity)
+      else projectAll(db, doc)
       tearDownRevokedConnectedPeers()
       runRendezvousRotation(db, { deviceId, broadcast: null })
       onProjected?.(doc)
@@ -998,7 +1001,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     // updates the shared doc and debounces a broadcast (see broadcastLocalDoc below); calling
     // projectAll per field-op here would be the "full delete-reconcile on every keystroke"
     // performance trap Stage 5f deliberately avoids for real local writes.
-    applyLocal: applyLocalDoc,
+    applyLocal: (newDoc) => applyLocalDoc(newDoc),
     // Stage 5f item 2 (Stage 5f-2: now via the sync protocol, not a whole-doc push). The broadcast
     // half of a REAL local write. liveDoc.recordLocalWrite already applies the write to the shared
     // doc and debounces a save; main.js wires this function in as liveDoc's broadcast callback
