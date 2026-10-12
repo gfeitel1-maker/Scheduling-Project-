@@ -185,6 +185,170 @@ export async function run(h) {
     if (exitMs > 10000 || !signedIn || snap !== snap2) throw new Error(note)
     return note
   })
+
+  // ---- Steps 9-12: features landing for v1. Each skips when its PR is not in the build under test. ----
+  const { execFileSync } = await import('node:child_process')
+  const git = (...a) => execFileSync('git', ['-C', h.REPO, ...a], { encoding: 'utf8' }).trim()
+  // In the build iff the PR is merged and its merge commit is an ancestor of the build's commit
+  // (read off the footer in step 1a). Throws { skip } otherwise, which the driver records as SKIP.
+  const featureIn = (pr, what) => {
+    let info
+    try { info = JSON.parse(execFileSync('gh', ['pr', 'view', String(pr), '--json', 'state,mergeCommit'], { cwd: h.REPO, encoding: 'utf8' })) } catch (e) { throw new Error(`could not read PR #${pr}: ${e.message}`) }
+    const skip = (why) => { const e = new Error(why); e.skip = `${what}: feature not in this build (${why})`; throw e }
+    if (info.state !== 'MERGED') skip(`PR #${pr} is ${info.state}`)
+    const build = h.buildSha()
+    if (!build) throw new Error('build commit unknown (step 1a reads it from the footer)')
+    try { git('fetch', '-q', 'origin', 'main') } catch {}
+    try { git('merge-base', '--is-ancestor', info.mergeCommit.oid, build) } catch { skip(`PR #${pr} merged as ${info.mergeCommit.oid.slice(0, 9)}, after build ${build}`) }
+  }
+  const SYN = (f) => path.join(h.REPO, 'docs/work/specs/samples/synthetic', f)
+  const S07 = SYN('s07-by-group-3-divisions.txt')
+  const sorted = (rows) => rows.map((c) => `${c[0]} | ${c[1]} | ${c[3] ?? ''}`).sort()
+  const snapshot = async () => {
+    await nav('Roots')
+    const roots = await ev(`return __main().match(/WHAT HAS TAKEN ROOT[^]*?Fixed Events\\n\\d+/)?.[0]`)
+    return { roots, fixed: sorted(await listNames('Fixed Events')), recurring: sorted(await listNames('Recurring Events')) }
+  }
+  const diff = (a, b) => ['roots', 'fixed', 'recurring'].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]))
+  const done = async () => { await click('Continue', true, 10000).catch(() => {}) }
+  // Restore the "Imported from <file>" version on Manual Build (step 3's path).
+  const restoreImported = async (name) => {
+    await nav('Manual Build')
+    if (await ev(`return !!__btn('Start a blank week', true)`)) await click('Start a blank week', true)
+    await waitFor(STATS, 30000, 'manual stats')
+    await click('Versions', true)
+    await waitFor(`return __main().includes(${JSON.stringify(name)})`, 10000, `"${name}" in Version History`)
+    await ev(`const row=[...document.querySelectorAll('*')].filter(__vis).find(e=>(e.innerText||'').startsWith(${JSON.stringify(name)})&&e.innerText.length<160&&e.querySelector('button')); const b=row?[...row.querySelectorAll('button')].find(b=>b.innerText.trim()==='Restore'):null; if(!b) throw new Error('no Restore button on the version row'); b.click(); return true`)
+    return waitFor(`const r=(()=>{${STATS}})(); return r && r.placed>0 && r`, 30000, 'restored stats')
+  }
+  // Visible grid cells naming `word`, with the number of rows each spans.
+  const cellsNaming = (word) => ev(`return [...document.querySelectorAll('[data-cell-key], [style*="grid-row"]')].filter(__vis).filter(e=>(e.innerText||'').includes(${JSON.stringify(word)})&&(e.innerText||'').length<200).map(e=>{const m=String(e.style.gridRow||getComputedStyle(e).gridRow||'').match(/span\\s*(\\d+)/); return m?+m[1]:1}).filter((v,i,a)=>true)`)
+
+  await step(9, 'Locations round-trip: Download worksheet, edit a capacity in the xlsx, Import from Excel, the location updates', async () => {
+    featureIn(959, 'Locations sheet round-trip')
+    const XLSX = await import(`file://${h.REPO}/node_modules/xlsx/xlsx.mjs`)
+    XLSX.set_fs(fs)
+    // Make sure there is a location to edit.
+    await nav('Locations')
+    await waitFor(`return !!__inp('input[placeholder="Pool"]')`, 15000, 'Locations add row')
+    if (await ev(`return /No locations yet/.test(__main())`)) {
+      await ev(`__set(__inp('input[placeholder="Pool"]'), 'Audit Hall'); return true`); await sleep(200); await click('+ Add', true)
+      await waitFor(`return !/No locations yet/.test(__main())`, 15000, 'added location')
+    }
+    await nav('Roots')
+    const before = new Set(fs.readdirSync(DL))
+    await click('Download worksheet', true)
+    let file = null; const t0 = Date.now()
+    while (!file && Date.now() - t0 < 60000) { file = fs.readdirSync(DL).find((f) => !before.has(f) && /\.xlsx$/.test(f) && fs.statSync(path.join(DL, f)).size > 0); await sleep(500) }
+    if (!file) throw new Error('no worksheet .xlsx in 60s')
+    const wb = XLSX.readFile(path.join(DL, file))
+    const ws = wb.Sheets.Locations
+    if (!ws) throw new Error(`worksheet has no Locations sheet (sheets: ${wb.SheetNames.join(', ')})`)
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+    const target = rows.find((r) => r.name)
+    if (!target) throw new Error('Locations sheet has no rows')
+    const from = Number(target.capacity) || 1, to = from + 3
+    target.capacity = to
+    const header = Object.keys(rows[0])
+    wb.Sheets.Locations = XLSX.utils.json_to_sheet(rows, { header })
+    const edited = path.join(DL, `edited-${file}`)
+    XLSX.writeFile(wb, edited)
+    // Straight onto the screen's hidden file input: clicking "Import from Excel" opens a native picker.
+    await nav('Locations'); await setFile(edited)
+    await waitFor(`return [...document.querySelectorAll('button')].filter(__vis).some(b=>/^Import \\d+$/.test(b.innerText.trim()))`, 30000, 'import preview')
+    await ev(`[...document.querySelectorAll('button')].filter(__vis).find(b=>/^Import \\d+$/.test(b.innerText.trim())).click(); return true`)
+    const result = await waitFor(`const m=__main().match(/[^\\n]*\\b(updated|unchanged)\\b[^\\n]*/i); return m && m[0]`, 30000, 'import result')
+    await click('Done', true, 5000).catch(() => {}); await click('Close', true, 2000).catch(() => {})
+    await nav('Locations')
+    const cap = await ev(`const r=[...document.querySelectorAll('tr')].filter(__vis).find(r=>[...r.querySelectorAll('td')].some(td=>td.innerText.trim()===${JSON.stringify(String(target.name))})); return r ? [...r.querySelectorAll('td')].map(td=>td.innerText.trim()) : null`)
+    const note = `"${target.name}" capacity ${from} -> ${to} in the xlsx; import said "${result}"; row now ${JSON.stringify(cap)}`
+    if (!cap || !cap.includes(String(to))) throw new Error(note)
+    return note
+  })
+
+  await step(10, 'Undo then re-import: the fixed and recurring events, and the elective bundles, come back exactly', async () => {
+    // A Replace cannot be undone, so the undone import is a Keep import of campB on top of s07.
+    // Reference run: Replace s07, Keep campB, snapshot. Test run: the same, Undo, re-import, snapshot.
+    await importFile(S07, { replace: true }); await done()
+    await importFile(CAMPB); await done()
+    const ref = await snapshot()
+    await importFile(S07, { replace: true }); await done()
+    const base = await snapshot()
+    await importFile(CAMPB)
+    await click('Undo this import', true, 15000)
+    const undone = await waitFor(`const m=__main().match(/Undo complete[^\\n]*/); return m && m[0]`, 60000, 'undo result')
+    await done()
+    const afterUndo = await snapshot()
+    await importFile(CAMPB); await done()
+    const again = await snapshot()
+    const undoLeft = diff(base, afterUndo), reimport = diff(ref, again)
+    const note = `undo "${undone}": ${undoLeft.length ? `NOT back to the pre-import state in ${undoLeft}` : 'back to the pre-import state'}; re-import ${reimport.length ? `DIFFERS from the reference in ${reimport}: ref=${JSON.stringify(reimport.map((k) => ref[k]))} got=${JSON.stringify(reimport.map((k) => again[k]))}` : `matches the reference (${ref.fixed.length} fixed, ${ref.recurring.length} recurring)`}`
+    if (undoLeft.length || reimport.length || ref.fixed.length === 0) throw new Error(note)
+    // The elective bundles (#961): undo a Keep import of the double-period file, re-import it, and
+    // the Electives screen must read exactly as it did after the first import.
+    const R9 = SYN('repro/r9-double-period-elective.txt')
+    try { featureIn(961, 'Elective bundles relink') } catch (e) { if (e.skip) return `${note}; bundles: ${e.skip}`; throw e }
+    if (!fs.existsSync(R9)) throw new Error(`${note}; ${R9} missing from this checkout (pull main)`)
+    const electives = async () => { await nav('Electives'); await sleep(800); return ev(`return __main().replace(/\\s+/g,' ').trim()`) }
+    await importFile(S07, { replace: true }); await done()
+    await importFile(R9); await done()
+    const e0 = await electives()
+    await importFile(S07, { replace: true }); await done()
+    await importFile(R9)
+    await click('Undo this import', true, 15000)
+    await waitFor(`return /Undo complete/.test(__main())`, 60000, 'undo result'); await done()
+    const eu = await electives()
+    await importFile(R9); await done()
+    const e1 = await electives()
+    const bnote = `${note}; bundles: first import ${/Pottery/.test(e0) ? 'shows' : 'does NOT show'} Pottery, after undo ${/Pottery/.test(eu) ? 'STILL shows' : 'gone'}, re-import ${e0 === e1 ? 'reads the same' : `DIFFERS: "${e0.slice(0, 300)}" vs "${e1.slice(0, 300)}"`}`
+    if (!/Pottery/.test(e0) || /Pottery/.test(eu) || e0 !== e1) throw new Error(bnote)
+    return bnote
+  })
+
+  await step(11, 'Double-period elective: imports as one cell, and Generate keeps it', async () => {
+    featureIn(961, 'Double-period elective')
+    const R9 = SYN('repro/r9-double-period-elective.txt')
+    if (!fs.existsSync(R9)) throw new Error(`${R9} missing from this checkout (pull main)`)
+    await importFile(R9, { replace: true }); await done()
+    const manual = await restoreImported('Imported from r9-double-period-elective.txt')
+    const mCells = await cellsNaming('Pottery')
+    await nav('Generated Schedule')
+    if (await ev(`return !!__btn('Generate a schedule', true)`)) await click('Generate a schedule', true)
+    else await click('Rebuild', true)
+    const gen = await waitFor(STATS, 120000, 'Generate stats')
+    const gCells = await cellsNaming('Pottery')
+    const ok = (c) => c.length > 0 && c.every((n) => n >= 2)
+    const note = `Manual (restored ${manual.placed}/${manual.total}): Pottery cells spans=${JSON.stringify(mCells)}; Generated (${gen.placed}/${gen.total}, ${gen.still} still needed): spans=${JSON.stringify(gCells)}`
+    if (!ok(mCells) || !ok(gCells)) throw new Error(note)
+    return note
+  })
+
+  await step(12, 'Encryption disable through the UI: the app restarts by itself and signs everyone out, the database is plain SQLite, data intact', async () => {
+    featureIn(960, 'At-rest encryption disable')
+    const dbFiles = () => { const out = []; const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { if (!/Cache|GPU|blob_storage|backups?/i.test(e.name)) walk(p) } else if (/\.(db|sqlite3?)$/.test(e.name) && fs.statSync(p).size > 0) out.push(p) } }; try { walk(UD) } catch {} ; return out }
+    const plain = (f) => { const b = Buffer.alloc(16); const fd = fs.openSync(f, 'r'); fs.readSync(fd, b, 0, 16, 0); fs.closeSync(fd); return b.toString('latin1') === 'SQLite format 3\0' }
+    const header = () => Object.fromEntries(dbFiles().map((f) => [path.relative(UD, f), plain(f) ? 'plain' : 'encrypted']))
+    const snap0 = await snapshot()
+    const h0 = header()
+    await nav('LAN & Devices')
+    await click('Turn off encryption…', true, 15000)
+    await waitFor(`const i=[...document.querySelectorAll('label input')].filter(__vis)[0]; if(!i) return false; __set(i,'DISABLE ENCRYPTION'); return true`, 10000, 'confirmation input')
+    await sleep(300); await click('Turn off encryption', true, 10000)
+    const said = await waitFor(`const m=__main().match(/Encryption is off[^\\n]*|Encryption is still on[^\\n]*/); return m && m[0]`, 120000, 'disable outcome')
+    if (/still on/.test(said)) throw new Error(`refused: "${said}"`)
+    const ms = await h.adopt()
+    await waitFor(`return document.body.innerText.includes('Log out') || !!__inp('#login-name')`, 120000, 'app back up')
+    const signedIn = await ev(`return document.body.innerText.includes('Log out')`)
+    if (!signedIn) { await h.signInIfAsked(); await waitFor(`return document.body.innerText.includes('Log out')`, 30000, 'signed in') }
+    const snap1 = await snapshot()
+    const h1 = header()
+    const changed = diff(snap0, snap1)
+    const anyPlain = Object.values(h1).includes('plain')
+    // The panel copy is the spec: it restarts AND signs everyone out.
+    const note = `"${said}"; relaunched in ${(ms / 1000).toFixed(1)}s, ${signedIn ? 'came back STILL SIGNED IN (the panel says it signs everyone out)' : 'signed out as the panel says'}; db before ${JSON.stringify(h0)} after ${JSON.stringify(h1)}; data after signing back in ${changed.length ? `CHANGED in ${changed}` : 'intact'}`
+    if (signedIn || changed.length || !anyPlain || Object.values(h0).includes('plain')) throw new Error(note)
+    return note
+  })
 }
 
 function listBackups(ud) {
