@@ -280,8 +280,10 @@ describe('SpecialDayGridEditor — block times (packaged audit #30)', () => {
       return Promise.resolve([])
     })
     render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
-    await waitFor(() => expect(screen.getByText('9:00 AM–1:15 PM')).toBeTruthy())
-    expect(screen.getByText('9:00 AM–1:15 PM').closest('.block-name').textContent).toBe('Opening9:00 AM–1:15 PM')
+    // The range is two lines, start then end (owner, 2026-10-12).
+    await waitFor(() => expect(screen.getByText('9:00 AM –')).toBeTruthy())
+    expect(screen.getByText('1:15 PM')).toBeTruthy()
+    expect(screen.getByText('9:00 AM –').closest('.block-name').textContent).toBe('Opening9:00 AM – 1:15 PM')
   })
 })
 

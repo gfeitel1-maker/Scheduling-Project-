@@ -176,7 +176,7 @@ describe('R1 — Replace saves both schedules first', () => {
         names: { group: 'Bunk 2', day: 'Tue', block: 'Period 1', block_start: '09:00', block_end: '09:40', activity: 'Swim' } },
     ], cat)
     expect(slots).toHaveLength(0)
-    expect(skipped).toEqual([{ label: 'Bunk 2 · Tue Period 1 · Swim', reason: 'block moved to 10:00' }])
+    expect(skipped).toEqual([{ label: 'Bunk 2 · Tue Period 1 · Swim', reason: 'block moved to 10:00 AM' }])
   })
 
   it('a failed save aborts the replace: nothing is cleared, nothing imported', () => {
