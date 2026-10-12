@@ -651,7 +651,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         return outcome
       }).catch((err) => {
         console.error('materializeImportedVersion failed (non-fatal, catalog import still succeeded)', err)
-        outcome.version = { created: false, snapshotId: null, unresolvedCount: placements.length, unresolvedNames: [] }
+        // Said to the director (unresolvedPlacementsNotice), not only logged: the catalog landed, the version did not.
+        outcome.version = { created: false, snapshotId: null, failed: String(err?.message ?? err), unresolvedCount: 0, unresolvedNames: [] }
         return outcome
       })
     }

@@ -3576,6 +3576,18 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], ownSnapsh
       candidateSet.set(`${entity}:${entity_id}`, { entity, entity_id })
     }
 
+    // T219: a bundle kept for any reason keeps its periods, or it survives with no periods (inert).
+    const keptBundleIds = new Set(kept.filter((k) => k.entity === 'elective_bundles').map((k) => k.entity_id))
+    if (keptBundleIds.size > 0) {
+      for (const [key, { entity, entity_id }] of [...candidateSet]) {
+        if (entity !== 'elective_bundle_periods') continue
+        const parent = db.prepare('SELECT bundle_id FROM elective_bundle_periods WHERE id = ?').get(entity_id)?.bundle_id
+        if (!keptBundleIds.has(parent)) continue
+        candidateSet.delete(key)
+        kept.push({ entity, entity_id, name: nameOf('elective_bundles', parent), parent_id: parent, reason: 'parent_kept' })
+      }
+    }
+
     // A saved schedule version that names a row would restore with a blank cell; keep the row and say so.
     // The versions this import saved itself do not count: they go with the import (deleted below),
     // unless the director has renamed one since, which makes it theirs.
@@ -3643,13 +3655,18 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], ownSnapsh
       if (!joinsBySet.has(setId)) joinsBySet.set(setId, [])
       joinsBySet.get(setId).push(entity_id)
     }
+    const bundlesBySet = new Map()
+    for (const { entity, entity_id } of candidateSet.values()) {
+      if (entity !== 'elective_bundles') continue
+      const setId = db.prepare('SELECT elective_set_id FROM elective_bundles WHERE id = ?').get(entity_id)?.elective_set_id
+      if (!bundlesBySet.has(setId)) bundlesBySet.set(setId, [])
+      bundlesBySet.get(setId).push(entity_id)
+    }
     for (const { entity, entity_id } of [...candidateSet.values()]) {
       if (entity !== 'elective_sets') continue
       const joins = joinsBySet.get(entity_id) ?? []
       // T219: the import's own bundles on this set go with it, so they do not hold it.
-      const ownBundles = [...candidateSet.values()]
-        .filter((c) => c.entity === 'elective_bundles' && db.prepare('SELECT elective_set_id FROM elective_bundles WHERE id = ?').get(c.entity_id)?.elective_set_id === entity_id)
-        .map((c) => `elective_bundles:${c.entity_id}`)
+      const ownBundles = (bundlesBySet.get(entity_id) ?? []).map((b) => `elective_bundles:${b}`)
       const blockers = referencesInto(db, entity, entity_id, new Set([...joins.map((j) => `elective_set_activities:${j}`), ...ownBundles]))
       if (blockers.length === 0) continue
       kept.push({

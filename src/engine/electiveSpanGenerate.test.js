@@ -27,6 +27,17 @@ describe('Generate keeps a spanning elective', () => {
     expect(cells).toEqual([['b1', 'set1', true], ['b2', 'set1', false]])
   })
 
+  it('a tail whose head was moved off (no gesture moves an elective chain) is emitted as its own head', () => {
+    const { slots } = buildSchedule({
+      groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+      tiers: [{ id: 't1', name: 'Junior' }],
+      days: [{ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }],
+      timeBlocks: blocks, activities: [], fixedEvents: [], campId: 'c', replacedDayIds: [],
+      preplacedSlots: derivePreplacedSlots([stored[1]], []),
+    })
+    expect(slots.filter((s) => s.type === 'elective').map((s) => [s.blockId, s.is_span_head])).toEqual([['b2', true]])
+  })
+
   it('a stored elective with no span marking stays its own head', () => {
     expect(derivePreplacedSlots([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', elective_set_id: 'set1' }], [])[0].isSpanHead).toBeUndefined()
   })

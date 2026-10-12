@@ -425,6 +425,15 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
     }
   }
 
+  // T219: a stored tail continues its span only while the block above holds the same set; a
+  // tail left behind by a moved or cleared head is its own session.
+  function isElectiveTail(groupId, dayId, blockId, setId) {
+    if (!electiveTailKeys.has(`${groupId}|${dayId}|${blockId}`)) return false
+    const idx = blockOrder.get(blockId)
+    const above = idx > 0 ? timeBlocksSorted[idx - 1] : null
+    return Boolean(above) && electiveLookup.get(`${groupId}|${dayId}|${above.id}`) === setId
+  }
+
   const groupMap = new Map(groups.map(g => [g.id, g]))
   const activityById = new Map(activities.map(a => [a.id, a]))
   const eventById = new Map((events || []).map(e => [e.id, e]))
@@ -500,7 +509,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
           // Excluded from openSlots entirely: the engine never fills this
           // cell and never counts it as unfilled (no UNFILLABLE flag), the
           // same way a fixed event slot above is excluded.
-          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'elective', activityId: null, fixedEventId: null, electiveSetId, is_span_head: !electiveTailKeys.has(key), flags: {} })
+          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'elective', activityId: null, fixedEventId: null, electiveSetId, is_span_head: !isElectiveTail(group.id, day.id, block.id, electiveSetId), flags: {} })
           // Owner-resolved model (§1): the set doesn't have one location —
           // each DISTINCT offering location contends, simultaneously. But an
           // occupant is a GROUP AT A LOCATION, not an offering — two

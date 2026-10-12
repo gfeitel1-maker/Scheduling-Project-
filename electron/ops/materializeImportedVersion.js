@@ -61,43 +61,71 @@ export function deriveImportedBundleId(electiveSetId, activityId, dayId, blockId
 // (docs/adr/2026-09-29-linked-elective-bundles.md). Only choices the set holds
 // now are linked; a choice the director adds later is linked by hand.
 async function writeSpanBundles(db, syncClient, slots, blockOrder, authorUserId, onRowCreated) {
-  const spans = new Map()
   const blockAt = new Map([...blockOrder].map(([id, i]) => [i, id]))
-  const byCell = new Map(slots.map((s) => [`${s.group_id}|${s.day_id}|${s.time_block_id}`, s]))
-  for (const head of slots.filter((s) => s.elective_set_id && s.is_span_head === true)) {
-    // Walk forward from the head through this group's consecutive tails only.
-    const blockIds = [head.time_block_id]
-    for (let i = blockOrder.get(head.time_block_id) + 1; blockAt.has(i); i++) {
-      const next = byCell.get(`${head.group_id}|${head.day_id}|${blockAt.get(i)}`)
-      if (next?.elective_set_id !== head.elective_set_id || next.is_span_head !== false) break
-      blockIds.push(next.time_block_id)
-    }
-    const k = `${head.elective_set_id}|${head.day_id}|${blockIds.join(',')}`
-    if (!spans.has(k)) spans.set(k, { setId: head.elective_set_id, dayId: head.day_id, blockIds })
+  // Each group's runs of consecutive blocks holding a set on a day, marked or not.
+  const runsBySetDay = new Map() // `${set}|${day}` -> [[blockId, ...], ...]
+  const cellsByGroupSetDay = new Map()
+  for (const s of slots) {
+    if (!s.elective_set_id || !blockOrder.has(s.time_block_id)) continue
+    const k = `${s.elective_set_id}|${s.day_id}|${s.group_id}`
+    if (!cellsByGroupSetDay.has(k)) cellsByGroupSetDay.set(k, new Set())
+    cellsByGroupSetDay.get(k).add(blockOrder.get(s.time_block_id))
   }
-  if (spans.size === 0) return
+  for (const [k, positions] of cellsByGroupSetDay) {
+    const setDay = k.slice(0, k.lastIndexOf('|'))
+    const sorted = [...positions].sort((x, y) => x - y)
+    const runs = runsBySetDay.get(setDay) ?? []
+    let run = [sorted[0]]
+    for (let i = 1; i <= sorted.length; i++) {
+      if (i < sorted.length && sorted[i] === run[run.length - 1] + 1) { run.push(sorted[i]); continue }
+      runs.push(run.map((p) => blockAt.get(p)))
+      if (i < sorted.length) run = [sorted[i]]
+    }
+    runsBySetDay.set(setDay, runs)
+  }
+  // A span is linked only when every group's run touching it IS it: bundles of one choice that
+  // share a period are refused by the solver (bundleOverlap.js), and a bundle's periods name no group.
+  const spans = []
+  const unlinked = []
+  for (const [setDay, runs] of runsBySetDay) {
+    const multi = [...new Map(runs.filter((r) => r.length > 1).map((r) => [r.join(','), r])).values()]
+    if (multi.length === 0) continue
+    const consistent = multi.every((span) => runs.every((r) => !r.some((b) => span.includes(b)) || r.join(',') === span.join(',')))
+    const [setId, dayId] = setDay.split('|')
+    if (consistent) for (const blockIds of multi) spans.push({ setId, dayId, blockIds })
+    else unlinked.push({ setId, dayId })
+  }
+  const setName = db.prepare('SELECT name FROM elective_sets WHERE id = ?')
   const dayLabel = db.prepare('SELECT label FROM days_of_operation WHERE id = ?')
+  const unlinkedSpans = unlinked.map(({ setId, dayId }) => ({ electiveSetName: setName.get(setId)?.name ?? null, dayName: dayLabel.get(dayId)?.label ?? null }))
+  if (spans.length === 0) return { unlinkedSpans }
   const choices = db.prepare(`SELECT esa.activity_id AS id, a.name AS name FROM elective_set_activities esa
     LEFT JOIN activities a ON a.id = esa.activity_id WHERE esa.elective_set_id = ? ORDER BY esa.activity_id`)
   const exists = (table, id) => Boolean(db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id))
-  for (const { setId, dayId, blockIds } of spans.values()) {
-    const day = dayLabel.get(dayId)?.label ?? ''
-    for (const choice of choices.all(setId)) {
-      const bundleId = deriveImportedBundleId(setId, choice.id, dayId, blockIds)
-      if (!exists('elective_bundles', bundleId)) {
-        await writeFields(syncClient, 'elective_bundles', bundleId, {
-          elective_set_id: setId, activity_id: choice.id, name: `${choice.name ?? 'Choice'} — ${day}`.trim(), scope_mode: 'all',
-        }, authorUserId)
-        onRowCreated?.('elective_bundles', bundleId)
-      }
-      for (const blockId of blockIds) {
-        const periodId = `${bundleId}:${blockId}`
-        if (exists('elective_bundle_periods', periodId)) continue
-        await writeFields(syncClient, 'elective_bundle_periods', periodId, { bundle_id: bundleId, day_id: dayId, time_block_id: blockId }, authorUserId)
-        onRowCreated?.('elective_bundle_periods', periodId)
+  try {
+    for (const { setId, dayId, blockIds } of spans) {
+      const day = dayLabel.get(dayId)?.label ?? ''
+      for (const choice of choices.all(setId)) {
+        const bundleId = deriveImportedBundleId(setId, choice.id, dayId, blockIds)
+        if (!exists('elective_bundles', bundleId)) {
+          await writeFields(syncClient, 'elective_bundles', bundleId, {
+            elective_set_id: setId, activity_id: choice.id, name: [choice.name ?? 'Choice', day].filter(Boolean).join(' — '), scope_mode: 'all',
+          }, authorUserId)
+          onRowCreated?.('elective_bundles', bundleId)
+        }
+        for (const blockId of blockIds) {
+          const periodId = `${bundleId}:${blockId}`
+          if (exists('elective_bundle_periods', periodId)) continue
+          await writeFields(syncClient, 'elective_bundle_periods', periodId, { bundle_id: bundleId, day_id: dayId, time_block_id: blockId }, authorUserId)
+          onRowCreated?.('elective_bundle_periods', periodId)
+        }
       }
     }
+  } catch (err) {
+    // The version is already saved; the link is what failed, and the director is told.
+    return { unlinkedSpans, linkFailed: String(err?.message ?? err) }
   }
+  return { unlinkedSpans }
 }
 
 /**
@@ -140,8 +168,9 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     groupIdByName: nameMap(db, 'groups', campId),
     dayIdByName: nameMap(db, 'days_of_operation', campId, 'label'),
     blockIdByName: nameMap(db, 'time_blocks', campId),
-    // T219: the day's block order (the engine's sort_order order), so an
-    // elective held in adjacent blocks resolves as one span.
+    // T219: the day's block order, so an elective held in adjacent blocks
+    // resolves as one span. sort_order is the order the engine and the grid
+    // sort by; start_time then id only break ties they leave undefined.
     blockOrder: new Map(
       db.prepare('SELECT id FROM time_blocks WHERE camp_id = ? ORDER BY sort_order IS NULL, sort_order, start_time, id').all(campId)
         .map((b, i) => [b.id, i]),
@@ -157,9 +186,6 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
   if (slots.length === 0) {
     return { created: false, snapshotId: null, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
   }
-
-  // Reported as each is written, like the versions below, so undo owns them (T219).
-  await writeSpanBundles(db, syncClient, slots, maps.blockOrder, authorUserId, onRowCreated)
 
   // The director lands on Generated, so the imported week must be findable
   // there as well as on Manual: one identical version per candidate route.
@@ -194,6 +220,11 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     onSnapshotCreated?.(id, name)
   }
 
-  if (!snapshotId) return { created: false, snapshotId: null, unchanged: true, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
-  return { created: true, snapshotId, versionName: name, electiveCellCount: slots.filter((slot) => slot.elective_set_id).length, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
+  // After the versions, so a failed link cannot cost the version. Each row is reported as it is
+  // written, like the versions, so undo owns it (T219).
+  const links = await writeSpanBundles(db, syncClient, slots, maps.blockOrder, authorUserId, onRowCreated)
+  const linkReport = { ...(links.unlinkedSpans.length ? { unlinkedSpans: links.unlinkedSpans } : {}), ...(links.linkFailed ? { linkFailed: links.linkFailed } : {}) }
+
+  if (!snapshotId) return { created: false, snapshotId: null, unchanged: true, ...linkReport, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
+  return { created: true, snapshotId, versionName: name, ...linkReport, electiveCellCount: slots.filter((slot) => slot.elective_set_id).length, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
 }

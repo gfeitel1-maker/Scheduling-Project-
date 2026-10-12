@@ -375,6 +375,57 @@ describe('materializeImportedVersion', () => {
       expect(sets.sort()).toEqual(['0,1', '3,4'])
     })
 
+    // Red Hat #4: bundles of one choice that share a period are refused by the solver's linked tier
+    // (bundleOverlap.js), and a bundle's periods name no group. So a set whose groups hold it in
+    // differing runs on one day is not linked at all, and the version says so.
+    it('does not link a set whose groups hold it in overlapping, differing runs on one day', async () => {
+      const db = makeDb()
+      const campId = seedCamp(db)
+      seedWeek(db, campId)
+      seedGroup(db, campId, 'Bunk 1')
+      seedGroup(db, campId, 'Bunk 2')
+      seedDay(db, campId, 'Monday')
+      ;['09:00', '10:00', '11:00'].forEach((n, i) => {
+        const id = seedBlock(db, campId, n)
+        db.prepare('UPDATE time_blocks SET sort_order = ? WHERE id = ?').run(i, id)
+      })
+      const setId = randomUUID()
+      db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(setId, campId, 'Chugim')
+      db.prepare("INSERT INTO elective_set_activities (id, elective_set_id, activity_id, status) VALUES (?, ?, ?, 'potential')").run(randomUUID(), setId, seedActivity(db, campId, 'Pottery'))
+      const cell = (g, block) => ({ groupName: g, dayName: 'Monday', blockLabel: block, electiveSetName: 'Chugim', activityName: 'Chugim', choices: [] })
+
+      const result = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements: [cell('Bunk 1', '09:00'), cell('Bunk 1', '10:00'), cell('Bunk 2', '10:00'), cell('Bunk 2', '11:00')] })
+
+      expect(result.created).toBe(true)
+      expect(db.prepare('SELECT COUNT(*) c FROM elective_bundles').get().c).toBe(0)
+      expect(result.unlinkedSpans).toEqual([{ electiveSetName: 'Chugim', dayName: 'Monday' }])
+    })
+
+    // Red Hat #5: a failed bundle write must not cost the version, and is reported, not swallowed.
+    it('saves the version when a bundle write fails, and reports the failure', async () => {
+      const db = makeDb()
+      const campId = seedCamp(db)
+      seedWeek(db, campId)
+      seedGroup(db, campId, 'Bunk 1')
+      seedDay(db, campId, 'Monday')
+      ;['09:00', '10:00'].forEach((n, i) => {
+        const id = seedBlock(db, campId, n)
+        db.prepare('UPDATE time_blocks SET sort_order = ? WHERE id = ?').run(i, id)
+      })
+      const setId = randomUUID()
+      db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(setId, campId, 'Chugim')
+      db.prepare("INSERT INTO elective_set_activities (id, elective_set_id, activity_id, status) VALUES (?, ?, ?, 'potential')").run(randomUUID(), setId, seedActivity(db, campId, 'Pottery'))
+      const ok = fakeSyncClient(db)
+      const failing = { async write(args) { if (args.entity === 'elective_bundles') throw new Error('disk full'); return ok.write(args) } }
+      const cell = (block) => ({ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: block, electiveSetName: 'Chugim', activityName: 'Chugim', choices: [] })
+
+      const result = await materializeImportedVersion(db, failing, { campId, authorUserId, placements: [cell('09:00'), cell('10:00')] })
+
+      expect(result.created).toBe(true)
+      expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(2)
+      expect(result.linkFailed).toMatch(/disk full/)
+    })
+
     it('a held import (no elective set written) yields zero elective slots and one left-out entry per name, without throwing', async () => {
       const db = makeDb()
       const campId = seedCamp(db)

@@ -8,7 +8,9 @@ governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: [docs/adr/2026-09-17-individual-elective-scheduling.md]
 ---
 
-# T219 — multi-day catalog linkage (design-stage)
+# T219 — multi-day catalog linkage
+
+_Prior: everything above "Re-aimed and shipped (2026-10-11)" at the end of this ticket is the design-stage history. That section describes what was built._
 
 Spun off from T195 (offering-grid import). T195's `parseGridScheduleMenu` detects known glyph
 markers on a cell's raw activity name (e.g. a double-period marker) and surfaces them in

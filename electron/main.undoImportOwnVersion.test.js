@@ -158,3 +158,26 @@ describe('undo of an import that created an elective', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM elective_set_activities').get().n).toBe(0)
   })
 })
+
+// Red Hat #6: a bundle the director edited since the import is theirs and stays; its periods are
+// its substance, so they stay with it rather than leaving an inert bundle with no periods.
+describe('undo after the director edited an imported bundle', () => {
+  it('keeps the edited bundle with all its periods', async () => {
+    const run = await handlers.ingestCommit({
+      token,
+      captureInverse: true,
+      approved: { groups: ['Otters 1'], tiers: [], days_of_operation: ['Monday'], time_blocks: ['9:00-10:00', '10:00-11:00'], activities: [] },
+      links: {},
+      confirmedElectiveSets: [{ name: 'Chugim', choices: ['Pottery'] }],
+      placements: ['9:00-10:00', '10:00-11:00'].map((b) => ({ groupName: 'Otters 1', dayName: 'Monday', blockLabel: b, activityName: 'Chugim', electiveSetName: 'Chugim', choices: ['Pottery'] })),
+      sourceFileName: 'week.txt',
+    })
+    const bundle = db.prepare('SELECT id FROM elective_bundles').get()
+    appendOp(db, { entity: 'elective_bundles', entity_id: bundle.id, field: 'name', value: 'Pottery double', author_user_id: null, device_id: deviceId, source: 'human' })
+
+    const res = await handlers.ingestUndo({ token, importRunId: run.importRunId, client_write_id: randomUUID(), invertibleOps: [], createdEntityIds: [] })
+
+    expect(res.kept).toContainEqual(expect.objectContaining({ entity: 'elective_bundles', entity_id: bundle.id, reason: 'edited_since_import' }))
+    expect(db.prepare('SELECT COUNT(*) AS n FROM elective_bundle_periods WHERE bundle_id = ?').get(bundle.id).n).toBe(2)
+  })
+})

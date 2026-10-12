@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { unresolvedPlacementsNotice } from '../ingest/unresolvedPlacementsNotice'
+import { unresolvedPlacementsNotice, electiveLinkNotices } from '../ingest/unresolvedPlacementsNotice'
 import { leftOutPlacements } from '../ingest/leftOutPlacements'
 import { localClient } from '../localClient'
 import { useCohorts } from '../hooks/useCohorts'
@@ -1659,6 +1659,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
     }
     const versionNotice = unresolvedPlacementsNotice(version)
     if (versionNotice) notices.push(versionNotice)
+    notices.push(...electiveLinkNotices(version))
     // T118 slice 4 (Red Hat review) — a compound-cell decision write failing
     // is rare (per-item, non-fatal, same seam as materializeImportedVersion
     // above) but must still surface: a silently-dropped decision means the

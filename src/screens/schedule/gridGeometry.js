@@ -49,10 +49,19 @@ function spanKey(slot) {
   return null
 }
 
-export function isActivityTail(slots, groupId, dayId, blockId) {
+export function isActivityTail(slots, groupId, dayId, blockId, timeBlocks = null) {
   const slot = getSlot(slots, groupId, dayId, blockId)
-  if (!spanKey(slot)) return false
-  return slot.is_span_head === false
+  const key = spanKey(slot)
+  if (!key || slot.is_span_head !== false) return false
+  // No gesture moves an elective chain (useSlotMutations' refField), so a cleared or moved
+  // head leaves its tails behind. Such a tail is covered only while the block above still
+  // holds its set; otherwise it shows as its own cell rather than hiding a live elective.
+  if (!slot.activity_id && timeBlocks) {
+    const idx = timeBlocks.findIndex(b => b.id === blockId)
+    const above = idx > 0 ? getSlot(slots, groupId, dayId, timeBlocks[idx - 1].id) : null
+    return spanKey(above) === key
+  }
+  return true
 }
 
 export function getActivityRowSpan(slots, timeBlocks, groupId, dayId, blockId) {
@@ -81,7 +90,7 @@ export function makeGridGeometry({ slots, timeBlocks }) {
     getSlot: (groupId, dayId, blockId) => getSlot(slots, groupId, dayId, blockId),
     isFixedEventTail: (groupId, dayId, blockId) => isFixedEventTail(slots, timeBlocks, groupId, dayId, blockId),
     getFixedEventRowSpan: (groupId, dayId, blockId) => getFixedEventRowSpan(slots, timeBlocks, groupId, dayId, blockId),
-    isActivityTail: (groupId, dayId, blockId) => isActivityTail(slots, groupId, dayId, blockId),
+    isActivityTail: (groupId, dayId, blockId) => isActivityTail(slots, groupId, dayId, blockId, timeBlocks),
     getActivityRowSpan: (groupId, dayId, blockId) => getActivityRowSpan(slots, timeBlocks, groupId, dayId, blockId),
   }
 }
@@ -139,7 +148,10 @@ export function computeSpanCellProps({ geometry, selectedGroup, day, block, bloc
   // matches how `nextBlock` is found three lines below.
   const immediateNextBlock = timeBlocks[blockIndex + 1] ?? null
   const immediateNextSlot = immediateNextBlock ? geometry.getSlot(selectedGroup, day.id, immediateNextBlock.id) : null
-  const isMerged = immediateNextSlot?.is_span_head === false && immediateNextSlot?.activity_id === slot.activity_id
+  // An elective cell (T219's imported double period, or a single one) has no span gestures:
+  // split and extend resolve the chain through refField, which no elective threads.
+  const spanGestures = !(slot.elective_set_id && !slot.activity_id)
+  const isMerged = spanGestures && immediateNextSlot?.is_span_head === false && immediateNextSlot?.activity_id === slot.activity_id
 
   // Merge-down always targets the block AFTER the span's current end
   // (rowSpan-chain-based) so a director can keep extending an already-merged
@@ -150,11 +162,11 @@ export function computeSpanCellProps({ geometry, selectedGroup, day, block, bloc
 
   const spanTailBlockIds = getSpanTailBlockIds(timeBlocks, blockIndex, rowSpan)
 
-  const onSplit = isMerged && onSplitSlot ? () => onSplitSlot(selectedGroup, day.id, block.id) : undefined
-  const onSplitAt = onSplitSlot
+  const onSplit = spanGestures && isMerged && onSplitSlot ? () => onSplitSlot(selectedGroup, day.id, block.id) : undefined
+  const onSplitAt = spanGestures && onSplitSlot
     ? (cutBlockId) => onSplitSlot(selectedGroup, day.id, block.id, undefined, cutBlockId)
     : undefined
-  const onExtendGrab = hasMergeDown && onSpanExtendStart
+  const onExtendGrab = spanGestures && hasMergeDown && onSpanExtendStart
     ? () => onSpanExtendStart(selectedGroup, day.id, block.id, slot.activity_id)
     : undefined
 

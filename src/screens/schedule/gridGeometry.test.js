@@ -7,6 +7,7 @@ import {
   getActivityRowSpan,
   makeGridGeometry,
   decideCell,
+  computeSpanCellProps,
 } from './gridGeometry'
 
 // Fixtures use the shape normalizeSlots() produces: is_fixed_event / is_span_head /
@@ -176,5 +177,36 @@ describe('a spanning elective', () => {
   it('the head spans its tails and stops at a different set', () => {
     expect(getActivityRowSpan(slots, timeBlocks, 'g1', 'd1', 'b1')).toBe(2)
     expect(getActivityRowSpan(slots, timeBlocks, 'g1', 'd1', 'b3')).toBe(1)
+  })
+})
+
+// T219 Red Hat #2/#3: a split or clear of an imported elective head does not carry its tails
+// (no gesture moves an elective chain). A tail whose block above no longer holds its set must
+// show as its own cell, never be hidden, and an elective span offers no split/extend controls.
+describe('a spanning elective whose head is gone, and elective span controls', () => {
+  it('a tail with nothing of its set above it is not hidden', () => {
+    const slots = [
+      slot({ id: 'a', time_block_id: 'b1', activity_id: 'act-9', is_span_head: true }),
+      slot({ id: 'e', time_block_id: 'b2', activity_id: null, elective_set_id: 'set-1', is_span_head: false }),
+    ]
+    expect(isActivityTail(slots, 'g1', 'd1', 'b2', timeBlocks)).toBe(false)
+    expect(makeGridGeometry({ slots, timeBlocks }).isActivityTail('g1', 'd1', 'b2')).toBe(false)
+  })
+
+  it('an elective span head offers no split and no extend', () => {
+    const slots = [
+      slot({ id: 'h', time_block_id: 'b1', activity_id: null, elective_set_id: 'set-1', is_span_head: true }),
+      slot({ id: 't', time_block_id: 'b2', activity_id: null, elective_set_id: 'set-1', is_span_head: false }),
+    ]
+    const geometry = makeGridGeometry({ slots, timeBlocks })
+    const props = computeSpanCellProps({
+      geometry, selectedGroup: 'g1', day: { id: 'd1' }, block: { id: 'b1' }, blockIndex: 0, timeBlocks,
+      rowSpan: 2, slot: slots[0], onSplitSlot: () => {}, onSpanExtendStart: () => {},
+    })
+    // SlotCell draws its Split button off isMerged, so it must read false too.
+    expect(props.isMerged).toBe(false)
+    expect(props.onSplit).toBeUndefined()
+    expect(props.onSplitAt).toBeUndefined()
+    expect(props.onExtendGrab).toBeUndefined()
   })
 })
