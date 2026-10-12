@@ -1,7 +1,7 @@
 ---
 title: "A main-side gate that flags a merged ticket whose status never flipped"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-27
 task_class: test-infrastructure
 governing_docs: [docs/governance/standards/WORK_RECORD_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/GOVERNANCE_INDEX.md]
@@ -59,3 +59,9 @@ asks whether it should also be a gate.
 Whether to build this at all is the owner's call: §3.3 discipline + periodic reconciliation sweeps
 may be judged sufficient. This ticket exists so the choice is tracked rather than implicit; it is
 authorized to be *designed and built* only on the owner's yes.
+
+## Shipped (2026-10-11)
+
+Built on the keeper's go. `checkMergedTicketStatus` in `scripts/check-governance.js`, run by `npm run check:governance`, flags a commit on `origin/main` whose subject starts with `T<n>:` when that ticket isn't `completed`/`closed`/`wont-fix` and nothing edited the ticket file: not the merge, not a later main commit, not the branch being pushed. Editing the ticket counts as a status decision, so a parked ticket or a shipped slice passes once the ticket records it.
+
+Proven against the real log: all 1,889 commits on main, one hit, T209/#816 (a genuine drift, flipped in this PR). The backlog is therefore cleared, with no watermark needed. With no `origin/main` (a shallow CI checkout) the check skips with a stderr line. CI checks out full history (`fetch-depth: 0` in `.github/workflows/gate.yml`), and a missing `origin/main` under `CI` is a blocking `merged-ticket-status-unchecked` finding, never an abstaining green. A local run without `origin/main` skips with a stderr line.

@@ -1,7 +1,7 @@
 ---
 title: "Slice F — capped, configurable data-relay fallback (Option B)"
 document_type: ticket
-status: parked
+status: closed
 task_class: architecture
 date: 2026-09-27
 created: 2026-09-27
@@ -14,3 +14,7 @@ archive_when: "A capped, configurable, self-hostable/disable-able circuit-relay-
 # T291 (Slice F) — data-relay fallback — OWNER-GATED (Tier-4 + owner infra)
 
 PARKED. Owner ACCEPTED Option B (2026-09-27): a capped, configurable data-relay is in scope for CGNAT-both-ends pairs the hole-punch cannot reach. It forwards ONLY ciphertext (Noise e2e) — an untrusted encrypted-bytes forwarder, not a confidentiality risk; real costs are owner-hosted bandwidth + an availability dependency. Needs its OWN caps (rung-3's coordination caps are too small). Design + owner decision: docs/adr/2026-09-27-wan-connectivity-hardening-ladder.md (Section 2, the relay decision).
+
+## Closed as superseded (2026-10-11)
+
+Superseded by `docs/adr/2026-10-08-relayless-cross-network-reconnect.md` (#752, accepted 2026-10-08). That ADR rules out a data relay, documents both-ends CGNAT as unreachable, and limits the rendezvous Worker to introduction only.

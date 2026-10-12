@@ -3,6 +3,7 @@ import {
   checkDoc, checkPlatformStateFreshness, PLATFORM_STATE_PATH, AGENTS,
   parseCompletionRefs, resolveIds, isClosed, checkStatusDrift, checkAll,
   checkClosureClaimWithoutId, checkNoLiteralNul,
+  checkMergedTicketStatus, parseMainLog,
 } from './check-governance.js'
 
 // The checker's whole job is to fail on things a human reading one file would
@@ -458,6 +459,82 @@ describe('checkAll — git subject gathering', () => {
     expect(() => checkAll('/fake/root', execFn)).not.toThrow()
     const findings = checkAll('/fake/root', execFn)
     expect(findings.filter((f) => f.code.startsWith('status-drift'))).toEqual([])
+  })
+})
+
+// T283 — board truth on main. A `T<n>:` merge that left its ticket open AND never
+// touched the ticket file is a status that was never flipped. A merge that edited
+// the ticket (parked it, recorded a slice, created it) made a status decision.
+describe('checkMergedTicketStatus', () => {
+  const t = (n, status) => ({
+    path: `docs/work/tickets/T${n}-thing.md`,
+    data: { title: 'x', document_type: 'ticket', status, created: '2026-10-01', archive_when: 'x' },
+    error: null,
+  })
+
+  it('flags a T<n>: merge whose open ticket the merge never touched', () => {
+    const merges = [{ subject: 'T209: per-caller rate limiting (#816)', files: ['worker/src/index.js'] }]
+    const f = checkMergedTicketStatus(merges, [t(209, 'in-progress')])
+    expect(f.map((x) => x.code)).toEqual(['merged-ticket-status-unflipped'])
+    expect(f[0].message).toContain('docs/work/tickets/T209-thing.md')
+    expect(f[0].message).toContain("'in-progress'")
+  })
+
+  it('passes when the ticket is terminal', () => {
+    const merges = [{ subject: 'T209: x (#1)', files: [] }]
+    expect(checkMergedTicketStatus(merges, [t(209, 'completed')])).toEqual([])
+  })
+
+  it('passes when the merge edited the ticket file (a deliberate status decision)', () => {
+    const merges = [{ subject: 'T345: parked post-v1 (#950)', files: ['docs/work/tickets/T345-thing.md'] }]
+    expect(checkMergedTicketStatus(merges, [t(345, 'parked')])).toEqual([])
+  })
+
+  it('passes when a LATER main commit, or this branch, edited the ticket (the prescribed remedy clears it)', () => {
+    const merges = [
+      { subject: 'Tickets: T209 records what shipped (#999)', files: ['docs/work/tickets/T209-thing.md'] },
+      { subject: 'T209: x (#816)', files: [] },
+    ]
+    expect(checkMergedTicketStatus(merges, [t(209, 'in-progress')])).toEqual([])
+    const onlyMerge = [{ subject: 'T209: x (#816)', files: [] }]
+    expect(checkMergedTicketStatus(onlyMerge, [t(209, 'in-progress')], ['docs/work/tickets/T209-thing.md'])).toEqual([])
+    // an EARLIER edit (older commit, listed after) does not excuse a later merge
+    const earlier = [
+      { subject: 'T209: x (#816)', files: [] },
+      { subject: 'T209: ticket it (#700)', files: ['docs/work/tickets/T209-thing.md'] },
+    ]
+    expect(checkMergedTicketStatus(earlier, [t(209, 'in-progress')]).length).toBe(1)
+  })
+
+  it('ignores subjects without the T<n>: prefix and reverts', () => {
+    const merges = [
+      { subject: 'Engine: unplace() (#940)', files: [] },
+      { subject: 'Revert "T209: x (#1)"', files: [] },
+      { subject: 'fix T209 later', files: [] },
+    ]
+    expect(checkMergedTicketStatus(merges, [t(209, 'open')])).toEqual([])
+  })
+
+  it('parses the real git log shape (subject marker line, then touched files)', () => {
+    const raw = '@@T368: quit during boot (#952)\n\nelectron/main.js\ndocs/work/tickets/T368-x.md\n@@Engine: y (#940)\n\nsrc/a.js\n'
+    expect(parseMainLog(raw)).toEqual([
+      { subject: 'T368: quit during boot (#952)', files: ['electron/main.js', 'docs/work/tickets/T368-x.md'] },
+      { subject: 'Engine: y (#940)', files: ['src/a.js'] },
+    ])
+  })
+})
+
+describe('checkAll — merged-ticket status in CI', () => {
+  const noMain = () => { throw new Error('no origin/main') }
+
+  it('FAILS in CI when origin/main is missing (an abstaining green is not a pass)', () => {
+    const f = checkAll('/fake/root', noMain, { ci: true })
+    expect(f.map((x) => x.code)).toContain('merged-ticket-status-unchecked')
+  })
+
+  it('skips locally when origin/main is missing', () => {
+    const f = checkAll('/fake/root', noMain, { ci: false })
+    expect(f.map((x) => x.code)).not.toContain('merged-ticket-status-unchecked')
   })
 })
 

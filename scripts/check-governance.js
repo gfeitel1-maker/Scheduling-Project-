@@ -587,6 +587,69 @@ export function checkStatusDrift(subjects, docs) {
 }
 
 /**
+ * T283 — board truth on MAIN, not on the branch. `checkStatusDrift` only sees
+ * `closes T<n>` keywords, and merges here are titled `T<n>: what shipped (#pr)`
+ * with no keyword, so a ticket could ship and stay `open` forever (T209 did).
+ *
+ * The rule, proven against the real log (1,889 commits on 2026-10-11, one hit:
+ * T209 / #816): a commit on origin/main whose subject STARTS with `T<n>:` and whose
+ * ticket is not terminal is drift — UNLESS that same commit edited the ticket file.
+ * Editing it is a status decision (parked it, recorded a shipped slice, created
+ * it), so a partial slice that writes its progress into the ticket passes. Only a
+ * merge that never looked at its ticket is flagged.
+ *
+ * NOT a widening of checkStatusDrift (WORK_RECORD_STANDARD §3.2): branch commits
+ * carry the same prefix while work is in progress; reaching main is the signal.
+ * Whole history is scanned because it is clean as of this gate's first run; there
+ * is no watermark to drift.
+ */
+export function parseMainLog(raw) {
+  const out = []
+  for (const line of raw.split('\n')) {
+    if (line.startsWith('@@')) out.push({ subject: line.slice(2).trim(), files: [] })
+    else if (line.trim() && out.length) out[out.length - 1].files.push(line.trim())
+  }
+  return out
+}
+
+// `merges` is newest-first (git log order). An edit to the ticket in the merge itself, in
+// any LATER main commit, or on the branch being pushed (`branchFiles`) counts — so the
+// remedy the message prescribes ("record what shipped") actually clears it.
+export function checkMergedTicketStatus(merges, docs, branchFiles = []) {
+  const out = []
+  const touched = new Set(branchFiles)
+  for (const { subject, files } of merges) {
+    for (const f of files) touched.add(f)
+    const m = subject.match(/^T(\d+):/)
+    if (!m) continue
+    for (const doc of resolveIds(`T${m[1]}`, docs)) {
+      if (isClosed(doc.data) || touched.has(doc.path)) continue
+      out.push(finding('merged-ticket-status-unflipped',
+        `"${subject}" is on main but ${doc.path} still has status '${doc.data.status}' and that merge ` +
+        `never edited it. If the merge finished the ticket, set status: completed (or closed/wont-fix); ` +
+        `if it shipped only a slice, record what shipped and what remains in the ticket.`))
+    }
+  }
+  return out
+}
+
+function gatherBranchFiles(root, execFn) {
+  try {
+    return execFn(`git -C ${root} diff --name-only origin/main...HEAD`).split('\n').map((x) => x.trim()).filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+function gatherMainMerges(root, execFn) {
+  try {
+    return parseMainLog(execFn(`git -C ${root} log origin/main --format=@@%s --name-only`))
+  } catch {
+    return null
+  }
+}
+
+/**
  * A merged change that CLOSES something must ADD a run record (T167 part 2).
  *
  * THE MEASUREMENT: 283 commits landed between 2026-08-25 and 2026-09-14 with
@@ -1104,7 +1167,7 @@ export function makeResolver(root, topLevel = DEFAULT_TOP_LEVEL) {
   }
 }
 
-export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8' })) {
+export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8' }), { ci = !!process.env.CI } = {}) {
   const exists = (p) => existsSync(join(root, p))
   const docs = readDocs(root)
   const findings = docs.flatMap((doc) => checkDoc(doc, exists))
@@ -1140,6 +1203,15 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
   findings.push(...checkTicketNumberUniqueness(docs))
 
   findings.push(...checkRunRecordsFilledIn(root, docs))
+
+  const merges = gatherMainMerges(root, execFn)
+  if (merges !== null) findings.push(...checkMergedTicketStatus(merges, docs, gatherBranchFiles(root, execFn)))
+  // In CI a skip would be an abstaining green: gate.yml checks out full history, so a
+  // missing origin/main there is a broken checkout, not an environment to tolerate.
+  else if (ci) findings.push(finding('merged-ticket-status-unchecked',
+    'origin/main is not available, so the merged-ticket status check could not run. ' +
+    'CI must check out full history (actions/checkout fetch-depth: 0 in .github/workflows/gate.yml).'))
+  else console.warn('check:governance — merged-ticket status check skipped (no origin/main log)')
 
   const subjects = gatherCompletionSubjects(root, execFn)
   if (subjects !== null) {

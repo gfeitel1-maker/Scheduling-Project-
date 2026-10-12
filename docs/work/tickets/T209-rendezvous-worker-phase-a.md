@@ -1,7 +1,7 @@
 ---
 title: "Phase A — Cloudflare Worker and KV rendezvous bulletin board (source and tests only)"
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-17
 task_class: architecture
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/WORK_RECORD_STANDARD.md, SECURITY.md]
@@ -82,3 +82,7 @@ anywhere: `docs/work/handoffs/2026-09-28-wan-connectivity-at-tier4-signoff-gate.
 deploy (owner has an account now)" as a still-future step gated behind the Tier-4 sign-off, which
 itself is still pending. No deployment and no decision not to deploy is recorded. Status stays
 `in-progress`.
+
+## Closed (2026-10-11)
+
+Shipped: the Worker went live on 2026-10-09 (#826), with per-caller rate limiting in #816. #816 never flipped this status; the T283 gate found it on its first run.

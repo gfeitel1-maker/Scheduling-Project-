@@ -1,7 +1,7 @@
 ---
 title: T368-sigterm-during-slow-boot-exceeds-quit-bound
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-10-11
 task_class: test-infrastructure
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -43,3 +43,7 @@ Instrument the quit path. Log timestamps at SIGTERM receipt, at will-quit, at th
 - Pinned by `electron/windowLifecycle.test.js` and `electron/sync/automerge/syncStarterHolder.test.js` (red first). The 10s bound is unchanged.
 
 Not done here: the packaged repro under load and the 20-run check in `archive_when`. Which of the two (or neither) held the 11s exit is confirmed only by that run.
+
+## Closed (2026-10-11)
+
+Shipped in #952: once quitting starts, no window comes back and no late sync node starts (`electron/windowLifecycle.js`, `electron/sync/automerge/syncStarterHolder.js`), pinned by `electron/windowLifecycle.test.js` and `electron/sync/automerge/syncStarterHolder.test.js`. Closed on the keeper's ruling; the 20-run packaged SIGTERM check is the keeper's.
