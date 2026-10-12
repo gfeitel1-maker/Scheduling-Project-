@@ -84,7 +84,7 @@ function NearDuplicateGate({ group, remaining, onMerge, onKeepSeparate, busy, er
   return (
     <div style={gateStyles.scrim}>
       {/* No onCancel: this gate is deliberately un-dismissible (no Escape), but it is still a dialog with focus. */}
-      <ModalCard style={{ ...gateStyles.card, ...enter }} aria-label="Same location?">
+      <ModalCard enter={false} style={{ ...gateStyles.card, ...enter }} aria-label="Same location?">
         <div style={gateStyles.top}>
           <div style={gateStyles.eyebrow}>
             <span style={gateStyles.prog}>{remaining} location{remaining === 1 ? '' : 's'} left to review</span>

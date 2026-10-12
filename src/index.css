@@ -73,6 +73,25 @@ a { text-decoration: none; color: inherit; }
 .press-97:active:not(:disabled) { transform: scale(0.97); }
 .press-98:active:not(:disabled) { transform: scale(0.98); }
 
+/* Every button acknowledges the press (design audit 2026-10-12 #3): .press-97 was opt-in and reached
+   about 60% of buttons. .press-98 keeps its own smaller scale (class beats element). Not here: the
+   sidebar and nav (kept quiet), the schedule grid's cells, and any [data-no-press] control such as
+   the view toggle and day pills, which switch what is shown rather than act. */
+button:not(:disabled) { transition: transform var(--motion-fast) var(--ease-out); }
+button:not(:disabled):active { transform: scale(0.97); }
+:is(nav, aside, .schedule-grid-frame, .schedule-grid, .cell) button:not(.press-97):not(.press-98):active,
+button[data-no-press]:active { transform: none; }
+
+/* Hover on the two shared button styles, for a real pointer only. S.btnPrimary / S.btnSecondary read
+   their background through these properties, so a hover can change an inline-styled button. */
+@media (hover: hover) and (pointer: fine) {
+  button:hover:not(:disabled) { --btn-primary-bg: var(--primary-dark); --btn-secondary-bg: var(--bg); }
+}
+
+/* "Loading…" waits 150ms and then fades in (design audit #5), so a fast load shows nothing instead
+   of a one-frame flash. Opacity only, so it stays under reduced motion. */
+@keyframes loading-in { from { opacity: 0; } }
+
 /* Skeleton shimmer — DESIGN_STANDARD §5b, 1200ms linear infinite. */
 @keyframes shoresh-skeleton-shimmer {
   from { background-position: -160% 0; }
@@ -124,6 +143,8 @@ a { text-decoration: none; color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .press-97, .press-98 { transition: none; }
+  button:not(:disabled) { transition: none; }
+  button:not(:disabled):active { transform: none; }
   .press-97:active:not(:disabled),
   .press-98:active:not(:disabled) { transform: none; }
   .shoresh-skeleton-block { animation: none !important; background-image: none !important; }

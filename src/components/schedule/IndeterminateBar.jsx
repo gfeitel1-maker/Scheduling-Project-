@@ -25,9 +25,9 @@ const fill = {
   animation: 'shoresh-indeterminate 1100ms linear infinite',
 }
 
-export default function IndeterminateBar() {
+export default function IndeterminateBar({ label = 'Generating schedule' }) {
   return (
-    <div style={track} role="progressbar" aria-label="Generating schedule">
+    <div style={track} role="progressbar" aria-label={label}>
       <div className="shoresh-indeterminate-fill" style={fill} />
     </div>
   )

@@ -1292,7 +1292,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
                 entry (no initialRoute), present both so they can pick. */}
             {!anyRouteStarted && !generating && (
               initialRoute ? (
-                <div style={{ ...S.centeredRow, marginBottom: 8 }}>{routeOffer(route)}</div>
+                <div style={{ ...S.centeredRow, padding: '60px 16px', marginBottom: 8 }}>{routeOffer(route)}</div>
               ) : (
                 <div style={{ padding: '60px 16px', textAlign: 'center' }}>
                   <div style={{ ...S.centeredRow, gap: 16 }}>
@@ -1324,7 +1324,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
             {/* The other route has work, this one does not: the same offer,
                 inline. No warning, no confirmation — nothing is at risk. */}
             {anyRouteStarted && !hasSchedule && !generating && (
-              <div style={{ ...S.centeredRow, marginBottom: 8 }}>{routeOffer(route)}</div>
+              <div style={{ ...S.centeredRow, padding: '60px 16px', marginBottom: 8 }}>{routeOffer(route)}</div>
             )}
 
 

@@ -32,6 +32,7 @@ vi.mock('xlsx', () => ({
 }))
 
 import LocationsScreen from './LocationsScreen'
+import { S } from '../styles/shared'
 import { localClient } from '../localClient'
 import * as XLSX from 'xlsx'
 
@@ -656,7 +657,8 @@ describe('LocationsScreen: migration review region', () => {
     expect(screen.queryByText(/Shoresh set a few capacities/)).toBeNull()
 
     const mergeButton = screen.getByText('Merge')
-    expect(mergeButton.style.background).toBe('var(--primary)')
+    // S.btnPrimary's background (it reads a hover property first, design audit #3).
+    expect(mergeButton.style.background).toBe(S.btnPrimary.background)
     expect(mergeButton.style.color).toBe('rgb(255, 255, 255)')
     fireEvent.click(mergeButton)
 

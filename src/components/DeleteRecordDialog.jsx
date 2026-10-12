@@ -130,7 +130,7 @@ function howItComesBack(preview) {
 export default function DeleteRecordDialog({ preview, onCancel, onDeleted }) {
   const [working, setWorking] = useState(false)
   const [error, setError] = useState(null)
-  const enterStyle = useEnterTransition('liftFade')
+  const enterStyle = useEnterTransition('fade') // the scrim fades; ModalCard lifts the card
 
   // Locations preview with `ref_count` (bound activities), never `slot_count`
   // (a schedule-grid concept locations don't have) — exactly one of the two

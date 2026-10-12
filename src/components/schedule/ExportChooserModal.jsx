@@ -10,7 +10,7 @@ import ModalCard from '../ModalCard'
 // The counts are the whole point of the screen — they let a director tell two
 // ideas apart without opening both.
 export default function ExportChooserModal({ options, onChoose, onCancel, formatLabel = 'Excel' }) {
-  const enterStyle = useEnterTransition('liftFade')
+  const enterStyle = useEnterTransition('fade') // the scrim fades; ModalCard lifts the card
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
       <ModalCard onCancel={onCancel} style={{ ...S.modalLg, maxWidth: 460 }}>

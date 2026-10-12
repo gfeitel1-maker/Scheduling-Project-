@@ -65,7 +65,7 @@ function HistoryLine({ entry, names }) {
 export default function RecordHistory({ entity, entityId, name, onClose }) {
   const { history, loading, error, names } = useRecordHistory(entity, entityId)
   const newestFirst = [...history].reverse()
-  const enterStyle = useEnterTransition('liftFade')
+  const enterStyle = useEnterTransition('fade') // the scrim fades; ModalCard lifts the card
 
   return (
     <div style={{ ...S.overlay, ...enterStyle }} onClick={onClose}>
