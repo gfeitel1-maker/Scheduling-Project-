@@ -1,8 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import os from 'node:os'
-import fs from 'node:fs'
-import path from 'node:path'
 import { randomUUID, createPrivateKey, sign as edSign } from 'node:crypto'
 
 vi.mock('electron', () => ({
