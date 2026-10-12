@@ -19,7 +19,7 @@ import path from 'node:path'
 import * as A from '@automerge/automerge'
 import { openLocalDb, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
-import { ensureHostSigningKey, issueCampToken } from '../../auth/localAuth.js'
+import { rosterEveryone } from './rosterTestSupport.js'
 import { startSyncNode } from './syncNode.js'
 import { setCurrentDoc } from './liveDoc.js'
 import { mintRendezvousNamespace, readRendezvousNamespace } from './rendezvousNamespace.js'
@@ -35,34 +35,18 @@ function freshDb(tag) {
   return db
 }
 
-// dbA plays the Host (holds host_signing_key, mints camp tokens); BOTH dbs
-// get the same signing_public_key and BOTH devices marked authorized —
-// mirroring what a real full-sync of camps/devices would already have
-// replicated to a genuinely paired Client before this handshake runs.
-function setupAuthorizedDevicePair(dbA, dbB) {
-  const hostKey = ensureHostSigningKey(dbA)
-  for (const db of [dbA, dbB]) {
-    db.prepare('UPDATE camps SET signing_public_key = ?').run(hostKey.public_key)
-    db.prepare(
-      "INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
-    ).run('device-a', 'Device A', new Date().toISOString())
-    db.prepare(
-      "INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
-    ).run('device-b', 'Device B', new Date().toISOString())
-  }
-  return {
-    tokenA: issueCampToken(dbA, 'user-a', 'device-a'),
-    tokenB: issueCampToken(dbA, 'user-b', 'device-b'),
-  }
+// BOTH dbs hold both devices on the roster (the derived roster_cache rows, T376) — mirroring what the signed device_roster
+// document entries would already have given a genuinely paired device before this handshake runs.
+function setupAuthorizedDevicePair(dbA, dbB, a, b) {
+  rosterEveryone([dbA, dbB], [{ deviceId: 'device-a', peerId: a.peerId }, { deviceId: 'device-b', peerId: b.peerId }])
 }
 
-// Each side must authenticate TO THE OTHER before that other side's doc-sync
-// handler will accept frames from it — admission is one-directional per
-// receiving node (transport.js's authenticatedPeers set), so a two-way
-// broadcast relationship needs both handshakes.
-async function authenticateBothWays(a, b, tokenA, tokenB) {
-  await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION })
-  await b.authenticateWith(a.peerId, { type: 'authenticate', token: tokenB, device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
+// Each side must authenticate TO THE OTHER before that other side's doc-sync handler will accept frames from it:
+// admission is one-directional per receiving node (transport.js's authenticatedPeers set), so a two-way broadcast
+// relationship needs both handshakes. T376: the frame carries no token; each side admits the other from its roster.
+async function authenticateBothWays(a, b) {
+  await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION })
+  await b.authenticateWith(a.peerId, { type: 'authenticate', device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
 }
 
 let dbA, dbB
@@ -105,8 +89,8 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
 
     const changed = applyWrite(a.getDoc(), {
       entity: 'activities',
@@ -146,8 +130,8 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
 
     // Let the initial connection settle before diverging concurrently.
     await new Promise((r) => setTimeout(r, 100))
@@ -207,8 +191,8 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
 
     // Node A's own locally-verified-and-replayed derived cache (projector.js's
     // upsertCampAuthorityLogEntity) marks device-b as revoked — simulating that another admin's
@@ -246,8 +230,8 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
     await waitFor(() => b.getPeers().length > 0 && a.getPeers().length > 0)
     await new Promise((r) => setTimeout(r, 150))
 
@@ -300,8 +284,8 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     nodes.push(a, b)
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
 
     function pushEntry(doc, fields, signed) {
       const id = `entry-${Math.random()}`
@@ -336,8 +320,8 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     nodes.push(a, b)
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
     await waitFor(() => a.isPeerAuthenticated(b.peerId.toString()))
     // Settle the exchange first so A already knows B's heads: the next change then goes out in a
     // single push with no reply needed, so gate B on the reply path cannot mask a missing gate here.
@@ -362,8 +346,8 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
 
     // Send garbage bytes directly through the underlying transport's protocol,
     // bypassing A.save — simulates a malformed/adversarial peer.
@@ -396,8 +380,8 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
 
     // Merges cleanly, but the anchor references a cohort that doesn't exist ->
     // projectAll (foreign_keys=ON) throws atomically.
@@ -444,8 +428,8 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
 
     // A legit row (its name makes a row on B) that also carries a camp_id for ANOTHER camp.
     let bad = A.clone(genesis)
@@ -484,12 +468,11 @@ describe('syncNode — onAuthenticate threads appliedTombstones through to the a
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    const { tokenA } = setupAuthorizedDevicePair(dbA, dbB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
 
     // Device A authenticates TO B, self-reporting one verified tombstone.
     await a.authenticateWith(b.peerId, {
       type: 'authenticate',
-      token: tokenA,
       device_id: 'device-a',
       schemaVersion: CURRENT_SCHEMA_VERSION,
       appliedTombstones: [{ id: 'camper-x', version: 1 }],
@@ -510,11 +493,10 @@ describe('syncNode — onAuthenticate threads appliedTombstones through to the a
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    const { tokenA } = setupAuthorizedDevicePair(dbA, dbB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
 
     await a.authenticateWith(b.peerId, {
       type: 'authenticate',
-      token: tokenA,
       device_id: 'device-a',
       schemaVersion: CURRENT_SCHEMA_VERSION,
       appliedTombstones: [{ id: 'camper-x', version: 1 }],

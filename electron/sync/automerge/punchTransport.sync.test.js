@@ -13,7 +13,7 @@ import * as A from '@automerge/automerge'
 import { multiaddr } from '@multiformats/multiaddr'
 import { openLocalDb, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
-import { ensureHostSigningKey, issueCampToken } from '../../auth/localAuth.js'
+import { rosterEveryone } from './rosterTestSupport.js'
 import { startSyncNode } from './syncNode.js'
 import { punchTransport, PunchConnectionFailedError } from './punchTransport.js'
 import { makeSignalingPair } from './punchTestSupport.js'
@@ -28,22 +28,13 @@ function freshDb(tag) {
   return db
 }
 
-function setupAuthorizedDevicePair(dbA, dbB) {
-  const hostKey = ensureHostSigningKey(dbA)
-  for (const db of [dbA, dbB]) {
-    db.prepare('UPDATE camps SET signing_public_key = ?').run(hostKey.public_key)
-    db.prepare("INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')").run('device-a', 'Device A', new Date().toISOString())
-    db.prepare("INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')").run('device-b', 'Device B', new Date().toISOString())
-  }
-  return {
-    tokenA: issueCampToken(dbA, 'user-a', 'device-a'),
-    tokenB: issueCampToken(dbA, 'user-b', 'device-b'),
-  }
+function setupAuthorizedDevicePair(dbA, dbB, a, b) {
+  rosterEveryone([dbA, dbB], [{ deviceId: 'device-a', peerId: a.peerId }, { deviceId: 'device-b', peerId: b.peerId }])
 }
 
-async function authenticateBothWays(a, b, tokenA, tokenB) {
-  await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION })
-  await b.authenticateWith(a.peerId, { type: 'authenticate', token: tokenB, device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
+async function authenticateBothWays(a, b) {
+  await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION })
+  await b.authenticateWith(a.peerId, { type: 'authenticate', device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
 }
 
 let dbA, dbB
@@ -119,8 +110,8 @@ describe('punchTransport — libp2p transport over a node-datachannel pipe', () 
     // At least one punch dial, never a fallback: a retried attempt is counted too.
     expect(dials.a).toBeGreaterThanOrEqual(1)
 
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
     expect(b.isPeerAuthenticated(a.peerId)).toBe(true)
 
     await a.applyLocal(applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'archery', field: 'name', value: 'Archery' }))
@@ -144,8 +135,8 @@ describe('punchTransport — libp2p transport over a node-datachannel pipe', () 
 
   it('a peer revoked mid-connection is cut off over the punch transport (isPeerRevoked path)', async () => {
     const { a, b } = await startPunchedPair()
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
 
     await b.applyLocal(applyWrite(b.getDoc(), { entity: 'activities', entity_id: 'before', field: 'name', value: 'Before' }))
     await waitFor(() => activityRow(dbA, 'before')?.name === 'Before')
@@ -181,8 +172,8 @@ describe('punchTransport — libp2p transport over a node-datachannel pipe', () 
   it('a peer revoked by a signed authority entry mid-session over a punch connection is de-admitted (gate C teardown)', async () => {
     const { a, b, dials } = await startPunchedPair()
     expect(dials.a).toBeGreaterThan(0)
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
     await waitFor(() => a.isPeerAuthenticated(b.peerId.toString()))
 
     function pushEntry(doc, fields, signed) {

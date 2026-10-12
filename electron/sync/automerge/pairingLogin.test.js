@@ -15,7 +15,8 @@ import * as A from '@automerge/automerge'
 import { openLocalDb } from '../../db/localDb.js'
 import { signAuthFields } from '../../auth/authSignature.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
-import { ensureHostSigningKey, issueCampToken, issueLocalToken, issueDeviceToken } from '../../auth/localAuth.js'
+import { ensureHostSigningKey } from '../../auth/localAuth.js'
+import { rosterEveryone } from './rosterTestSupport.js'
 import { startSyncNode } from './syncNode.js'
 import { wireMutualAuth } from './mutualAuth.js'
 import { mintJoinSecret, newJoinNonce, joinProof } from '../joinCode.js'
@@ -236,30 +237,18 @@ describe('pairing_request + login over libp2p (Stage 5d-2b)', () => {
 
 describe('mutual authentication over libp2p (Stage 5d-2b production wiring)', () => {
   it('two nodes converge BOTH WAYS when wireMutualAuth authenticates each to the other', async () => {
-    const hostKey = ensureHostSigningKey(dbA)
-    for (const db of [dbA, dbB]) {
-      db.prepare('UPDATE camps SET signing_public_key = ?').run(hostKey.public_key)
-      db.prepare("INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')").run(
-        'device-a', 'Device A', new Date().toISOString()
-      )
-      db.prepare("INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')").run(
-        'device-b', 'Device B', new Date().toISOString()
-      )
-    }
-    const tokenA = issueCampToken(dbA, 'user-a', 'device-a')
-    const tokenB = issueCampToken(dbA, 'user-b', 'device-b')
-
     const genesis = createEmptyDoc()
     const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
     const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
     nodes.push(a, b)
+    rosterEveryone([dbA, dbB], [{ deviceId: 'device-a', peerId: a.peerId }, { deviceId: 'device-b', peerId: b.peerId }])
 
     // Each node runs the SAME production wiring against the other — this is
     // what makes admission symmetric in practice: no special-cased "and now
     // dial back" step, just both sides independently doing the identical
     // thing.
-    const mutualA = wireMutualAuth(a, { deviceId: 'device-a', getToken: () => tokenA, isPeerTrusted: () => true })
-    const mutualB = wireMutualAuth(b, { deviceId: 'device-b', getToken: () => tokenB, isPeerTrusted: () => true })
+    const mutualA = wireMutualAuth(a, { deviceId: 'device-a', isPeerTrusted: () => true })
+    const mutualB = wireMutualAuth(b, { deviceId: 'device-b', isPeerTrusted: () => true })
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
@@ -292,37 +281,18 @@ describe('mutual authentication over libp2p (Stage 5d-2b production wiring)', ()
     expect(activityRow(dbA, 'act-2').name).toBe('Archery')
   })
 
-  // Finding 2 fix, end-to-end proof (Stage 5d-2b re-review): before this fix,
-  // dbA (the Host) could mint issueCampToken(dbA, null, deviceA) but that
-  // token could NEVER verify (verifySessionToken always rejects a null
-  // userId) — so the Host side of mutual auth was silently, permanently
-  // broken; only a Client's real user-backed camp token ever worked. This
-  // reproduces the real production shape: the Host self-issues a device
-  // token (exactly as main.js's chooseMode/startAutomergeSyncNodeIfEnabled
-  // now do via issueDeviceToken) with NO user logged in on that side, while
-  // the Client authenticates with an ordinary user-backed camp token — and
-  // proves convergence works in BOTH directions.
-  it('Host self-issued device token + Client camp token mutually authenticate and converge BOTH ways', async () => {
-    const hostKey = ensureHostSigningKey(dbA)
-    for (const db of [dbA, dbB]) {
-      db.prepare('UPDATE camps SET signing_public_key = ?').run(hostKey.public_key)
-      db.prepare("INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')").run(
-        'host-device', 'Host', new Date().toISOString()
-      )
-      db.prepare("INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')").run(
-        'client-device', 'Client', new Date().toISOString()
-      )
-    }
-    const hostDeviceToken = issueDeviceToken(dbA, 'host-device')
-    const clientCampToken = issueCampToken(dbA, 'user-client', 'client-device')
-
+  // Both ends admit each other from the signed roster with no token at all (T376). This replaces the
+  // Finding 2 proof (a Host's self-issued device token and a Client's camp token mutually authenticating): the
+  // Host no longer needs a token to prove itself, which is the whole point of the roster.
+  it('Host and Client mutually authenticate from the roster, with no session token on either side, and converge BOTH ways', async () => {
     const genesis = createEmptyDoc()
     const host = await startSyncNode({ deviceId: 'host-device', db: dbA, doc: A.clone(genesis) })
     const client = await startSyncNode({ deviceId: 'client-device', db: dbB, doc: A.clone(genesis) })
     nodes.push(host, client)
+    rosterEveryone([dbA, dbB], [{ deviceId: 'host-device', peerId: host.peerId }, { deviceId: 'client-device', peerId: client.peerId }])
 
-    const mutualHost = wireMutualAuth(host, { deviceId: 'host-device', getToken: () => hostDeviceToken, isPeerTrusted: () => true })
-    const mutualClient = wireMutualAuth(client, { deviceId: 'client-device', getToken: () => clientCampToken, isPeerTrusted: () => true })
+    const mutualHost = wireMutualAuth(host, { deviceId: 'host-device', isPeerTrusted: () => true })
+    const mutualClient = wireMutualAuth(client, { deviceId: 'client-device', isPeerTrusted: () => true })
 
     await host.dial(client.getMultiaddrs()[0])
     await waitFor(() => host.getPeers().length > 0)
@@ -334,13 +304,11 @@ describe('mutual authentication over libp2p (Stage 5d-2b production wiring)', ()
     await waitFor(() => client.isPeerAuthenticated(host.peerId))
     await waitFor(() => host.isPeerAuthenticated(client.peerId))
 
-    // Host -> Client direction.
     const docHost = applyWrite(host.getDoc(), { entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swim' })
     await host.applyLocal(docHost)
     await waitFor(() => !!activityRow(dbB, 'act-1'))
     expect(activityRow(dbB, 'act-1').name).toBe('Swim')
 
-    // Client -> Host direction.
     const docClient = applyWrite(client.getDoc(), { entity: 'activities', entity_id: 'act-2', field: 'name', value: 'Archery' })
     await client.applyLocal(docClient)
     await waitFor(() => !!activityRow(dbA, 'act-2'))
@@ -348,22 +316,13 @@ describe('mutual authentication over libp2p (Stage 5d-2b production wiring)', ()
   })
 
   it('the one-directional trap: authenticating only ONE way sends fine but silently receives nothing', async () => {
-    const hostKey = ensureHostSigningKey(dbA)
-    for (const db of [dbA, dbB]) {
-      db.prepare('UPDATE camps SET signing_public_key = ?').run(hostKey.public_key)
-      db.prepare("INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')").run(
-        'device-a', 'Device A', new Date().toISOString()
-      )
-      db.prepare("INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')").run(
-        'device-b', 'Device B', new Date().toISOString()
-      )
-    }
-    const tokenA = issueCampToken(dbA, 'user-a', 'device-a')
-
     const genesis = createEmptyDoc()
     const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
     const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
     nodes.push(a, b)
+    // A is on B's roster, but B is not yet on A's (A has not received B's enrolment). B admits A and then reciprocates
+    // automatically (T376: no token to withhold any more), but A refuses that proof, so the missing half is A's.
+    rosterEveryone([dbB], [{ deviceId: 'device-a', peerId: a.peerId }])
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
@@ -376,7 +335,7 @@ describe('mutual authentication over libp2p (Stage 5d-2b production wiring)', ()
     // has done that. This single call is exactly what a naive "Client
     // dials Host on startup and authenticates as itself, done" production
     // wiring would do if it forgot the Host's own reciprocal call.
-    await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a' })
+    await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: 'device-a' })
     await waitFor(() => b.isPeerAuthenticated(a.peerId))
     expect(a.isPeerAuthenticated(b.peerId)).toBe(false) // the missing half
 
@@ -415,12 +374,11 @@ describe('mutual authentication over libp2p (Stage 5d-2b production wiring)', ()
     expect(activityRow(dbA, 'act-2')).toBeUndefined()
   })
 
-  it('a "local" token is rejected over libp2p, exactly like the WS transport', async () => {
+  it('a peer the roster does not hold is refused, whatever token it carries', async () => {
     ensureHostSigningKey(dbA)
     dbA.prepare(
       "INSERT INTO devices (id, name, authorized_at, pairing_status, device_secret_identifier) VALUES (?, ?, ?, 'authorized', ?)"
     ).run('client-device', 'Client', new Date().toISOString(), randomBytes(32).toString('hex'))
-    const localToken = issueLocalToken(dbA, 'user-x', 'client-device')
 
     const genesis = createEmptyDoc()
     const host = await startSyncNode({ deviceId: 'host-device', db: dbA, doc: A.clone(genesis) })
@@ -430,9 +388,9 @@ describe('mutual authentication over libp2p (Stage 5d-2b production wiring)', ()
     await client.dial(host.getMultiaddrs()[0])
     await waitFor(() => client.getPeers().length > 0)
 
-    const reply = await client.authenticateWith(host.peerId, { type: 'authenticate', token: localToken, device_id: 'client-device' })
+    const reply = await client.authenticateWith(host.peerId, { type: 'authenticate', token: 'a-token-that-means-nothing', device_id: 'client-device' })
     expect(reply.type).toBe('auth_failed')
-    expect(reply.reason).toBe('local_token_not_valid_for_network')
+    expect(reply.reason).toBe('device_not_authorized')
     expect(host.isPeerAuthenticated(client.peerId)).toBe(false)
   })
 })

@@ -28,7 +28,7 @@ import * as A from '@automerge/automerge'
 import { openLocalDb, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { applyWrite } from '../../automerge/campDocument.js'
 import { projectAll } from '../../automerge/projector.js'
-import { ensureHostSigningKey, issueCampToken } from '../../auth/localAuth.js'
+import { rosterEveryone } from './rosterTestSupport.js'
 import { startSyncNode } from './syncNode.js'
 import {
   recordLocalWrite,
@@ -50,26 +50,13 @@ function freshDb(tag) {
   return db
 }
 
-function setupAuthorizedDevicePair(dbA, dbB) {
-  const hostKey = ensureHostSigningKey(dbA)
-  for (const db of [dbA, dbB]) {
-    db.prepare('UPDATE camps SET signing_public_key = ?').run(hostKey.public_key)
-    db.prepare(
-      "INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
-    ).run('device-a', 'Device A', new Date().toISOString())
-    db.prepare(
-      "INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
-    ).run('device-b', 'Device B', new Date().toISOString())
-  }
-  return {
-    tokenA: issueCampToken(dbA, 'user-a', 'device-a'),
-    tokenB: issueCampToken(dbA, 'user-b', 'device-b'),
-  }
+function setupAuthorizedDevicePair(dbA, dbB, a, b) {
+  rosterEveryone([dbA, dbB], [{ deviceId: 'device-a', peerId: a.peerId }, { deviceId: 'device-b', peerId: b.peerId }])
 }
 
-async function authenticateBothWays(a, b, tokenA, tokenB) {
-  await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION })
-  await b.authenticateWith(a.peerId, { type: 'authenticate', token: tokenB, device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
+async function authenticateBothWays(a, b) {
+  await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION })
+  await b.authenticateWith(a.peerId, { type: 'authenticate', device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
 }
 
 async function waitFor(predicate, { timeout = 3000, interval = 20 } = {}) {
@@ -124,8 +111,8 @@ describe('doc ownership unification — the (c) data-loss regression', () => {
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
 
     // B writes a row and broadcasts it — it must land in A's SQLite via the real merge/project path.
     const bDoc = applyWrite(b.getDoc(), { entity: 'activities', entity_id: 'archery', field: 'name', value: 'Archery' })
@@ -170,8 +157,8 @@ describe('local writes broadcast (item 2) without a full projectAll per write', 
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
 
     recordLocalWrite(dbA, { entity: 'activities', entity_id: 'archery', field: 'name', value: 'Archery' })
     flushPendingWrites() // fires the debounced save AND the debounced broadcast together

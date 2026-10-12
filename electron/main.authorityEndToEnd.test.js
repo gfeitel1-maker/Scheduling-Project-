@@ -139,11 +139,13 @@ describe('T331 end-to-end — a director\'s real revokeDevice action drives Gate
     db_insertDevicesRow(dbB, 'device-f')
     db_insertDevicesRow(dbB, 'device-b')
 
-    const { issueCampToken } = await import('./auth/localAuth.js')
-    const tokenF = issueCampToken(dbF, 'user-f', 'device-f')
-    const tokenB = issueCampToken(dbF, 'user-b', 'device-b')
-    await f.authenticateWith(b.peerId, { type: 'authenticate', token: tokenF, device_id: 'device-f', schemaVersion: CURRENT_SCHEMA_VERSION })
-    await b.authenticateWith(f.peerId, { type: 'authenticate', token: tokenB, device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
+    // T376: each side admits the other from the signed device roster (the derived roster_cache row stands in for
+    // the Host-signed document entries), with no session token.
+    const rosterRow = db_rosterRow
+    rosterRow(dbF, 'device-b', b.peerId.toString())
+    rosterRow(dbB, 'device-f', f.peerId.toString())
+    await f.authenticateWith(b.peerId, { type: 'authenticate', device_id: 'device-f', schemaVersion: CURRENT_SCHEMA_VERSION })
+    await b.authenticateWith(f.peerId, { type: 'authenticate', device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
     await waitFor(() => f.isPeerAuthenticated(b.peerId.toString()) && b.isPeerAuthenticated(f.peerId.toString()))
     await new Promise((r) => setTimeout(r, 150))
 
@@ -260,6 +262,10 @@ describe('T331 end-to-end — N=3 admin-target quorum, driven through the REAL r
     ).toBe(2)
   })
 })
+
+function db_rosterRow(db, deviceId, peerId) {
+  db.prepare('INSERT INTO roster_cache (device_id, peer_id, verified_at) VALUES (?, ?, ?)').run(deviceId, peerId, new Date().toISOString())
+}
 
 function db_insertDevicesRow(db, id) {
   db.prepare(

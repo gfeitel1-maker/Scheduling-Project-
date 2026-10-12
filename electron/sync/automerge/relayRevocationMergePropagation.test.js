@@ -35,7 +35,8 @@ import { multiaddr } from '@multiformats/multiaddr'
 import { peerIdFromString } from '@libp2p/peer-id'
 import { openLocalDb, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
-import { ensureHostSigningKey, issueCampToken } from '../../auth/localAuth.js'
+import { ensureHostSigningKey } from '../../auth/localAuth.js'
+import { rosterEveryone } from './rosterTestSupport.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 import { startSyncNode } from './syncNode.js'
 import { startTransport } from './transport.js'
@@ -64,8 +65,8 @@ function freshDb(tag) {
   return db
 }
 
-// Generalizes syncNode.test.js's setupAuthorizedDevicePair to N devices sharing one camp/host —
-// same shape, same tables, just not hardcoded to exactly two device ids.
+// Every node's db gets the camp's signing public key and a devices row for each device; admission itself reads the
+// roster (T376), which each test rosters once the nodes (and so their peer ids) exist.
 function setupAuthority(dbs, deviceIds) {
   const hostKey = ensureHostSigningKey(dbs[0])
   for (const db of dbs) {
@@ -76,14 +77,11 @@ function setupAuthority(dbs, deviceIds) {
       ).run(id, id, new Date().toISOString())
     }
   }
-  const tokens = {}
-  for (const id of deviceIds) tokens[id] = issueCampToken(dbs[0], id, id)
-  return tokens
 }
 
-async function authenticateBothWays(x, y, deviceIdX, tokenX, deviceIdY, tokenY) {
-  await x.authenticateWith(y.peerId, { type: 'authenticate', token: tokenX, device_id: deviceIdX, schemaVersion: CURRENT_SCHEMA_VERSION })
-  await y.authenticateWith(x.peerId, { type: 'authenticate', token: tokenY, device_id: deviceIdY, schemaVersion: CURRENT_SCHEMA_VERSION })
+async function authenticateBothWays(x, y, deviceIdX, deviceIdY) {
+  await x.authenticateWith(y.peerId, { type: 'authenticate', device_id: deviceIdX, schemaVersion: CURRENT_SCHEMA_VERSION })
+  await y.authenticateWith(x.peerId, { type: 'authenticate', device_id: deviceIdY, schemaVersion: CURRENT_SCHEMA_VERSION })
 }
 
 async function waitFor(predicate, { timeout = 25000, interval = 50 } = {}) {
@@ -138,7 +136,7 @@ async function buildFourNodes({ connectDR }) {
   const dbD = freshDb('d')
   const dbR = freshDb('r')
   const dbB = freshDb('b')
-  const tokens = setupAuthority([dbD, dbR, dbB], ['device-d', 'device-r', 'device-b'])
+  setupAuthority([dbD, dbR, dbB], ['device-d', 'device-r', 'device-b'])
 
   const genesis = createEmptyDoc()
   const d = await startSyncNode({ deviceId: 'device-d', db: dbD, doc: A.clone(genesis) })
@@ -154,12 +152,13 @@ async function buildFourNodes({ connectDR }) {
     relayTransportFactory: circuitRelayTransport(),
   })
   handles.push(d, r, b)
+  rosterEveryone([dbD, dbR], [{ deviceId: 'device-d', peerId: d.peerId }, { deviceId: 'device-r', peerId: r.peerId }, { deviceId: 'device-b', peerId: b.peerId }])
   const a = await startRawNode()
 
   if (connectDR) {
     await d.dial(r.getMultiaddrs()[0])
     await waitFor(() => d.getPeers().length > 0)
-    await authenticateBothWays(d, r, 'device-d', tokens['device-d'], 'device-r', tokens['device-r'])
+    await authenticateBothWays(d, r, 'device-d', 'device-r')
   }
 
   // B dials and authenticates TO R — admits B into R's authenticatedPeers, which is both what
@@ -167,7 +166,7 @@ async function buildFourNodes({ connectDR }) {
   // tearDownRevokedConnectedPeers reads).
   await b.dial(r.getMultiaddrs()[0])
   await waitFor(() => b.getPeers().length > 0)
-  await b.authenticateWith(r.peerId, { type: 'authenticate', token: tokens['device-b'], device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
+  await b.authenticateWith(r.peerId, { type: 'authenticate', device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
   // T336 Precondition 2's client-side restriction (transport.js) means B's OWN circuitRelayTransport
   // only attempts a reservation against a relay B itself admits — so B must admit R directly, the
   // same test-support call every other client-transport test now needs (relayEndToEndRevoke.test.js,

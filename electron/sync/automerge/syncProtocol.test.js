@@ -15,7 +15,7 @@ import path from 'node:path'
 import * as A from '@automerge/automerge'
 import { openLocalDb, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
-import { ensureHostSigningKey, issueCampToken } from '../../auth/localAuth.js'
+import { rosterEveryone } from './rosterTestSupport.js'
 import { startSyncNode } from './syncNode.js'
 
 let files = []
@@ -27,26 +27,16 @@ function freshDb(tag) {
   return db
 }
 
-function setupAuthorizedDevicePair(dbA, dbB) {
-  const hostKey = ensureHostSigningKey(dbA)
-  for (const db of [dbA, dbB]) {
-    db.prepare('UPDATE camps SET signing_public_key = ?').run(hostKey.public_key)
-    db.prepare(
-      "INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
-    ).run('device-a', 'Device A', new Date().toISOString())
-    db.prepare(
-      "INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
-    ).run('device-b', 'Device B', new Date().toISOString())
-  }
-  return {
-    tokenA: issueCampToken(dbA, 'user-a', 'device-a'),
-    tokenB: issueCampToken(dbA, 'user-b', 'device-b'),
-  }
+function setupAuthorizedDevicePair(dbA, dbB, a, b) {
+  rosterEveryone([dbA, dbB], [{ deviceId: 'device-a', peerId: a.peerId }, { deviceId: 'device-b', peerId: b.peerId }])
 }
 
-async function authenticateBothWays(a, b, tokenA, tokenB) {
-  await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION })
-  await b.authenticateWith(a.peerId, { type: 'authenticate', token: tokenB, device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
+// Each side must authenticate TO THE OTHER before that other side's doc-sync handler will accept frames from it:
+// admission is one-directional per receiving node (transport.js's authenticatedPeers set), so a two-way broadcast
+// relationship needs both handshakes. T376: the frame carries no token; each side admits the other from its roster.
+async function authenticateBothWays(a, b) {
+  await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION })
+  await b.authenticateWith(a.peerId, { type: 'authenticate', device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
 }
 
 let dbA, dbB
@@ -104,8 +94,8 @@ async function runConvergesOnConnectNoWrites() {
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(db1, db2)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(db1, db2, a, b)
+    await authenticateBothWays(a, b)
 
     // NO further writes on either side — convergence must come from admission alone.
     await waitFor(() => activityRow(db2, 'archery')?.location === 'Field 1')
@@ -145,8 +135,8 @@ describe('syncNode — real Automerge sync protocol (Stage 5f-2)', () => {
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
     // Let the initial admission-driven sync settle before diverging concurrently.
     await new Promise((r) => setTimeout(r, 150))
 
@@ -193,8 +183,8 @@ describe('syncNode — real Automerge sync protocol (Stage 5f-2)', () => {
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
-    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
-    await authenticateBothWays(a, b, tokenA, tokenB)
+    setupAuthorizedDevicePair(dbA, dbB, a, b)
+    await authenticateBothWays(a, b)
     await new Promise((r) => setTimeout(r, 100))
 
     // Disconnect node B entirely (stop its transport), then start a FRESH node B on the same db —
@@ -214,8 +204,7 @@ describe('syncNode — real Automerge sync protocol (Stage 5f-2)', () => {
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().some((p) => p === b.peerId))
-    const tokenB2 = issueCampToken(dbA, 'user-b', 'device-b')
-    await authenticateBothWays(a, b, tokenA, tokenB2)
+    await authenticateBothWays(a, b)
 
     await waitFor(() => activityRow(dbB, 'offline')?.name === 'While Offline')
     expect(activityRow(dbB, 'offline').name).toBe('While Offline')

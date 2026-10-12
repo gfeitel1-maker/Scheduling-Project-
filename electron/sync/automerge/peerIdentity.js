@@ -51,36 +51,35 @@ export function recordLibp2pPeerId(db, deviceId, peerId) {
   }
 }
 
+// createBoundPeerTrust (T208, docs/work/tickets/T208-discovery-seam-has-no-local-trust-filter.md, rewritten by T376,
+// docs/adr/2026-10-12-shared-signed-device-roster.md). The discovery-time `isPeerTrusted` seam: true only when the
+// peer id is bound by the Host-signed device roster (roster_cache) to a device that is not revoked, by the same rule
+// evaluateAuthenticate admits on (authority_cache 'revoked' denies; a legacy devices.revoked_at stamp denies unless
+// authority_cache says admin). Queries fresh on every call, deliberately: mutualAuth.js never caches this verdict, so
+// a peer revoked since last process start (or not yet dialed at all) is denied at the next discovery event rather than
+// admitted on stale data. This does NOT tear down an already-authenticated peer — mutualAuth.js's `attempted` guard
+// means this predicate never runs again for a peer already dialed successfully. The enforcement for a LIVE peer is
+// transport.js's `revokePeer`, called from main.js when a director revokes a device, and syncNode.js's
+// tearDownRevokedConnectedPeers on projection.
+export function createBoundPeerTrust(db) {
+  return function isPeerTrusted(peerId) {
+    if (typeof peerId !== 'string' || peerId.length === 0) return false
+    const row = db.prepare('SELECT device_id FROM roster_cache WHERE peer_id = ?').get(peerId)
+    if (!row) return false
+    const status = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(row.device_id)?.status
+    if (status === 'revoked') return false
+    return status === 'admin' || !deviceTrustStatus(db, row.device_id).revoked
+  }
+}
+
 // bindOrVerifyPeerIdentity (ADR: docs/adr/2026-09-14-device-identity-and-token-binding.md §3/§4).
 // Trust-on-first-use: the FIRST peer id ever presented for a device_id becomes that
 // device's bound identity; every later presentation must match exactly, or is
 // rejected. Unlike recordLibp2pPeerId (routing convenience, always overwrites, never
 // a trust signal — kept for joinSession.js's Client-side Host-routing use, unchanged),
 // this function IS part of the admission decision and is called only from
-// connectionAuth.js's evaluateAuthenticate/evaluateLogin call sites.
-// createBoundPeerTrust (T208, docs/work/tickets/T208-discovery-seam-has-no-local-trust-filter.md).
-// Replaces syncNode.js's permissive `lanTopologyTrust` stub with a real check against
-// the `devices` row a peer id is BOUND to (bindOrVerifyPeerIdentity's TOFU bind, above).
-// True only when the bound device is authorized and not revoked — reusing
-// deviceTrustStatus (electron/auth/deviceTrust.js) so "trusted" cannot drift into a
-// second, competing definition. Queries fresh on every call, deliberately: mutualAuth.js
-// never caches this verdict, so a peer revoked since last process start (or not yet
-// dialed at all) is denied at the next discovery event rather than admitted on stale
-// data. This does NOT tear down an already-authenticated peer — mutualAuth.js's
-// `attempted` guard means this predicate never runs again for a peer already dialed
-// successfully. The enforcement for a LIVE peer is transport.js's `revokePeer`, called
-// from main.js when a director revokes a device; see its comment for why that call,
-// not this re-query, is what actually cuts off an established session.
-export function createBoundPeerTrust(db) {
-  return function isPeerTrusted(peerId) {
-    if (typeof peerId !== 'string' || peerId.length === 0) return false
-    const row = db.prepare('SELECT id FROM devices WHERE libp2p_peer_id = ?').get(peerId)
-    if (!row) return false
-    const trust = deviceTrustStatus(db, row.id)
-    return trust.authorized && !trust.revoked
-  }
-}
-
+// connectionAuth.js's evaluateLogin call site (evaluateAuthenticate admits on the signed
+// device roster instead, T376).
 export function bindOrVerifyPeerIdentity(db, deviceId, peerId) {
   const row = db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(deviceId)
   const bound = row?.libp2p_peer_id ?? null

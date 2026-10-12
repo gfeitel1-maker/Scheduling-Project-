@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import { randomUUID, randomBytes, scryptSync } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
-import { ensureHostSigningKey, issueCampToken } from './localAuth.js'
+import { ensureHostSigningKey } from './localAuth.js'
 import { signAuthFields } from './authSignature.js'
 import { evaluateAuthenticate, evaluateLogin } from './connectionAuth.js'
 
@@ -52,6 +52,13 @@ function insertDevice(deviceId, { authorized = true, revoked = false } = {}) {
   )
 }
 
+// The device is a roster member (a derived roster_cache row; the derivation itself is covered by
+// deviceRoster.projector.test.js). evaluateAuthenticate admits on it, with no token.
+const peerOf = (deviceId) => `peer-of-${deviceId}`
+function roster(deviceId) {
+  db.prepare('INSERT INTO roster_cache (device_id, peer_id, verified_at) VALUES (?, ?, ?)').run(deviceId, peerOf(deviceId), new Date().toISOString())
+}
+
 function setAuthorityCache(deviceId, status) {
   db.prepare('INSERT OR REPLACE INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)')
     .run(deviceId, status, new Date().toISOString())
@@ -74,10 +81,10 @@ describe('RISK-1 — evaluateAuthenticate gate precedence', () => {
     setupCamp()
     const deviceId = randomUUID()
     insertDevice(deviceId, { authorized: true, revoked: true }) // stale local stamp
+    roster(deviceId)
     setAuthorityCache(deviceId, 'admin') // but the real replay says this device is a valid admin
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
-    const result = evaluateAuthenticate(db, { token, device_id: deviceId })
+    const result = evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) })
 
     expect(result.ok).toBe(true)
   })
@@ -86,10 +93,10 @@ describe('RISK-1 — evaluateAuthenticate gate precedence', () => {
     setupCamp()
     const deviceId = randomUUID()
     insertDevice(deviceId, { authorized: true, revoked: false }) // never locally revoked
+    roster(deviceId)
     setAuthorityCache(deviceId, 'revoked') // but quorum/replay says revoked
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
-    const result = evaluateAuthenticate(db, { token, device_id: deviceId })
+    const result = evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) })
 
     expect(result.ok).toBe(false)
     expect(result.code).toBe(4404)
@@ -100,13 +107,13 @@ describe('RISK-1 — evaluateAuthenticate gate precedence', () => {
     setupCamp()
     const liveDeviceId = randomUUID()
     insertDevice(liveDeviceId, { authorized: true, revoked: false })
-    const liveToken = issueCampToken(db, randomUUID(), liveDeviceId)
-    expect(evaluateAuthenticate(db, { token: liveToken, device_id: liveDeviceId }).ok).toBe(true)
+    roster(liveDeviceId)
+    expect(evaluateAuthenticate(db, { device_id: liveDeviceId, peerId: peerOf(liveDeviceId) }).ok).toBe(true)
 
     const revokedDeviceId = randomUUID()
     insertDevice(revokedDeviceId, { authorized: true, revoked: true })
-    const revokedToken = issueCampToken(db, randomUUID(), revokedDeviceId)
-    const result = evaluateAuthenticate(db, { token: revokedToken, device_id: revokedDeviceId })
+    roster(revokedDeviceId)
+    const result = evaluateAuthenticate(db, { device_id: revokedDeviceId, peerId: peerOf(revokedDeviceId) })
     expect(result.ok).toBe(false)
     expect(result.code).toBe(4404)
     expect(result.reason).toBe('device_revoked')

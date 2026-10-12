@@ -39,6 +39,8 @@ import { startJoinSession } from '../../electron/sync/automerge/joinSession.js'
 import { mintJoinSecret } from '../../electron/sync/joinCode.js'
 import { seedAllFromSqlite } from '../../electron/automerge/seed.js'
 import { signAuthFields } from '../../electron/auth/authSignature.js'
+import { ensureDeviceIdentity } from '../../electron/auth/deviceIdentity.js'
+import { buildRosterWrites } from '../../electron/automerge/deviceRoster.js'
 import { ensureHostSigningKey, issueDeviceToken } from '../../electron/auth/localAuth.js'
 import { saveDoc, loadDoc } from '../../electron/sync/automerge/docStore.js'
 import { setUserDataDirGetter, setLocalWriteBroadcaster } from '../../electron/sync/automerge/liveDoc.js'
@@ -283,9 +285,22 @@ export class AmHost {
     // join scenario pass against an empty camp.
     await this.node.applyLocal(seedAllFromSqlite(this.db, this.node.getDoc()))
 
+    // T376: the Host's own roster entry, as main.js's bootstrapCamp writes it, so clients admit the Host from the signed roster.
+    const { peerId: hostPeerId } = await ensureDeviceIdentity(this.db)
+    await this.enrollInDoc(this.deviceId, hostPeerId)
+
     this.addingDevices = true
     this.joinSecret = mintJoinSecret()
     return { campId, userId: user.id, token: this.adminToken, joinCode: this.joinSecret }
+  }
+
+  /** Write the signed roster entry for `deviceId` into this Host's live document (a Host-only operation). */
+  async enrollInDoc(deviceId, peerId) {
+    const writes = buildRosterWrites(this.db, { deviceId, peerId })
+    if (!writes) return
+    let doc = this.node.getDoc()
+    for (const w of writes) doc = applyWrite(doc, w)
+    await this.node.applyLocal(doc)
   }
 
   waitForPairingRequest(timeoutMs = 6000) {
@@ -614,6 +629,18 @@ export async function setupTwoJoinedDevices({
   await clientB.join(host)
 
   return { tmpDir, host, clientA, clientB, campId }
+}
+
+/**
+ * setupTwoJoinedDevices plus a third client (T376 roster tests: revocation, ordering and forgery need a
+ * device that is neither the revoker nor the revoked). Every client joins through the real join flow.
+ */
+export async function setupThreeJoinedDevices(opts = {}) {
+  const trio = await setupTwoJoinedDevices(opts)
+  const clientC = new AmClient(`${trio.tmpDir}/clientC.db`)
+  clientC.open()
+  await clientC.join(trio.host)
+  return { ...trio, clientC }
 }
 
 /**

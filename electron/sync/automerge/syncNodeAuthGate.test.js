@@ -12,11 +12,10 @@ import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { randomUUID, randomBytes } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import * as A from '@automerge/automerge'
 import { openLocalDb, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
-import { ensureHostSigningKey, issueCampToken, issueLocalToken } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
 
 let files = []
@@ -56,31 +55,19 @@ function activityRow(db, id) {
   return db.prepare('SELECT id, name FROM activities WHERE id = ?').get(id)
 }
 
-// dbB plays the Host (holds host_signing_key, mints tokens, and is the side
-// whose admission gate every test here exercises — node A dials node B's
-// doc-sync protocol). dbA is the Client presenting a token.
-function authorizeDeviceOnHost(deviceId) {
-  const hostKey = ensureHostSigningKey(dbB)
-  db_updateSigningKey(dbB, hostKey.public_key)
-  db_updateSigningKey(dbA, hostKey.public_key) // Client's own db also carries the public key (full-sync)
-  dbB.prepare(
-    "INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status) VALUES (?, ?, ?, ?, 'authorized')"
-  ).run(deviceId, 'Client Device', new Date().toISOString(), randomBytes(32).toString('hex'))
-  return hostKey
+// dbB is the side whose admission gate every test here exercises — node A dials node B's doc-sync
+// protocol. T376 (docs/adr/2026-10-12-shared-signed-device-roster.md): B admits A iff B's roster binds the
+// device id A claims to the peer id A connects from. The roster row below is the derived roster_cache row
+// (deviceRoster.projector.test.js covers the derivation from signed document entries).
+function authorizeDeviceOnHost(deviceId, peerId) {
+  dbB.prepare('INSERT INTO roster_cache (device_id, peer_id, verified_at) VALUES (?, ?, ?)').run(deviceId, peerId, new Date().toISOString())
 }
 
-// The outbound broadcast filter (Security review, 5d-1) means a sender only
-// transmits to peers that proved membership to IT — so two-way doc flow needs
-// BOTH directions authenticated. This authorizes a device on the Client's db so
-// the Host can authenticate back to it, exercising the real symmetric path.
-function authorizeDeviceOnClient(deviceId) {
-  dbA.prepare(
-    "INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status) VALUES (?, ?, ?, ?, 'authorized')"
-  ).run(deviceId, 'Host Device', new Date().toISOString(), randomBytes(32).toString('hex'))
-}
-
-function db_updateSigningKey(db, publicKey) {
-  db.prepare('UPDATE camps SET signing_public_key = ?').run(publicKey)
+// The outbound broadcast filter (Security review, 5d-1) means a sender only transmits to peers that proved
+// membership to IT — so two-way doc flow needs BOTH directions authenticated. This rosters a device on the
+// Client's db so the Host can authenticate back to it, exercising the real symmetric path.
+function authorizeDeviceOnClient(deviceId, peerId) {
+  dbA.prepare('INSERT INTO roster_cache (device_id, peer_id, verified_at) VALUES (?, ?, ?)').run(deviceId, peerId, new Date().toISOString())
 }
 
 describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real SQLite)', () => {
@@ -108,7 +95,7 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
     expect(activityRow(dbB, 'ghost')).toBeUndefined()
   })
 
-  it('a peer that completes authenticate with a valid camp token is admitted and doc bytes converge', async () => {
+  it('a rostered peer that completes authenticate is admitted and doc bytes converge', async () => {
     const genesis = createEmptyDoc()
     const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
     const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
@@ -118,19 +105,15 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
     await waitFor(() => a.getPeers().length > 0)
 
     const deviceId = randomUUID()
-    authorizeDeviceOnHost(deviceId)
-    const token = issueCampToken(dbB, randomUUID(), deviceId)
-
-    const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId, schemaVersion: CURRENT_SCHEMA_VERSION })
+    authorizeDeviceOnHost(deviceId, a.peerId)
+    const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: deviceId, schemaVersion: CURRENT_SCHEMA_VERSION })
     expect(resp).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
 
     // Reverse direction, required for A's outbound filter to admit B (see
-    // authorizeDeviceOnClient's comment): the Host proves membership to the
-    // Client with a token minted from the same host signing key.
+    // authorizeDeviceOnClient's comment): the Host proves membership to the Client from the roster too.
     const hostDeviceId = randomUUID()
-    authorizeDeviceOnClient(hostDeviceId)
-    const hostToken = issueCampToken(dbB, randomUUID(), hostDeviceId)
-    const reverse = await b.authenticateWith(a.peerId, { type: 'authenticate', token: hostToken, device_id: hostDeviceId, schemaVersion: CURRENT_SCHEMA_VERSION })
+    authorizeDeviceOnClient(hostDeviceId, b.peerId)
+    const reverse = await b.authenticateWith(a.peerId, { type: 'authenticate', device_id: hostDeviceId, schemaVersion: CURRENT_SCHEMA_VERSION })
     expect(reverse).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
 
     const changed = applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'archery', field: 'name', value: 'Archery' })
@@ -140,7 +123,7 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
     expect(activityRow(dbB, 'archery').name).toBe('Archery')
   })
 
-  it('a local-type token is rejected over libp2p even though it is valid for local IPC', async () => {
+  it('a peer the roster does not hold is refused even with a session token and an authorized devices row', async () => {
     const genesis = createEmptyDoc()
     const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
     const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
@@ -150,13 +133,10 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
     await waitFor(() => a.getPeers().length > 0)
 
     const deviceId = randomUUID()
-    authorizeDeviceOnHost(deviceId)
-    // issueLocalToken requires device_secret_identifier on ITS OWN db — mint
-    // it against dbB (the "Host" in this test), the same device row.
-    const localToken = issueLocalToken(dbB, randomUUID(), deviceId)
+    dbB.prepare("INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status) VALUES (?, 'Client Device', ?, 'secret', 'authorized')").run(deviceId, new Date().toISOString())
 
-    const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', token: localToken, device_id: deviceId })
-    expect(resp).toEqual({ type: 'auth_failed', reason: 'local_token_not_valid_for_network' })
+    const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', token: 'any-token-at-all', device_id: deviceId })
+    expect(resp).toEqual({ type: 'auth_failed', reason: 'device_not_authorized' })
     expect(b.isPeerAuthenticated(a.peerId)).toBe(false)
 
     // And doc-sync admission is NOT granted as a consequence: node B's doc
@@ -171,7 +151,7 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
     expect(activityRow(dbB, 'ghost')).toBeUndefined()
   })
 
-  it('an expired token is rejected and does not admit the peer', async () => {
+  it('a session token plays no part: a rostered peer is admitted with no token, an expired one changes nothing', async () => {
     const genesis = createEmptyDoc()
     const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
     const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
@@ -181,21 +161,14 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
     await waitFor(() => a.getPeers().length > 0)
 
     const deviceId = randomUUID()
-    authorizeDeviceOnHost(deviceId)
-    const token = issueCampToken(dbB, randomUUID(), deviceId)
-    const [payloadB64, signature] = token.split('.')
-    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'))
-    payload.exp = Date.now() - 1000
-    // Deliberately NOT re-signed: an expired+tampered token must fail closed
-    // exactly like a merely-expired one (both collapse to invalid_token).
-    const tampered = `${Buffer.from(JSON.stringify(payload)).toString('base64url')}.${signature}`
+    authorizeDeviceOnHost(deviceId, a.peerId)
 
-    const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', token: tampered, device_id: deviceId })
-    expect(resp.type).toBe('auth_failed')
-    expect(b.isPeerAuthenticated(a.peerId)).toBe(false)
+    const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', token: 'expired.invalid', device_id: deviceId })
+    expect(resp.type).toBe('auth_ok')
+    expect(b.isPeerAuthenticated(a.peerId)).toBe(true)
   })
 
-  it("a token whose device_id doesn't match the claimed device is rejected", async () => {
+  it("a rostered peer claiming a device id the roster binds to a different peer is refused with peer_identity_mismatch", async () => {
     const genesis = createEmptyDoc()
     const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
     const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
@@ -206,15 +179,15 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
 
     const deviceId = randomUUID()
     const otherDeviceId = randomUUID()
-    authorizeDeviceOnHost(deviceId)
-    const token = issueCampToken(dbB, randomUUID(), deviceId)
+    authorizeDeviceOnHost(deviceId, a.peerId)
+    authorizeDeviceOnHost(otherDeviceId, 'some-other-peer')
 
-    const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: otherDeviceId })
-    expect(resp).toEqual({ type: 'auth_failed', reason: 'invalid_token' })
+    const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: otherDeviceId })
+    expect(resp).toEqual({ type: 'auth_failed', reason: 'peer_identity_mismatch' })
     expect(b.isPeerAuthenticated(a.peerId)).toBe(false)
   })
 
-  it('a revoked device is rejected even with a structurally valid token', async () => {
+  it('a rostered but revoked device is rejected', async () => {
     const genesis = createEmptyDoc()
     const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
     const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
@@ -224,14 +197,14 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
     await waitFor(() => a.getPeers().length > 0)
 
     const deviceId = randomUUID()
-    authorizeDeviceOnHost(deviceId)
-    const token = issueCampToken(dbB, randomUUID(), deviceId)
+    authorizeDeviceOnHost(deviceId, a.peerId)
+    dbB.prepare("INSERT INTO devices (id, name) VALUES (?, 'Client Device')").run(deviceId)
     dbB.prepare("UPDATE devices SET revoked_at = ?, revocation_reason = 'lost' WHERE id = ?").run(
       new Date().toISOString(),
       deviceId
     )
 
-    const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })
+    const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: deviceId })
     expect(resp).toEqual({ type: 'auth_failed', reason: 'device_revoked' })
     expect(b.isPeerAuthenticated(a.peerId)).toBe(false)
   })
@@ -246,10 +219,9 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
     await waitFor(() => a.getPeers().length > 0)
 
     const deviceId = randomUUID()
-    authorizeDeviceOnHost(deviceId)
-    const token = issueCampToken(dbB, randomUUID(), deviceId)
+    authorizeDeviceOnHost(deviceId, a.peerId)
 
-    await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })
+    await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: deviceId })
     expect(b.isPeerAuthenticated(a.peerId)).toBe(true)
 
     await a.stop()
@@ -259,26 +231,15 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
   })
 })
 
-// --- T155/T162: the property T155 characterized is now closed ---
+// --- T155/T162/T376: a captured credential is not a way in ---
 //
-// An external review asked for adversarial coverage of replayed authentication,
-// simultaneous dials, and reconnect after a long offline period. Two of those
-// turned out to be already covered elsewhere in this file (an expired token is
-// rejected; a revoked device is rejected, and `revokeDevice` in main.js evicts a
-// still-connected one from the live admission set rather than waiting for a
-// disconnect). T155 characterized the one that was genuinely open: a camp token
-// is a bearer credential, admitted from any peer that presents it. T162
-// (docs/adr/2026-09-14-device-identity-and-token-binding.md) closes it by
-// making each device's libp2p identity persistent (ensureDeviceIdentity) and
-// binding a token's device_id to the peer id that first presented it
-// (bindOrVerifyPeerIdentity, wired into evaluateAuthenticate/evaluateLogin).
-describe('syncNode + auth gate — characterized limits (T155), closed by T162', () => {
-  it('a token replayed from a peer other than the one it is bound to is rejected', async () => {
-    // `startSyncNode` now calls `ensureDeviceIdentity(db)` before starting the
-    // transport, so each node's peerId is persistent per-db rather than a
-    // fresh keypair every process start — this is the precondition that makes
-    // binding a token to a peer id meaningful instead of rejecting every
-    // ordinary reconnect (ADR §1/§2).
+// An external review asked for adversarial coverage of replayed authentication and reconnect after a
+// restart. T155 found a camp token was a bearer credential, admitted from any peer that presented it; T162
+// bound it to the first peer id. T376 (docs/adr/2026-10-12-shared-signed-device-roster.md) removes the token
+// from admission altogether: the Host-signed roster binds a device id to its peer id, and libp2p's Noise
+// handshake proves possession of that key, so there is nothing to replay.
+describe('syncNode + auth gate — replay and restart (T155, T162, T376)', () => {
+  it('a frame replayed from a peer other than the one the roster binds is rejected', async () => {
     const genesis = createEmptyDoc()
     const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
     const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
@@ -286,79 +247,66 @@ describe('syncNode + auth gate — characterized limits (T155), closed by T162',
     nodes.push(a, b, impostor)
 
     const deviceId = randomUUID()
-    authorizeDeviceOnHost(deviceId)
-    const token = issueCampToken(dbB, randomUUID(), deviceId)
+    authorizeDeviceOnHost(deviceId, a.peerId)
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
-    // FIRST authenticate: no peer id is bound yet for `deviceId`, so this
-    // binds it via TOFU to `a`'s (now persistent) peer id and admits.
-    expect(await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
+    expect(await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: deviceId, schemaVersion: CURRENT_SCHEMA_VERSION })).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
 
-    // The SAME token, replayed from a peer the Host has never seen before.
-    // `deviceId` is already bound to `a`'s peer id — the impostor's distinct
-    // peer id mismatches, so this is rejected.
     await impostor.dial(b.getMultiaddrs()[0])
     await waitFor(() => impostor.getPeers().length > 0)
-    const replayed = await impostor.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })
-    expect(replayed.type).toBe('auth_failed')
+    const replayed = await impostor.authenticateWith(b.peerId, { type: 'authenticate', device_id: deviceId })
+    expect(replayed).toEqual({ type: 'auth_failed', reason: 'peer_identity_mismatch' })
   })
 
   it('an ordinary reconnect across a process restart still succeeds (persistent identity, not a fresh peer id)', async () => {
-    // Simulates a device restarting: stop node `a`, then start a NEW
-    // startSyncNode against the SAME db. ensureDeviceIdentity loads the
-    // already-persisted keypair rather than generating a fresh one, so the
-    // new node's peerId is identical to the old one — the TOFU bind survives
-    // the restart and the reconnect is admitted, not rejected.
+    // Stop node `a`, then start a NEW startSyncNode against the SAME db. ensureDeviceIdentity loads the
+    // already-persisted keypair rather than generating a fresh one, so the new node's peerId is identical
+    // to the old one and the roster binding still matches.
     const genesis = createEmptyDoc()
     let a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
     const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
     nodes.push(a, b)
 
     const deviceId = randomUUID()
-    authorizeDeviceOnHost(deviceId)
-    const token = issueCampToken(dbB, randomUUID(), deviceId)
+    authorizeDeviceOnHost(deviceId, a.peerId)
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
-    expect(await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
+    expect(await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: deviceId, schemaVersion: CURRENT_SCHEMA_VERSION })).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
     const peerIdBeforeRestart = a.peerId
 
     await a.stop()
     nodes = nodes.filter((n) => n !== a)
 
-    // Restart: same db, new startSyncNode call — same persisted identity.
     a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
     nodes.push(a)
     expect(a.peerId).toBe(peerIdBeforeRestart)
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
-    const reconnected = await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })
+    const reconnected = await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: deviceId, schemaVersion: CURRENT_SCHEMA_VERSION })
     expect(reconnected).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
   })
 
-  it('but revoking the device closes BOTH peers out — the credential follows the device, not the connection', async () => {
-    // The counterweight to the test above, and the reason the bearer property is
-    // survivable: revocation is re-checked on every authenticate, so a replayed
-    // token stops working the moment the device it names is revoked.
+  it('but revoking the device closes the peer out — the credential follows the device, not the connection', async () => {
+    // Revocation is re-checked on every authenticate, so the device stops being admitted the moment it is revoked.
     const genesis = createEmptyDoc()
     const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
     const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
     nodes.push(a, b)
 
     const deviceId = randomUUID()
-    authorizeDeviceOnHost(deviceId)
-    const token = issueCampToken(dbB, randomUUID(), deviceId)
+    authorizeDeviceOnHost(deviceId, a.peerId)
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
-    expect(await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
+    expect(await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: deviceId, schemaVersion: CURRENT_SCHEMA_VERSION })).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
 
     dbB.prepare("UPDATE devices SET revoked_at = ?, pairing_status = 'revoked' WHERE id = ?")
       .run(new Date().toISOString(), deviceId)
 
-    const after = await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })
+    const after = await a.authenticateWith(b.peerId, { type: 'authenticate', device_id: deviceId })
     expect(after.type).toBe('auth_failed')
   })
 })

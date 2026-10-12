@@ -22,16 +22,13 @@
 import { createConnectivityEmitter, classifyError, EVENTS } from './connectivityEvents.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 
-// `getToken()` returns this device's own current, valid session token (a
-// Host self-issues one; a Client uses whatever it was last handed by a
-// successful login/pairing) or null/undefined if none is available yet — in
-// which case this device has nothing to authenticate itself WITH and the
-// discovered peer is left un-dialed until a later discovery event (mDNS
-// re-announces periodically) or an explicit retry.
+// T376 (docs/adr/2026-10-12-shared-signed-device-roster.md): the `authenticate` frame carries no session token any more, so
+// there is no "nothing to authenticate with yet" state and no token-awaiting retry: a trusted peer is dialed at once and the
+// peer admits this device from the Host-signed roster.
 // T208 (docs/work/tickets/T208-discovery-seam-has-no-local-trust-filter.md).
 // `isPeerTrusted(peerId) -> boolean` is REQUIRED, and its absence throws here
 // rather than defaulting to anything. Before T208 this function sent
-// { type:'authenticate', token, device_id } to ANY peer surfaced by
+// { type:'authenticate', device_id } to ANY peer surfaced by
 // onPeerDiscovery, with no check that the peer was a device this camp knows.
 // On the LAN that is bounded by mDNS link-local multicast, which is why it
 // survived review; the moment a second discovery mechanism exists that anyone
@@ -47,8 +44,7 @@ import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 // ship.
 //
 // LIMIT, stated because the guarantee is otherwise easy to over-read: what
-// this closes is "we send our token to a stranger". It does NOT make the token
-// unusable if it reaches one — that is token-to-peer binding, T162.
+// this closes is "we send our authenticate frame to a stranger".
 // Negative-cache tuning (T208 round 2, Code Reviewer). An UNTRUSTED peer never enters
 // `attempted` below (that Set is only populated once the trust check passes), so
 // without this a busy or hostile mDNS segment can drive one synchronous
@@ -104,11 +100,11 @@ const DISCOVERY_EMIT_STATE_MAX_SIZE = 500
 // that never purges a camper) gets an empty self-report rather than a crash. syncNode.js is the
 // one production caller that supplies a real one, reading the `tombstones` table. Read fresh on
 // every dial/authenticate attempt, same discipline as getSchemaVersion.
-export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter(), getSchemaVersion = () => CURRENT_SCHEMA_VERSION, getAppliedTombstones = () => [], isSelfRemoved = () => false, reauthAfterDisconnectMs = 1_000 } = {}) {
+export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter(), getSchemaVersion = () => CURRENT_SCHEMA_VERSION, getAppliedTombstones = () => [], isSelfRemoved = () => false, reauthAfterDisconnectMs = 1_000 } = {}) {
   if (typeof isPeerTrusted !== 'function') {
     throw new TypeError(
       'wireMutualAuth requires an isPeerTrusted(peerId) predicate: this seam decides who receives ' +
-      'this device\'s session token, and every discovery mechanism feeds it. See ' +
+      'this device\'s authenticate frame, and every discovery mechanism feeds it. See ' +
       'docs/work/tickets/T208-discovery-seam-has-no-local-trust-filter.md.'
     )
   }
@@ -118,10 +114,6 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
   // gets a fresh attempt on the next discovery event rather than being
   // stuck forever.
   const attempted = new Set()
-  // Peers skipped only because this device had no token yet. mDNS does not re-announce a peer it
-  // has already reported (a packaged run waited 4 minutes for one), so a token arriving after
-  // discovery must re-run these attempts itself — see retryPeersAwaitingToken below.
-  const awaitingToken = new Set()
 
   // peerId -> monotonic attempt counter. A fresh id per attempt (not per peer) lets an analyst
   // reading the emitted log tell which events belong to which attempt, and lets rate computations
@@ -305,24 +297,6 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     stall.unref?.()
     const release = () => clearTimeout(stall)
 
-    const token = typeof getToken === 'function' ? getToken() : null
-    if (!token) {
-      // Not logged in / no self-issued token yet — nothing to prove
-      // ourselves with. Not a failure: allow a future discovery event (or
-      // an explicit re-run once a token exists) to retry.
-      release()
-      // Guarded for uniformity/defensiveness even though getToken() is synchronous today, so a
-      // future async getToken cannot silently reopen the ownership gap this ticket closes.
-      if (owns()) {
-        attempted.delete(peerId)
-        ownerOf.delete(peerId)
-      }
-      awaitingToken.add(peerId)
-      if (awaitingToken.size > NEGATIVE_CACHE_MAX_SIZE) awaitingToken.delete(awaitingToken.keys().next().value)
-      if (!stalled) emitter.emit(EVENTS.NO_TOKEN, { peerId, attemptId })
-      return
-    }
-    awaitingToken.delete(peerId)
 
     // A libp2p connection is BIDIRECTIONAL: once either side has dialed, both ends can open streams
     // on it. So if this peer is already connected — because IT dialed US — we must not try to dial
@@ -368,7 +342,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     try {
       let reply
       try {
-        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', token, device_id: deviceId, schemaVersion: getSchemaVersion(), appliedTombstones: getAppliedTombstones() }, { signal: controller.signal })
+        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', device_id: deviceId, schemaVersion: getSchemaVersion(), appliedTombstones: getAppliedTombstones() }, { signal: controller.signal })
       } catch (err) {
         // T162 made a device's PeerId STABLE across restarts. That closed a real
         // hole, and opened this one: when a Host restarts, it comes back under
@@ -394,7 +368,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
           if (!stalled) emitter.emit(EVENTS.DIAL_FAILED, { peerId, reused: true, errorClass: classifyError(dialErr), attemptId })
           throw dialErr
         }
-        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', token, device_id: deviceId, schemaVersion: getSchemaVersion(), appliedTombstones: getAppliedTombstones() }, { signal: controller.signal })
+        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', device_id: deviceId, schemaVersion: getSchemaVersion(), appliedTombstones: getAppliedTombstones() }, { signal: controller.signal })
       }
       release()
       if (!reply || reply.type !== 'auth_ok') {
@@ -455,18 +429,6 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     })
   })
 
-  // Called when a token becomes available: re-attempt every peer that was discovered while there was
-  // none. Goes through tryAuthenticate, so the trust check and every other guard still apply.
-  function retryPeersAwaitingToken() {
-    const peers = [...awaitingToken]
-    awaitingToken.clear()
-    for (const peerId of peers) {
-      tryAuthenticate(peerId).catch((err) => {
-        console.error(`mutualAuth: unexpected error authenticating after a token arrived: ${err?.message ?? err}`)
-      })
-    }
-  }
-
   // Called when a peer has just authenticated TO this device. Admission is mutual (a node only sends
   // to peers that authenticated to it), so this device must prove itself back — and it cannot wait
   // for discovery: a peer refused moments earlier (a joining device, before the director approved
@@ -502,5 +464,5 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     }
   }
 
-  return { tryAuthenticate, retryPeersAwaitingToken, reciprocate, forget }
+  return { tryAuthenticate, reciprocate, forget }
 }

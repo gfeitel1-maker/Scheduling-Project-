@@ -30,6 +30,7 @@ import { assertNoUnrecordedUniqueConflicts } from './uniqueConflicts.js'
 import { listRecordIds, readRecord, hasAnyRecord, plainValue } from './campDocument.js'
 import { verifyAuthFields } from '../auth/authSignature.js'
 import { verifyTombstone } from './tombstoneSignature.js'
+import { verifyRosterEntry } from './deviceRosterSignature.js'
 import * as Automerge from '@automerge/automerge'
 import { createAuthorityReplayContext, createVerifiedEntryTrust, isCompleteEntry, AUTHORITY_LOG_ENTITY } from './authorityReplay.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
@@ -124,7 +125,10 @@ const DOMAIN_ORDER_WITH_SNAPSHOTS = (() => {
 // no SQL table to project into at all (see campDocument.js's EXTRA_MODELED_ENTITIES comment), so
 // its ordering relative to every domain entity is a don't-care; grouped with the other two
 // security-sensitive, bespoke-handling entities for readability.
-const DOMAIN_ORDER_WITH_CAMPS_AND_USERS = ['camps', 'users', 'tombstones', 'camp_authority_log', ...DOMAIN_ORDER_WITH_SNAPSHOTS]
+// `device_roster` (T376, docs/adr/2026-10-12-shared-signed-device-roster.md): immediately after `camp_authority_log`, and
+// it MUST stay after it, because upsertDeviceRosterEntity reads the `authority_cache` that entity's projection just
+// derived (a revoked device's peer id may not be re-enrolled). Like camp_authority_log it has no SQL table to project into.
+const DOMAIN_ORDER_WITH_CAMPS_AND_USERS = ['camps', 'users', 'tombstones', 'camp_authority_log', 'device_roster', ...DOMAIN_ORDER_WITH_SNAPSHOTS]
 
 // FK-safe apply order, filtered to just the entities this document layer models (DOMAIN_SNAPSHOT_
 // ORDER, extended above, also lists deferred entities, which are out of scope here).
@@ -444,6 +448,48 @@ function upsertCampAuthorityLogEntity(db, doc) {
   }
 }
 
+// device_roster (T376, docs/adr/2026-10-12-shared-signed-device-roster.md): builds the device-local roster_cache from the
+// Host-signed `device_roster` document records. Trust root is this device's own camps.signing_public_key and camps.id
+// (the same root upsertUsersEntity uses), never a key read from the document. MONOTONIC by design: it only ever ADDS.
+// A verified row is never removed because its document record was later overwritten, failed verification or was deleted,
+// so a document writer (a stolen staff client) cannot subtract a device any peer has already verified. A device is removed
+// by a signed revoke in camp_authority_log, which denies at admission through authority_cache, not by deleting its row.
+//
+// Entries are processed in ascending device_id order and skipped (never inserted) when the device id or the peer id is
+// already cached, or when the peer id belongs to a REVOKED device, so a UNIQUE collision cannot throw and halt projection of
+// the whole document. The revoked-peer comparison reads the verified document entries as well as the cache, because a
+// revoked device's own entry may exist only in the document on a freshly rebuilt peer.
+const isIdString = (v) => typeof v === 'string' && v.length > 0
+
+export function upsertDeviceRosterEntity(db, doc) {
+  const camp = db.prepare('SELECT id, signing_public_key FROM camps LIMIT 1').get()
+  if (!camp?.signing_public_key || !camp.id) return
+
+  const verified = []
+  for (const id of listRecordIds(doc, 'device_roster')) {
+    const row = readRecord(doc, 'device_roster', id)
+    if (!row || !isIdString(row.device_id) || !isIdString(row.device_peer_id)) continue
+    const signed = { id, camp_id: camp.id, device_id: row.device_id, device_peer_id: row.device_peer_id, added_at: row.added_at }
+    if (!verifyRosterEntry(camp.signing_public_key, signed, row.sig)) continue
+    verified.push({ deviceId: row.device_id, peerId: row.device_peer_id })
+  }
+  verified.sort((a, b) => (a.deviceId < b.deviceId ? -1 : a.deviceId > b.deviceId ? 1 : 0))
+
+  const revokedDeviceIds = new Set(db.prepare("SELECT device_id FROM authority_cache WHERE status = 'revoked'").all().map((r) => r.device_id))
+  const revokedPeerIds = new Set()
+  for (const e of verified) if (revokedDeviceIds.has(e.deviceId)) revokedPeerIds.add(e.peerId)
+  for (const r of db.prepare('SELECT device_id, peer_id FROM roster_cache').all()) if (revokedDeviceIds.has(r.device_id)) revokedPeerIds.add(r.peer_id)
+
+  const hasDevice = db.prepare('SELECT 1 FROM roster_cache WHERE device_id = ?')
+  const hasPeer = db.prepare('SELECT 1 FROM roster_cache WHERE peer_id = ?')
+  const insert = db.prepare('INSERT INTO roster_cache (device_id, peer_id, verified_at) VALUES (?, ?, ?)')
+  const now = new Date().toISOString()
+  for (const e of verified) {
+    if (revokedPeerIds.has(e.peerId) || hasDevice.get(e.deviceId) || hasPeer.get(e.peerId)) continue
+    insert.run(e.deviceId, e.peerId, now)
+  }
+}
+
 // The denylist: which entities are gated by a `campers` tombstone, and which column on that
 // entity's own row carries the camper id to check. `campers` is gated by its own `id`;
 // elective_preferences/elective_assignments are gated by their `camper_id` field — participant
@@ -530,6 +576,10 @@ function upsertEntity(db, doc, entity, failures = null) {
   }
   if (entity === AUTHORITY_LOG_ENTITY) {
     upsertCampAuthorityLogEntity(db, doc)
+    return
+  }
+  if (entity === 'device_roster') {
+    upsertDeviceRosterEntity(db, doc)
     return
   }
   const fields = PROJECTIONS[entity].fields
@@ -736,7 +786,7 @@ function deleteReconcileEntity(db, doc, entity) {
   // camp_authority_log (T331) has no backing SQL table — nothing to delete-reconcile against. Its
   // verified state is carried in applied_authority_log/authority_cache, written only by
   // upsertCampAuthorityLogEntity below, never by the generic delete-reconcile pass.
-  if (entity === 'camp_authority_log') return
+  if (entity === 'camp_authority_log' || entity === 'device_roster') return
   const inDoc = new Set(listRecordIds(doc, entity))
   // T350 (ADR 2026-10-09 D2/D5): a placement whose week is gone from the document goes with it,
   // before schedule_weeks' own reconcile runs — otherwise a bind concurrent with another device's
@@ -871,7 +921,7 @@ function entityHasAnyDocRow(doc, entity) {
 // `DELETE FROM camp_authority_log` (rebuildFromDoc's wipe pass) would both throw. Its "does real
 // data exist" signal and its wipe/re-derive are handled entirely by upsertCampAuthorityLogEntity
 // re-running the full verify-and-replay from the document, which is idempotent and never destructive.
-const RECONCILABLE_ORDER = MODELED_ORDER.filter((entity) => entity !== 'camps' && entity !== 'camp_authority_log')
+const RECONCILABLE_ORDER = MODELED_ORDER.filter((entity) => entity !== 'camps' && entity !== 'camp_authority_log' && entity !== 'device_roster')
 
 function assertDocIsSupersetOrEmpty(db, doc) {
   const docHasAnyRow = RECONCILABLE_ORDER.some((entity) => entityHasAnyDocRow(doc, entity))
@@ -944,7 +994,7 @@ export function rebuildFromDoc(db, doc, entity) {
       // T233 S3 — upsertEntity gates on the SQLite `tombstones` table, so refresh it first from the
       // doc's VERIFIED tombstones (never raw ids) or a not-yet-projected erasure is re-inserted.
       if (TOMBSTONE_DENYLISTED_ENTITIES[entity]) upsertTombstonesEntity(db, doc)
-      if (entity !== 'camps' && entity !== 'camp_authority_log') db.prepare(`DELETE FROM ${entity}`).run()
+      if (entity !== 'camps' && entity !== 'camp_authority_log' && entity !== 'device_roster') db.prepare(`DELETE FROM ${entity}`).run()
       projectEntity(db, doc, entity)
     })
     run()

@@ -22,36 +22,31 @@
 // this boundary._
 import { timingSafeEqual } from 'node:crypto'
 import { Buffer } from 'node:buffer'
-import { verifySessionToken, attemptLogin } from './localAuth.js'
-import { deviceTrustStatus, deviceTrustReason } from './deviceTrust.js'
+import { attemptLogin } from './localAuth.js'
+import { deviceTrustStatus } from './deviceTrust.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
-import { bindOrVerifyPeerIdentity } from '../sync/automerge/peerIdentity.js'
+import { bindOrVerifyPeerIdentity, recordLibp2pPeerId } from '../sync/automerge/peerIdentity.js'
 import { sanitizePeerDeviceName } from './deviceName.js'
 
 function isNonEmptyString(v) {
   return typeof v === 'string' && v.length > 0
 }
 
-// Returns:
-//   { ok: true, verified }   — verified is verifySessionToken's own return shape
+// evaluateAuthenticate returns:
+//   { ok: true, verified: { deviceId, userId: null } }
 //   { ok: false, code, reason }
-// `code` values follow the close-code convention this module defines
-// (4401 invalid/tampered/expired token or device_id mismatch, 4402 a
-// structurally-valid `local` token rejected outright, 4403 device not
-// authorized, 4404 device revoked, 4405 peer_identity_mismatch — T162,
-// docs/adr/2026-09-14-device-identity-and-token-binding.md §3) so a caller on
-// any transport can report failures identically. _Prior: these were described as
-// mirroring "syncServer.js's existing WS close-code convention"; that file is
-// deleted, so this module is now the origin of the convention rather than a copy
-// of it. electron/authRejectedSender.js is the other half that must agree — see
-// its own comment._
+// `code` values follow the close-code convention this module defines (4403 device not authorized,
+// 4404 device revoked, 4405 peer_identity_mismatch, T162, docs/adr/2026-09-14-device-identity-and-token-binding.md
+// §3; 4401/4402 are produced only by the token-era evaluateLogin path and by authRejectedSender's reason map),
+// so a caller on any transport can report failures identically. electron/authRejectedSender.js is the
+// other half that must agree — see its own comment.
 //
 // `appliedTombstones` (T322 S3a, docs/adr/2026-09-19-multi-device-erasure-propagation.md's
 // "Addendum (2026-10-01, Architect, T322 S3a)", optional): the peer's own self-reported set of
 // (tombstone id, version) pairs it has verified-and-projected, as `[{id, version}, ...]`.
 // Persisted into `peer_tombstone_reports`, keyed by `verified.deviceId` — the AUTHENTICATED
 // identity, never the raw `device_id` off the wire before verification — and ONLY after the
-// trust/revocation gate below passes, mirroring the peer-identity bind's own ordering. This is
+// roster/revocation gate below passes. This is
 // advisory display data (S3b reads it) and must never feed back into any admission decision.
 // Tolerant of a missing/malformed value: an absent field, a non-array, or an individual entry
 // with a non-string id/non-non-negative-integer version is silently skipped — mirrors how
@@ -84,113 +79,62 @@ function persistAppliedTombstones(db, deviceId, appliedTombstones) {
   }
 }
 
-// `peerId` (T162, optional): the libp2p peer id that presented this token,
-// established by libp2p's own Noise handshake before this function is ever
-// called — not client-asserted data. When provided, bound via
-// bindOrVerifyPeerIdentity (TOFU: first contact binds, a later mismatch is
-// rejected) so a token copied off a paired device's disk no longer
-// authenticates from a different machine. Omitting it (every caller that
-// doesn't have a libp2p connection to report) skips the check entirely —
-// this is purely an admission-layer tightening, not a new required field.
-export function evaluateAuthenticate(db, { token, device_id, peerId, appliedTombstones }) {
-  const verified = verifySessionToken(db, token)
-  if (!verified || verified.deviceId !== device_id) {
-    return { ok: false, code: 4401, reason: 'invalid_token' }
-  }
+// Admission of an `authenticate` frame (docs/adr/2026-10-12-shared-signed-device-roster.md, T376). There is no
+// token: a peer is admitted iff the Host-signed device roster (roster_cache, derived by projector.js's
+// upsertDeviceRosterEntity) binds the device id it claims to the libp2p peer id it connected from, and neither
+// authority_cache nor the legacy devices stamp has the device revoked. `peerId` is established by libp2p's own
+// Noise handshake before this runs (the Noise key IS the device identity key, syncNode.js), so possession of
+// the rostered key is already proven by the transport; `device_id` is only a claim to be matched against it.
+// Nothing here needs the Host, so two enrolled devices admit each other with the Host off, indefinitely.
+//
+// _Prior: this verified a Host-signed 24h session token (verifySessionToken), rejected a 'local' token with
+// 4402, required devices.authorized_at, and TOFU-bound the peer id via bindOrVerifyPeerIdentity. With the Host
+// off nothing could renew the token and two clients never held an authorized devices row for each other, so
+// clients stopped syncing between themselves (hostOffRoster.integration.test.js)._
+//
+// Close-code convention (4402 no longer produced here): 4403 device not authorized / not rostered, 4404 device
+// revoked, 4405 peer_identity_mismatch (the roster binds that device id to a different peer id, or that peer id
+// to a different device id).
+export function evaluateAuthenticate(db, { device_id, peerId, appliedTombstones }) {
+  if (!isNonEmptyString(device_id) || !isNonEmptyString(peerId)) return { ok: false, code: 4403, reason: 'device_not_authorized' }
 
-  // A 'local' token is this-device-only by design (HMAC'd with a device's
-  // own device_secret_identifier — see localAuth.js's issueLocalToken /
-  // verifySessionToken) and must never be accepted as proof of network
-  // trust, per docs/adr/2026-07-25-device-trust-revocation.md §3. _Prior: "this
-  // check is byte-for-byte the same as syncServer.js's WS rejection — there is no
-  // product reason to relax it for a different transport." The WS rejection it was
-  // matched against is deleted; the rule itself is unchanged and is now enforced
-  // only here._
-  //
-  // 'device' (Finding 2 fix, Stage 5d-2b re-review) IS accepted here: it is
-  // the Host's own connection-admission-only token (issueDeviceToken,
-  // localAuth.js), Host-signed exactly like 'camp' and used ONLY to let the
-  // Host authenticate itself outward to a peer it dials — it carries no
-  // userId. Admitting it here is safe precisely because "admitted" and
-  // "authorized to act" are different layers: authorize() (electron/auth/
-  // authorize.js) explicitly refuses `type: 'device'` outright, so nothing
-  // this token touches can ever reach a role decision.
-  if (verified.type !== 'camp' && verified.type !== 'device') {
-    return { ok: false, code: 4402, reason: 'local_token_not_valid_for_network' }
-  }
-
-  // Self-registration is allowed regardless of authorization status (a
-  // brand-new device must get a `devices` row to exist at all before it can
-  // ever be authorized), but connection ADMISSION is gated on
-  // authorized_at/revoked_at, re-checked fresh here rather than cached — same
-  // revocation-enforcement rule authorize() applies on every IPC call.
-  db.prepare(
-    "INSERT OR IGNORE INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')"
-  ).run(verified.deviceId, `Device ${verified.deviceId.slice(0, 8)}`)
-
-  // Amendment 2026-10-03 (RISK-1, docs/adr/2026-10-02-distributed-revocation-authority.md's
-  // "gate precedence" section) — hoisted ABOVE the legacy devices.revoked_at check below.
-  // Precedence rule: when authority_cache has a row for this device, that row is authoritative
-  // for the revocation decision; devices.revoked_at is consulted ONLY when there is no row at
-  // all (pre-T331 back-compat, or a device nobody has granted/revoked through the distributed
-  // mechanism yet). 'revoked' denies unconditionally — unchanged in effect from Gate A as it
-  // existed before this amendment, just evaluated earlier. 'admin' skips the legacy check
-  // entirely, so a stale local devices.revoked_at stamp (e.g. from a pre-sync
-  // wasAdminOrFounder misclassification in revokeDevice, electron/main.js) can never override a
-  // fleet-confirmed-live admin. `undefined` (no row) falls straight through to the legacy check,
-  // byte-for-byte unchanged.
-  const authorityStatus = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(verified.deviceId)?.status
-  if (authorityStatus === 'revoked') {
-    recordAuditEvent(db, {
-      actorUserId: verified.userId,
-      deviceId: verified.deviceId,
-      action: 'auth.authenticate',
-      outcome: 'deny',
-      reason: 'device_revoked_by_authority',
-      metadata: verified.jti ? { jti: verified.jti } : null,
-    })
-    return { ok: false, code: 4404, reason: 'device_revoked_by_authority' }
-  }
-
-  if (authorityStatus !== 'admin') {
-    const trust = deviceTrustStatus(db, verified.deviceId)
-    if (!trust.found || !trust.authorized || trust.revoked) {
-      const reason = deviceTrustReason(trust)
-      recordAuditEvent(db, {
-        actorUserId: verified.userId,
-        deviceId: verified.deviceId,
-        action: 'auth.authenticate',
-        outcome: 'deny',
-        reason,
-        metadata: verified.jti ? { jti: verified.jti } : null,
-      })
-      return { ok: false, code: reason === 'device_revoked' ? 4404 : 4403, reason }
+  const byPeer = db.prepare('SELECT device_id FROM roster_cache WHERE peer_id = ?').get(peerId)
+  const byDevice = db.prepare('SELECT peer_id FROM roster_cache WHERE device_id = ?').get(device_id)
+  // Only a refusal of a peer the roster knows is audited. An unrostered stranger can open connections and send
+  // authenticate frames at will, and the audit table is append-only, so auditing every stranger would let one
+  // write unbounded rows.
+  const deny = (code, reason) => {
+    if (byPeer || byDevice) {
+      recordAuditEvent(db, { actorUserId: null, deviceId: device_id, action: 'auth.authenticate', outcome: 'deny', reason })
     }
+    return { ok: false, code, reason }
   }
 
-  if (typeof peerId === 'string' && peerId.length > 0) {
-    const bind = bindOrVerifyPeerIdentity(db, verified.deviceId, peerId)
-    if (!bind.ok) {
-      recordAuditEvent(db, {
-        actorUserId: verified.userId,
-        deviceId: verified.deviceId,
-        action: 'auth.authenticate',
-        outcome: 'deny',
-        reason: bind.reason,
-        metadata: verified.jti ? { jti: verified.jti } : null,
-      })
-      return { ok: false, code: 4405, reason: bind.reason }
-    }
-  }
+  // Revoked first, beating everything: a device removed by the distributed authority log is refused even if
+  // the roster (monotonic, never un-verified) still holds it. docs/adr/2026-10-02-distributed-revocation-authority.md.
+  const authorityStatus = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(device_id)?.status
+  if (authorityStatus === 'revoked') return deny(4404, 'device_revoked_by_authority')
 
-  // Gate A (T331, docs/adr/2026-10-02-distributed-revocation-authority.md) — the DISTRIBUTED
-  // revocation check is now evaluated ABOVE, hoisted ahead of the legacy devices.revoked_at
-  // check by the 2026-10-03 amendment (see this function's own comment at that check). No
-  // separate authority_cache read happens here any more — doing it twice would just be the
-  // same query run again, not a second gate.
-  persistAppliedTombstones(db, verified.deviceId, appliedTombstones)
+  if (byPeer && byPeer.device_id !== device_id) return deny(4405, 'peer_identity_mismatch')
+  if (!byPeer && byDevice) return deny(4405, 'peer_identity_mismatch')
+  if (!byPeer) return deny(4403, 'device_not_authorized')
 
-  return { ok: true, verified }
+  // The legacy devices.revoked_at stamp (pre-T331 and revokeDevice's local write) still denies, unless
+  // authority_cache says this device is a fleet-confirmed admin (the 2026-10-03 RISK-1 precedence, unchanged).
+  if (authorityStatus !== 'admin' && deviceTrustStatus(db, device_id).revoked) return deny(4404, 'device_revoked')
+
+  // A device admitted by the roster may have no devices row on this device (it enrolled elsewhere); the
+  // advisory per-peer tombstone report below is keyed on it.
+  db.prepare("INSERT OR IGNORE INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run(
+    device_id,
+    `Device ${device_id.slice(0, 8)}`
+  )
+  // Routing convenience only, never a trust signal (peerIdentity.js): it is how revokeDevice finds the live connection to
+  // evict and how the redial/punch paths find a peer's address. The roster, not this column, decides admission.
+  recordLibp2pPeerId(db, device_id, peerId)
+  persistAppliedTombstones(db, device_id, appliedTombstones)
+
+  return { ok: true, verified: { deviceId: device_id, userId: null } }
 }
 
 // The transport-independent DECISION half of pairing-request handling, called by

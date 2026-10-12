@@ -57,6 +57,7 @@ export async function makeHandoffPair() {
         "INSERT OR REPLACE INTO devices (id, name, authorized_at, pairing_status, libp2p_peer_id) VALUES (?, ?, ?, 'authorized', ?)"
       ).run(id, `${name}-${id.slice(0, 4)}`, NOW, peer)
       db.prepare("INSERT OR REPLACE INTO authority_cache (device_id, status, updated_at) VALUES (?, 'admin', ?)").run(id, NOW)
+      db.prepare('INSERT OR REPLACE INTO roster_cache (device_id, peer_id, verified_at) VALUES (?, ?, ?)').run(id, peer, NOW)
     }
   }
 

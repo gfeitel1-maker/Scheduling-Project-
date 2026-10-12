@@ -14,7 +14,7 @@ function fakeHandle() {
 }
 
 describe('wireMutualAuth', () => {
-  it('dials and authenticates a discovered peer using the current token', async () => {
+  it('dials and authenticates a discovered peer, sending no session token (T376: admission is the signed roster)', async () => {
     const handle = fakeHandle()
     wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true })
 
@@ -24,7 +24,7 @@ describe('wireMutualAuth', () => {
     expect(handle.dial).toHaveBeenCalledWith('peer-b', { signal: expect.any(AbortSignal) })
     expect(handle.authenticateWith).toHaveBeenCalledWith(
       'peer-b',
-      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION, appliedTombstones: [] },
+      { type: 'authenticate', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION, appliedTombstones: [] },
       { signal: expect.any(AbortSignal) }
     )
   })
@@ -44,19 +44,21 @@ describe('wireMutualAuth', () => {
 
     expect(handle.authenticateWith).toHaveBeenCalledWith(
       'peer-b',
-      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION, appliedTombstones: [{ id: 'camper-x', version: 1 }] },
+      { type: 'authenticate', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION, appliedTombstones: [{ id: 'camper-x', version: 1 }] },
       { signal: expect.any(AbortSignal) }
     )
   })
 
-  it('does not dial a discovered peer when there is no token yet', async () => {
+  it('dials a trusted discovered peer even when this device holds no session token at all (T376)', async () => {
     const handle = fakeHandle()
     wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => null, isPeerTrusted: () => true })
 
     handle.fireDiscovery('peer-b')
     await new Promise((r) => setTimeout(r, 10))
 
-    expect(handle.dial).not.toHaveBeenCalled()
+    expect(handle.dial).toHaveBeenCalled()
+    const [, frame] = handle.authenticateWith.mock.calls[0]
+    expect(frame).not.toHaveProperty('token')
   })
 
   it('does not re-dial the same peer twice while already attempted', async () => {
@@ -184,7 +186,7 @@ describe('wireMutualAuth — local trust filter (T208)', () => {
 
     expect(handle.authenticateWith).toHaveBeenCalledWith(
       'peer-trusted',
-      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION, appliedTombstones: [] },
+      { type: 'authenticate', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION, appliedTombstones: [] },
       { signal: expect.any(AbortSignal) }
     )
   })
@@ -384,7 +386,7 @@ describe('wireMutualAuth — negative cache for untrusted peers (T208 round 2)',
     await new Promise((r) => setTimeout(r, 5))
     expect(handle.authenticateWith).toHaveBeenCalledWith(
       'peer-b',
-      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION, appliedTombstones: [] },
+      { type: 'authenticate', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION, appliedTombstones: [] },
       { signal: expect.any(AbortSignal) }
     )
   })
@@ -532,50 +534,6 @@ describe('wireMutualAuth — connectivity event emission (T212)', () => {
     } finally {
       vi.useRealTimers()
     }
-  })
-
-  it('emits NO_TOKEN when getToken() is falsy, so "not logged in" is distinguishable from a hang (Red Hat)', async () => {
-    const handle = fakeHandle()
-    const emitter = fakeEmitter()
-    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => null, isPeerTrusted: () => true, emitter })
-
-    handle.fireDiscovery('peer-b')
-    await new Promise((r) => setTimeout(r, 10))
-
-    const names = emitter.events.map((e) => e.name)
-    expect(names).toEqual(['PEER_DISCOVERED', 'NO_TOKEN'])
-    expect(handle.dial).not.toHaveBeenCalled()
-  })
-
-  // Packaged two-instance run (2dd5fb7a): a joined device's node discovered the Host before it had a
-  // token, logged NO_TOKEN, and — mDNS not re-announcing an already-reported peer — never tried
-  // again. A token that arrives later must re-run the skipped attempt itself.
-  it('a token arriving after discovery re-attempts the peers skipped for NO_TOKEN', async () => {
-    const handle = fakeHandle()
-    let token = null
-    const auth = wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => token, isPeerTrusted: () => true, emitter: fakeEmitter() })
-    handle.fireDiscovery('peer-b')
-    await new Promise((r) => setTimeout(r, 10))
-    expect(handle.authenticateWith).not.toHaveBeenCalled()
-
-    token = 'tok-late'
-    auth.retryPeersAwaitingToken()
-    await new Promise((r) => setTimeout(r, 10))
-    expect(handle.authenticateWith).toHaveBeenCalledWith('peer-b', expect.objectContaining({ token: 'tok-late' }), expect.anything())
-  })
-
-  it('non-vacuous: the token retry still runs the trust check — an untrusted peer is not authenticated to', async () => {
-    const handle = fakeHandle()
-    let token = null
-    let trusted = true
-    const auth = wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => token, isPeerTrusted: () => trusted, emitter: fakeEmitter() })
-    handle.fireDiscovery('peer-b')
-    await new Promise((r) => setTimeout(r, 10))
-    trusted = false // revoked between discovery and the token arriving
-    token = 'tok-late'
-    auth.retryPeersAwaitingToken()
-    await new Promise((r) => setTimeout(r, 10))
-    expect(handle.authenticateWith).not.toHaveBeenCalled()
   })
 
   // A peer that authenticated to us must be proved to back, even if it was refused moments earlier

@@ -41,7 +41,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 95
+export const CURRENT_SCHEMA_VERSION = 96
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4424,6 +4424,17 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     if (!hasEventsOnly) db.exec('ALTER TABLE time_blocks ADD COLUMN events_only INTEGER NOT NULL DEFAULT 0')
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (95, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v96 (T376, docs/adr/2026-10-12-shared-signed-device-roster.md) — roster_cache, a device-local cache
+  // re-derived from the `device_roster` document collection. schema.sql already creates it on every open;
+  // this block stamps the version for a database upgrading from v95. Nothing to carry forward: the cache is
+  // rebuilt from the signed document entries on the next projection. Guard `>= 95 && < 96`, never a bare
+  // `< 96` (this repo's standing gotcha).
+  if (getSchemaVersion(db) >= 95 && getSchemaVersion(db) < 96) {
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (96, ?)').run(
       new Date().toISOString()
     )
   }

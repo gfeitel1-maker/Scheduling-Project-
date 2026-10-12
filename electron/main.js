@@ -76,6 +76,7 @@ import { forgetRevokedPeer } from './sync/automerge/punchIdentity.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/authorityLog.js'
+import { mintRosterEntry } from './automerge/deviceRoster.js'
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
 import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc, suspendDocSaves as suspendAutomergeDocSaves } from './sync/automerge/liveDoc.js'
 import { runRendezvousRotation } from './sync/automerge/rendezvousRotation.js'
@@ -1274,6 +1275,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       const { peerId: founderPeerId } = await ensureDeviceIdentity(db)
       mintGenesisEntry(db, { founderDeviceId: deviceId, founderPeerId })
       projectAuthorityLogLocally()
+      // T376 (docs/adr/2026-10-12-shared-signed-device-roster.md): the Host's own roster entry, so every device it pairs
+      // can admit it from the signed roster with no Host-issued token. After the authority projection above, which the
+      // roster projection reads.
+      mintRosterEntry(db, { deviceId, peerId: founderPeerId })
+      projectEntity(db, getCurrentDoc(db), 'device_roster')
     } catch (err) {
       console.error(`bootstrapCamp: minting the genesis authority entry failed (non-fatal): ${err?.message ?? err}`)
     }

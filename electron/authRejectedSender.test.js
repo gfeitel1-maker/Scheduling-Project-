@@ -37,11 +37,13 @@ describe('REASON_TO_CODE parity with connectionAuth.js (drift guard)', () => {
 
   it('maps every (reason, code) pair connectionAuth.js actually returns', () => {
     // Every `code: NNNN, reason: 'x'` / `reason: 'x', code: NNNN` literal pair, plus the
-    // ternary form `code: reason === 'device_revoked' ? 4404 : 4403`.
+    // ternary form `code: reason === 'device_revoked' ? 4404 : 4403`, and the `deny(4404, 'reason')` calls.
     const pairs = new Map()
     for (const m of src.matchAll(/code:\s*(\d{4})\s*,\s*reason:\s*'([a-z_]+)'/g)) pairs.set(m[2], Number(m[1]))
     for (const m of src.matchAll(/reason:\s*'([a-z_]+)'\s*,\s*code:\s*(\d{4})/g)) pairs.set(m[1], Number(m[2]))
     for (const m of src.matchAll(/reason\s*===\s*'([a-z_]+)'\s*\?\s*(\d{4})\s*:\s*(\d{4})/g)) pairs.set(m[1], Number(m[2]))
+    // evaluateAuthenticate (T376) refuses through `deny(code, 'reason')`.
+    for (const m of src.matchAll(/deny\((\d{4}),\s*'([a-z_]+)'\)/g)) pairs.set(m[2], Number(m[1]))
 
     expect(pairs.size, 'found no (reason, code) pairs in connectionAuth.js — the scanner is broken, not the code clean').toBeGreaterThan(2)
 

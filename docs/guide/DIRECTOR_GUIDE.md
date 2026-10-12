@@ -501,6 +501,14 @@ Both computers must be on the **same Wi-Fi**. VPN and phone hotspots won't work.
 
 If it says **No camp answered that code**, check the code, check **Add a device** is still open, and check both are on the same Wi-Fi.
 
+### What the host computer is for
+
+The host computer is only needed to **add a brand-new device**. Once a device has joined, it keeps syncing with the camp's other computers whether or not the host computer is on, for as long as you like. Turning the host computer off for a day, a weekend or the off-season does not stop the rest of the camp from syncing, and nothing needs renewing when it comes back.
+
+Keep the host computer on, with **Add a device** open, until the new computer shows your camp. After that it is no longer needed for that device.
+
+**Removing a device** works the same way: remove it from any director's computer (Settings gear, **LAN & Devices**) and every computer that hears about the removal stops syncing with it. A computer that has not heard yet, because it has been off or out of range, keeps syncing with the removed one until it does. Removed devices cannot be added back; add the computer again as a new device.
+
 ### Moving hosting to another computer
 
 Only the host computer can add devices. If that computer is being replaced or turned in, hand hosting to another computer that is already joined to the camp. That computer must be a director's (admin) device.

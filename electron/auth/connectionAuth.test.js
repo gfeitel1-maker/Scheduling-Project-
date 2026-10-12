@@ -10,9 +10,9 @@
 // rather than through a transport is still the right level._
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import { randomUUID, randomBytes, createPrivateKey, sign as edSign, scryptSync } from 'node:crypto'
+import { randomUUID, randomBytes, scryptSync } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
-import { ensureHostSigningKey, issueCampToken, issueLocalToken, issueDeviceToken } from './localAuth.js'
+import { ensureHostSigningKey } from './localAuth.js'
 import { signAuthFields } from './authSignature.js'
 import { evaluateAuthenticate, evaluateLogin } from './connectionAuth.js'
 
@@ -37,6 +37,14 @@ afterEach(() => {
   fs.unlinkSync(tmpFile)
 })
 
+// The roster binds a device id to the libp2p peer id the Host signed for it. These unit tests stand in for the
+// derivation (projector.js's upsertDeviceRosterEntity, covered by deviceRoster.projector.test.js) by writing the
+// derived roster_cache row directly.
+const peerOf = (deviceId) => `peer-of-${deviceId}`
+function rosterDevice(deviceId, peerId = peerOf(deviceId)) {
+  db.prepare('INSERT INTO roster_cache (device_id, peer_id, verified_at) VALUES (?, ?, ?)').run(deviceId, peerId, new Date().toISOString())
+}
+
 function setupCampWithAuthorizedDevice(deviceId) {
   const campId = randomUUID()
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
@@ -46,6 +54,7 @@ function setupCampWithAuthorizedDevice(deviceId) {
     `INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status)
      VALUES (?, ?, ?, ?, 'authorized')`
   ).run(deviceId, 'Device', new Date().toISOString(), randomBytes(32).toString('hex'))
+  rosterDevice(deviceId)
   return campId
 }
 
@@ -70,164 +79,139 @@ function setupCampWithLoginableDevice(deviceId, { pin = '1234', role = 'admin' }
   return { campId, deviceSecretIdentifier, userId, pin }
 }
 
-describe('evaluateAuthenticate — shared admission decision', () => {
-  it('admits a valid camp token for an authorized device', () => {
+describe('evaluateAuthenticate — shared admission decision (signed device roster, T376)', () => {
+  it('admits a rostered device presenting its rostered peer id, with no token', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
-    const result = evaluateAuthenticate(db, { token, device_id: deviceId })
+    const result = evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) })
 
     expect(result.ok).toBe(true)
-    expect(result.verified.deviceId).toBe(deviceId)
-    expect(result.verified.type).toBe('camp')
+    expect(result.verified).toEqual({ deviceId, userId: null })
   })
 
-  // Finding 2 fix (Stage 5d-2b re-review): this is the regression test for
-  // "the Host's self-issued token can never verify." Before this fix, the
-  // Host self-issued issueCampToken(db, null, deviceId), which
-  // verifySessionToken ALWAYS rejected (userId must be a non-empty string) —
-  // evaluateAuthenticate could never reach this far for the Host's own
-  // outbound authenticate. issueDeviceToken's admission-only 'device' type
-  // must be ADMITTED here (the authorize()-side denial is a SEPARATE test in
-  // authorize.test.js — admission and authorization are different layers).
-  it('admits a Host-issued device (admission-only) token for an authorized device', () => {
+  it('admits a rostered device that has no devices row at all (it enrolled on another device) and registers one', () => {
     const deviceId = randomUUID()
-    setupCampWithAuthorizedDevice(deviceId)
-    const token = issueDeviceToken(db, deviceId)
+    rosterDevice(deviceId)
 
-    const result = evaluateAuthenticate(db, { token, device_id: deviceId })
+    const result = evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) })
 
     expect(result.ok).toBe(true)
-    expect(result.verified.deviceId).toBe(deviceId)
-    expect(result.verified.type).toBe('device')
-    expect(result.verified.userId).toBeNull()
+    expect(db.prepare('SELECT pairing_status FROM devices WHERE id = ?').get(deviceId).pairing_status).toBe('pending')
   })
 
-  it('rejects a local-type token even though it is structurally valid', () => {
+  it('does not require devices.authorized_at: the roster is the positive membership fact', () => {
     const deviceId = randomUUID()
-    setupCampWithAuthorizedDevice(deviceId)
-    const userId = randomUUID()
-    const localToken = issueLocalToken(db, userId, deviceId)
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run(deviceId, 'Device')
+    rosterDevice(deviceId)
 
-    const result = evaluateAuthenticate(db, { token: localToken, device_id: deviceId })
-
-    expect(result.ok).toBe(false)
-    expect(result.code).toBe(4402)
-    expect(result.reason).toBe('local_token_not_valid_for_network')
+    expect(evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) }).ok).toBe(true)
   })
 
-  it('rejects a tampered token', () => {
+  it('rejects a device that is not on the roster with 4403/device_not_authorized', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
-    const [payload] = token.split('.')
-    const tampered = `${payload}.${'a'.repeat(43)}`
+    db.prepare('DELETE FROM roster_cache').run()
 
-    const result = evaluateAuthenticate(db, { token: tampered, device_id: deviceId })
+    const result = evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) })
 
-    expect(result.ok).toBe(false)
-    expect(result.code).toBe(4401)
-    expect(result.reason).toBe('invalid_token')
+    expect(result).toMatchObject({ ok: false, code: 4403, reason: 'device_not_authorized' })
   })
 
-  it('rejects an expired token (re-signed with the real Host key, so this is exp-enforcement specifically, not a signature failure)', () => {
+  it('an authorized devices row is not membership: authorized_at without a roster entry is refused', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
-    const [payloadB64] = token.split('.')
-    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'))
-    payload.exp = Date.now() - 1000
-    const hostKey = db.prepare('SELECT private_key FROM host_signing_key WHERE id = 1').get()
-    const expiredPayloadB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
-    const privateKeyObj = createPrivateKey({ key: Buffer.from(hostKey.private_key, 'hex'), format: 'der', type: 'pkcs8' })
-    const expiredSignature = edSign(null, Buffer.from(expiredPayloadB64), privateKeyObj).toString('base64url')
-    const expiredToken = `${expiredPayloadB64}.${expiredSignature}`
+    db.prepare('DELETE FROM roster_cache').run()
+    db.prepare("UPDATE devices SET authorized_at = ?, pairing_status = 'authorized' WHERE id = ?").run(new Date().toISOString(), deviceId)
 
-    const result = evaluateAuthenticate(db, { token: expiredToken, device_id: deviceId })
-
-    expect(result.ok).toBe(false)
-    expect(result.code).toBe(4401)
-    expect(result.reason).toBe('invalid_token')
+    expect(evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) }).reason).toBe('device_not_authorized')
   })
 
-  it('rejects a token whose device_id does not match the claimed device', () => {
+  it('refuses a missing device id or peer id', () => {
     const deviceId = randomUUID()
-    const otherDeviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
-    const result = evaluateAuthenticate(db, { token, device_id: otherDeviceId })
-
-    expect(result.ok).toBe(false)
-    expect(result.code).toBe(4401)
-    expect(result.reason).toBe('invalid_token')
+    expect(evaluateAuthenticate(db, { device_id: deviceId }).reason).toBe('device_not_authorized')
+    expect(evaluateAuthenticate(db, { peerId: peerOf(deviceId) }).reason).toBe('device_not_authorized')
   })
 
-  it('rejects a revoked device even with a structurally valid token', () => {
-    const deviceId = randomUUID()
-    setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
-    db.prepare("UPDATE devices SET revoked_at = ?, revocation_reason = 'lost' WHERE id = ?").run(
-      new Date().toISOString(),
-      deviceId
-    )
+  it('ignores a token entirely: a garbage token on a rostered device admits, and none rescues an unrostered one', () => {
+    const rostered = randomUUID()
+    setupCampWithAuthorizedDevice(rostered)
+    const stranger = randomUUID()
 
-    const result = evaluateAuthenticate(db, { token, device_id: deviceId })
-
-    expect(result.ok).toBe(false)
-    expect(result.code).toBe(4404)
-    expect(result.reason).toBe('device_revoked')
+    expect(evaluateAuthenticate(db, { token: 'garbage', device_id: rostered, peerId: peerOf(rostered) }).ok).toBe(true)
+    expect(evaluateAuthenticate(db, { token: 'garbage', device_id: stranger, peerId: 'peer-stranger' }).reason).toBe('device_not_authorized')
   })
 
-  it('T331 gate A: rejects a device the DISTRIBUTED authority_cache marks revoked, even though devices.revoked_at was never set (no Host-local revocation)', () => {
+  it('a rostered device claiming another rostered device id gets 4405/peer_identity_mismatch', () => {
+    const a = randomUUID()
+    const b = randomUUID()
+    setupCampWithAuthorizedDevice(a)
+    rosterDevice(b)
+
+    const result = evaluateAuthenticate(db, { device_id: a, peerId: peerOf(b) })
+
+    expect(result).toMatchObject({ ok: false, code: 4405, reason: 'peer_identity_mismatch' })
+  })
+
+  it('a rostered device id presented from a different peer id gets 4405/peer_identity_mismatch', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
-    // No devices.revoked_at write at all — this device was removed by another admin's quorum,
-    // never by THIS device's own Host-local revokeDevice() path. The gate must still refuse it.
-    db.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)').run(
-      deviceId,
-      'revoked',
-      new Date().toISOString()
-    )
 
-    const result = evaluateAuthenticate(db, { token, device_id: deviceId })
+    const result = evaluateAuthenticate(db, { device_id: deviceId, peerId: 'peer-of-a-stranger' })
 
-    expect(result.ok).toBe(false)
-    expect(result.code).toBe(4404)
-    expect(result.reason).toBe('device_revoked_by_authority')
+    expect(result).toMatchObject({ ok: false, code: 4405, reason: 'peer_identity_mismatch' })
+  })
+
+  it('rejects a revoked device (legacy devices.revoked_at stamp)', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    db.prepare("UPDATE devices SET revoked_at = ?, revocation_reason = 'lost' WHERE id = ?").run(new Date().toISOString(), deviceId)
+
+    const result = evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) })
+
+    expect(result).toMatchObject({ ok: false, code: 4404, reason: 'device_revoked' })
+  })
+
+  it('T331 gate A: rejects a device the DISTRIBUTED authority_cache marks revoked even though it is rostered and devices.revoked_at was never set', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    db.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)').run(deviceId, 'revoked', new Date().toISOString())
+
+    const result = evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) })
+
+    expect(result).toMatchObject({ ok: false, code: 4404, reason: 'device_revoked_by_authority' })
   })
 
   it('T331 gate A: admits a device the authority_cache marks admin', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
-    db.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)').run(
-      deviceId,
-      'admin',
-      new Date().toISOString()
-    )
+    db.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)').run(deviceId, 'admin', new Date().toISOString())
 
-    const result = evaluateAuthenticate(db, { token, device_id: deviceId })
-
-    expect(result.ok).toBe(true)
+    expect(evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) }).ok).toBe(true)
   })
 
-  it('rejects an unauthorized (never-approved) device', () => {
-    const campId = randomUUID()
-    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
-    const hostKey = ensureHostSigningKey(db)
-    db.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, campId)
+  it('a fleet-confirmed admin is admitted despite a stale legacy devices.revoked_at stamp (RISK-1 precedence)', () => {
     const deviceId = randomUUID()
-    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run(deviceId, 'Device')
-    const token = issueCampToken(db, randomUUID(), deviceId)
+    setupCampWithAuthorizedDevice(deviceId)
+    db.prepare('UPDATE devices SET revoked_at = ? WHERE id = ?').run(new Date().toISOString(), deviceId)
+    db.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)').run(deviceId, 'admin', new Date().toISOString())
 
-    const result = evaluateAuthenticate(db, { token, device_id: deviceId })
+    expect(evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) }).ok).toBe(true)
+  })
 
-    expect(result.ok).toBe(false)
-    expect(result.code).toBe(4403)
-    expect(result.reason).toBe('device_not_authorized')
+  it('audits the refusal of a rostered device, and writes nothing for an unrostered stranger', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    db.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)').run(deviceId, 'revoked', new Date().toISOString())
+    const rows = () => db.prepare("SELECT outcome, reason FROM audit_events WHERE action = 'auth.authenticate'").all()
+
+    evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) })
+    expect(rows()).toEqual([{ outcome: 'deny', reason: 'device_revoked_by_authority' }])
+
+    for (let i = 0; i < 5; i++) evaluateAuthenticate(db, { device_id: randomUUID(), peerId: `stranger-${i}` })
+    expect(rows()).toHaveLength(1)
   })
 })
 
@@ -236,7 +220,7 @@ describe('evaluateAuthenticate — shared admission decision', () => {
 // request, the set of (tombstone id, version) pairs it has verified-and-projected.
 // evaluateAuthenticate persists this into peer_tombstone_reports, keyed by the
 // AUTHENTICATED verified.deviceId — never the raw, pre-verification device_id off
-// the wire — and ONLY after the trust/revocation gate passes.
+// the wire — and ONLY after the roster/revocation gate passes.
 describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', () => {
   const reportsFor = (deviceId) =>
     db.prepare('SELECT * FROM peer_tombstone_reports WHERE device_id = ?').all(deviceId)
@@ -244,11 +228,10 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
   it('persists a verified tombstone report for an admitted device', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
     const result = evaluateAuthenticate(db, {
-      token,
       device_id: deviceId,
+      peerId: peerOf(deviceId),
       appliedTombstones: [{ id: 'camper-x', version: 1 }],
     })
 
@@ -262,9 +245,8 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
   it('has no row for a tombstone id never included in the report', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
-    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 1 }] })
+    evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId), appliedTombstones: [{ id: 'camper-x', version: 1 }] })
 
     expect(db.prepare('SELECT 1 FROM peer_tombstone_reports WHERE device_id = ? AND tombstone_id = ?').get(deviceId, 'camper-never-reported')).toBeUndefined()
   })
@@ -272,13 +254,14 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
   // THE FORGED/UNAUTHENTICATED-WRITE PLANT. A token that fails verification, or a
   // revoked/unauthorized device, must never get its self-report persisted — the
   // write must happen strictly AFTER the trust/revocation gate, never before.
-  it('never persists a report when the token fails verification', () => {
+  it('never persists a report for a device that is not on the roster', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
+    db.prepare('DELETE FROM roster_cache').run()
 
     const result = evaluateAuthenticate(db, {
-      token: 'not-a-real-token',
       device_id: deviceId,
+      peerId: peerOf(deviceId),
       appliedTombstones: [{ id: 'camper-x', version: 1 }],
     })
 
@@ -289,12 +272,11 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
   it('never persists a report for a revoked device', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
     db.prepare('UPDATE devices SET revoked_at = ? WHERE id = ?').run(new Date().toISOString(), deviceId)
 
     const result = evaluateAuthenticate(db, {
-      token,
       device_id: deviceId,
+      peerId: peerOf(deviceId),
       appliedTombstones: [{ id: 'camper-x', version: 1 }],
     })
 
@@ -302,18 +284,13 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
     expect(db.prepare('SELECT COUNT(*) c FROM peer_tombstone_reports').get().c).toBe(0)
   })
 
-  it('never persists a report for an unauthorized (pending) device', () => {
+  it('never persists a report for a pending device that is not on the roster', () => {
     const deviceId = randomUUID()
-    const campId = randomUUID()
-    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
-    const hostKey = ensureHostSigningKey(db)
-    db.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, campId)
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run(deviceId, 'Pending device')
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
     const result = evaluateAuthenticate(db, {
-      token,
       device_id: deviceId,
+      peerId: peerOf(deviceId),
       appliedTombstones: [{ id: 'camper-x', version: 1 }],
     })
 
@@ -324,21 +301,19 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
   it('does not throw and does not corrupt the table on a non-array appliedTombstones', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
-    expect(() => evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: 'not-an-array' })).not.toThrow()
+    expect(() => evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId), appliedTombstones: 'not-an-array' })).not.toThrow()
     expect(reportsFor(deviceId)).toHaveLength(0)
   })
 
   it('skips a malformed entry (missing id) without throwing or blocking the rest of the batch', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
     expect(() =>
       evaluateAuthenticate(db, {
-        token,
         device_id: deviceId,
+        peerId: peerOf(deviceId),
         appliedTombstones: [{ version: 1 }, { id: 'camper-y', version: 2 }],
       })
     ).not.toThrow()
@@ -350,12 +325,11 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
   it('skips a malformed entry (negative version) without throwing or blocking the rest of the batch', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
     expect(() =>
       evaluateAuthenticate(db, {
-        token,
         device_id: deviceId,
+        peerId: peerOf(deviceId),
         appliedTombstones: [{ id: 'camper-bad', version: -1 }, { id: 'camper-y', version: 2 }],
       })
     ).not.toThrow()
@@ -367,12 +341,11 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
   it('skips a malformed entry (non-string id) without throwing or blocking the rest of the batch', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
     expect(() =>
       evaluateAuthenticate(db, {
-        token,
         device_id: deviceId,
+        peerId: peerOf(deviceId),
         appliedTombstones: [{ id: 42, version: 1 }, { id: 'camper-y', version: 2 }],
       })
     ).not.toThrow()
@@ -384,10 +357,9 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
   it('is idempotent: re-authenticating with the same payload does not duplicate or error', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
-    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 1 }] })
-    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 1 }] })
+    evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId), appliedTombstones: [{ id: 'camper-x', version: 1 }] })
+    evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId), appliedTombstones: [{ id: 'camper-x', version: 1 }] })
 
     const rows = reportsFor(deviceId)
     expect(rows).toHaveLength(1)
@@ -402,10 +374,9 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
   it('does not lower the stored version when an OLDER report arrives after a newer one', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
-    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 5 }] })
-    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 2 }] })
+    evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId), appliedTombstones: [{ id: 'camper-x', version: 5 }] })
+    evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId), appliedTombstones: [{ id: 'camper-x', version: 2 }] })
 
     const rows = reportsFor(deviceId)
     expect(rows).toHaveLength(1)
@@ -415,10 +386,9 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
   it('advances the stored version when a NEWER report arrives', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
-    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 2 }] })
-    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 7 }] })
+    evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId), appliedTombstones: [{ id: 'camper-x', version: 2 }] })
+    evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId), appliedTombstones: [{ id: 'camper-x', version: 7 }] })
 
     const rows = reportsFor(deviceId)
     expect(rows).toHaveLength(1)
@@ -428,23 +398,19 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
   it('inserts a fresh (device, tombstone) report that has no prior row', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
 
-    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-fresh', version: 3 }] })
+    evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId), appliedTombstones: [{ id: 'camper-fresh', version: 3 }] })
 
     const rows = reportsFor(deviceId)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ tombstone_id: 'camper-fresh', version: 3 })
   })
 
-  it('persists only after the peer-identity binding check also passes', () => {
+  it('persists only after the roster peer-identity binding also passes', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
-    db.prepare('UPDATE devices SET libp2p_peer_id = ? WHERE id = ?').run('peer-a', deviceId)
 
     const result = evaluateAuthenticate(db, {
-      token,
       device_id: deviceId,
       peerId: 'peer-b',
       appliedTombstones: [{ id: 'camper-x', version: 1 }],
@@ -456,49 +422,9 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
   })
 })
 
-// T162 (docs/adr/2026-09-14-device-identity-and-token-binding.md §3/§4):
-// evaluateAuthenticate/evaluateLogin gain a `peerId` parameter and bind it to
-// the device via bindOrVerifyPeerIdentity. Passing NO peerId (every test
-// above) skips the bind check entirely — those tests exercise token/trust
-// logic in isolation, unchanged.
-describe('evaluateAuthenticate — peer identity binding (T162)', () => {
-  it('a device with no bound peer id yet still succeeds and binds on first contact', () => {
-    const deviceId = randomUUID()
-    setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
-
-    const result = evaluateAuthenticate(db, { token, device_id: deviceId, peerId: 'peer-a' })
-
-    expect(result.ok).toBe(true)
-    expect(db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(deviceId).libp2p_peer_id).toBe('peer-a')
-  })
-
-  it('a matching bound peer id still succeeds', () => {
-    const deviceId = randomUUID()
-    setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
-    db.prepare('UPDATE devices SET libp2p_peer_id = ? WHERE id = ?').run('peer-a', deviceId)
-
-    const result = evaluateAuthenticate(db, { token, device_id: deviceId, peerId: 'peer-a' })
-
-    expect(result.ok).toBe(true)
-  })
-
-  it('a mismatched bound peer id is rejected with 4405/peer_identity_mismatch', () => {
-    const deviceId = randomUUID()
-    setupCampWithAuthorizedDevice(deviceId)
-    const token = issueCampToken(db, randomUUID(), deviceId)
-    db.prepare('UPDATE devices SET libp2p_peer_id = ? WHERE id = ?').run('peer-a', deviceId)
-
-    const result = evaluateAuthenticate(db, { token, device_id: deviceId, peerId: 'peer-b' })
-
-    expect(result.ok).toBe(false)
-    expect(result.code).toBe(4405)
-    expect(result.reason).toBe('peer_identity_mismatch')
-    // The bound value must be untouched by a rejected mismatch.
-    expect(db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(deviceId).libp2p_peer_id).toBe('peer-a')
-  })
-})
+// T162 (docs/adr/2026-09-14-device-identity-and-token-binding.md §3/§4), reworked by T376: evaluateAuthenticate no longer
+// TOFU-binds a peer id on first contact. The Host-signed roster fixes the binding, so a first contact from an
+// unrostered peer id is refused (see the shared-admission describe above) and evaluateLogin keeps the TOFU bind below.
 
 describe('evaluateLogin — peer identity binding (T162)', () => {
   it('a device with no bound peer id yet still succeeds and binds on first login', () => {

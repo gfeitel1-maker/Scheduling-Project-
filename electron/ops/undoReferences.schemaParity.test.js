@@ -237,6 +237,8 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'applied_authority_log', column: 'target_device_id', reason: 'names a device_id, not a U2-deletable entity — permanent audit trail, mirrors peer_tombstone_reports.device_id' },
   { table: 'applied_authority_log', column: 'signer_device_id', reason: 'names a device_id, not a U2-deletable entity — permanent audit trail, mirrors peer_tombstone_reports.device_id' },
   { table: 'authority_cache', column: 'device_id', reason: 'names a device_id, not a U2-deletable entity — derived cache, fully recomputed on every projection pass and on purge/rebuild' },
+  { table: 'roster_cache', column: 'device_id', reason: 'names a device_id, not a U2-deletable entity — device-local monotonic cache of the Host-signed device_roster document collection (T376), re-derived on rebuild' },
+  { table: 'roster_cache', column: 'peer_id', reason: 'a libp2p peer id, not a U2-deletable entity — the peer the Host bound the device to in its signed roster entry (T376)' },
   { table: 'open_reconciliation_decisions', column: 'entity_id', reason: 'polymorphic (entity_type varies), schema.sql documents "not a FK" — mirrors source_aliases.entity_id' },
   { table: 'open_reconciliation_decisions', column: 'cohort_id', reason: 'host-local journal metadata (never synced); a stale pointer after undo makes a row not match on the next import, not a corrupted live record — mirrors source_aliases.cohort_id' },
   { table: 'open_reconciliation_decisions', column: 'import_run_id', reason: 'groups rows from one commitIngest call, not an entity pointer — mirrors import_evidence.import_run_id' },

@@ -35,6 +35,7 @@ async function setup({ revoked = false } = {}) {
   handles.push(office, laptop)
   db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at, revoked_at, libp2p_peer_id) VALUES ('d1', 'd1', 'approved', '2026-10-01T00:00:00.000Z', ?, ?)")
     .run(revoked ? '2026-10-02T00:00:00.000Z' : null, office.peerId)
+  db.prepare("INSERT INTO roster_cache (device_id, peer_id, verified_at) VALUES ('d1', ?, '2026-10-01T00:00:00.000Z')").run(office.peerId)
   const live = office.getMultiaddrs().map(String).find((m) => m.includes('/tcp/'))
   return { db, office, laptop, liveAddr: live.includes('/p2p/') ? live : `${live}/p2p/${office.peerId}` }
 }
@@ -58,7 +59,7 @@ describe('startup redial over real libp2p', () => {
     rememberPeerAddress(s.db, s.office.peerId, s.liveAddr)
     await redial(s)
     expect(s.laptop.getPeers()).toContain(s.office.peerId)
-    const resp = await s.laptop.authenticateWith(s.office.peerId, { type: 'authenticate', token: 't', device_id: 'laptop', schemaVersion: CURRENT_SCHEMA_VERSION })
+    const resp = await s.laptop.authenticateWith(s.office.peerId, { type: 'authenticate', device_id: 'laptop', schemaVersion: CURRENT_SCHEMA_VERSION })
     expect(resp.type).toBe('auth_ok')
     expect(s.office.isPeerAuthenticated(s.laptop.peerId)).toBe(true)
   })

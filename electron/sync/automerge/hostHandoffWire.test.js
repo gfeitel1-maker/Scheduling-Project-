@@ -10,6 +10,7 @@ import * as A from '@automerge/automerge'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../../db/testDbTemplate.js'
 import { getOrCreateDeviceId, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
+import { rosterDevice } from './rosterTestSupport.js'
 import { createUser, issueCampToken, issueDeviceToken, attemptLogin, isHostDevice, verifySessionToken } from '../../auth/localAuth.js'
 import { appendOp } from '../../ops/operations.js'
 import { startSyncNode } from './syncNode.js'
@@ -66,6 +67,7 @@ function authorizeEverywhere(sides) {
       side.db.prepare(
         "INSERT OR REPLACE INTO devices (id, name, authorized_at, pairing_status, libp2p_peer_id) VALUES (?, ?, ?, 'authorized', ?)"
       ).run(other.deviceId, `dev-${other.deviceId.slice(0, 4)}`, '2026-10-09T12:00:00.000Z', other.identity.peerId)
+      rosterDevice(side.db, other.deviceId, other.identity.peerId)
     }
   }
 }
@@ -373,6 +375,8 @@ describe('rejections over the wire', () => {
     const { ensureDeviceIdentity } = await import('../../auth/deviceIdentity.js')
     intruder.identity = await ensureDeviceIdentity(stranger)
     authorizeEverywhere([intruder, S])
+    // S's roster does not hold the intruder (its reciprocal authenticate would otherwise be admitted now that no token gates it).
+    S.db.prepare('DELETE FROM roster_cache WHERE device_id = ?').run(intruder.deviceId)
     await start(intruder)
     // The intruder admits S (so its own outbound check passes); S never admitted the intruder.
     await connect(S, intruder, issueCampToken(H.db, randomUUID(), S.deviceId))
