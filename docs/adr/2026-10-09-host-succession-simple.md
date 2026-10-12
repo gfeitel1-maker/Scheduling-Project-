@@ -3,7 +3,7 @@ title: "Host succession (simple): planned handoff of the existing host key to an
 document_type: adr
 authority: normative
 status: accepted
-implementation_state: not-started
+implementation_state: implemented
 date: 2026-10-09
 decided: "2026-10-09 — accepted by the board keeper under owner delegation"
 deciders: [product-owner]
