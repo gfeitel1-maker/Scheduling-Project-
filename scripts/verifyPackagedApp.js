@@ -124,18 +124,29 @@ export function interpretLoadProbe({ status, stdout, stderr }, name = DRIVER) {
   return { ok: false, reason: 'load-failed', message: `${name} did not load under the packaged Electron (exit ${status}): ${String(stderr).trim() || String(stdout).trim() || '(no output)'}` }
 }
 
+// The FIRST spawn of a freshly built bundle can take well over a minute on macOS: the OS scans a
+// new bundle's executable and native modules the first time they load (a re-run straight after
+// passes in seconds). So a probe gets a generous bound, and its time is logged so a slow scan is
+// visible rather than read as a load failure.
+const PROBE_TIMEOUT_MS = Number(process.env.SHORESH_PROBE_TIMEOUT_MS) || 300000
+function timedSpawn(executable, script) {
+  const t = Date.now()
+  const r = spawnSync(executable, ['-e', script], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: PROBE_TIMEOUT_MS })
+  return { r, ms: Date.now() - t }
+}
+
 function loadProbe(executable, appDir) {
   const driverPath = path.join(appDir, 'node_modules', DRIVER)
   const script = `const D=require(${JSON.stringify(driverPath)});new D(':memory:').close();console.log(${JSON.stringify(SENTINEL)})`
-  const r = spawnSync(executable, ['-e', script], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 60000 })
-  return interpretLoadProbe({ status: r.status, stdout: r.stdout, stderr: r.error ? String(r.error) : r.stderr })
+  const { r, ms } = timedSpawn(executable, script)
+  return { ...interpretLoadProbe({ status: r.status, stdout: r.stdout, stderr: r.error ? String(r.error) : r.stderr }), ms }
 }
 
 function datachannelProbe(executable, appDir) {
   const modPath = path.join(appDir, 'node_modules', DATACHANNEL)
   const script = `const n=require(${JSON.stringify(modPath)});const pc=new n.PeerConnection('probe',{iceServers:[]});pc.close();n.cleanup();console.log(${JSON.stringify(SENTINEL)});process.exit(0)`
-  const r = spawnSync(executable, ['-e', script], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 60000 })
-  return interpretLoadProbe({ status: r.status, stdout: r.stdout, stderr: r.error ? String(r.error) : r.stderr }, DATACHANNEL)
+  const { r, ms } = timedSpawn(executable, script)
+  return { ...interpretLoadProbe({ status: r.status, stdout: r.stdout, stderr: r.error ? String(r.error) : r.stderr }, DATACHANNEL), ms }
 }
 
 export function waitForExit(child, ms) {
@@ -207,8 +218,10 @@ async function main() {
   console.log(`verify:packaged: ${DRIVER} present (${tree.binaries.length} native binary)`)
 
   const probe = loadProbe(executable, appDir)
-  if (!probe.ok) fail(probe.message)
-  console.log(`verify:packaged: ${DRIVER} loads and opens a database under the packaged Electron`)
+  if (!probe.ok) fail(`${probe.message} (after ${(probe.ms / 1000).toFixed(1)}s, bound ${PROBE_TIMEOUT_MS / 1000}s)`)
+  const again = loadProbe(executable, appDir)
+  if (!again.ok) fail(again.message)
+  console.log(`verify:packaged: ${DRIVER} loads and opens a database under the packaged Electron (first spawn ${(probe.ms / 1000).toFixed(1)}s, second ${(again.ms / 1000).toFixed(1)}s; a slow first spawn is macOS scanning a newly built bundle)`)
 
   const lock = checkLockfilePlatforms(JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8')))
   if (!lock.ok) fail(lock.message)
@@ -219,8 +232,8 @@ async function main() {
   console.log(`verify:packaged: ${DATACHANNEL} present (${dc.binaries.map((b) => path.relative(appDir, b)).join(', ')})`)
 
   const dcProbe = datachannelProbe(executable, appDir)
-  if (!dcProbe.ok) fail(dcProbe.message)
-  console.log(`verify:packaged: ${DATACHANNEL} loads and constructs a PeerConnection under the packaged Electron`)
+  if (!dcProbe.ok) fail(`${dcProbe.message} (after ${(dcProbe.ms / 1000).toFixed(1)}s, bound ${PROBE_TIMEOUT_MS / 1000}s)`)
+  console.log(`verify:packaged: ${DATACHANNEL} loads and constructs a PeerConnection under the packaged Electron (${(dcProbe.ms / 1000).toFixed(1)}s)`)
 
   if (process.argv.includes('--launch')) {
     const timeoutS = Number(process.env.SHORESH_SMOKE_TIMEOUT_S) || 180
