@@ -2,7 +2,7 @@
 ticket: T345
 document_type: ticket
 title: Director-gated at-rest encryption disable with verified decrypt-back
-status: open
+status: completed
 created: 2026-10-08
 archive_when: "a director/host can disable at-rest encryption on a device through authorize() with a consequence-stating confirm, a verified decrypt-back of the document and SQLite, and key shred, with the guard test-covered"
 task_class: security-auth
@@ -35,3 +35,7 @@ Closure is the Grader's call.
 - (B) The suspend gate moved into `docStore.saveDoc`, covering the purge path. `electron/sync/automerge/docStore.suspend.test.js`.
 - (C) Post-failure window: doc saves stay blocked, the db is closed, and the key is never shredded on a failure path. Crash suite and runner tests.
 - (D) `boundedSyncStop` extracted and tested (timeout path); in-flight start settling and refusal of a later start were already pinned in `electron/sync/automerge/syncStarterHolder.test.js`.
+
+## Completed 2026-10-12 (#960)
+
+Shipped: an admin-only, confirm-phrase-gated disable. It decrypts to staged copies, runs a full content check before any backup is deleted, writes the opt-out marker and shreds the key. Boot recovery rolls back or forward from the journal and always lands fully encrypted or fully plain. The real driver is proven on CI (run 38199322176: `sqliteCipher.integration.test.js`, 16 tests executed, none skipped).
