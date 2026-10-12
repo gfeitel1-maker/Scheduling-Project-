@@ -28,7 +28,7 @@ const STATE_LABEL = {
 // hub view, which is the same "nothing needs you" framing.
 const TILE_EMPTY_COPY = {
   attention: 'Nothing needs you right now. Shoresh understood everything it found.',
-  understood: 'Nothing rooted yet — import something to get started.',
+  understood: 'Nothing set up yet — import a file to get started.',
   changed: 'Nothing has changed since your last import.',
   absent: 'Nothing left out — everything in this file matched your camp.',
 }

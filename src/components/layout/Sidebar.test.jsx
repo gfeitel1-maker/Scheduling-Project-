@@ -64,9 +64,9 @@ describe('Sidebar: Roots — fixed, chevron-less top row (ADR Decision 3)', () =
 
   it('shows Germination, Sprouts and Plants — no third System section', () => {
     renderSidebar()
-    expect(screen.getByText('Germination')).toBeTruthy()
-    expect(screen.getByText('Sprouts')).toBeTruthy()
-    expect(screen.getByText('Plants')).toBeTruthy()
+    expect(screen.getByText('Camp')).toBeTruthy()
+    expect(screen.getByText('Activities & Events')).toBeTruthy()
+    expect(screen.getByText('Schedules')).toBeTruthy()
     expect(screen.queryByText('System')).toBeNull()
     expect(screen.queryByText('Camp Set Up')).toBeNull()
     expect(screen.queryByText('Schedule')).toBeNull()
@@ -209,8 +209,8 @@ describe('Sidebar: Plants is pinned — its schedule rows can never be hidden (W
 
   it('carries no collapse/expand toggle for Plants', () => {
     renderSidebar()
-    expect(screen.queryByTitle('Collapse Plants')).toBeNull()
-    expect(screen.queryByTitle('Expand Plants')).toBeNull()
+    expect(screen.queryByTitle('Collapse Schedules')).toBeNull()
+    expect(screen.queryByTitle('Expand Schedules')).toBeNull()
   })
 
   it('shows all four schedule rows by default', () => {
@@ -245,7 +245,8 @@ describe('Sidebar: Plants is pinned — its schedule rows can never be hidden (W
 describe('Sidebar: System items live behind the Settings gear', () => {
   it('does not show Camp/Conflicts/Trash/Devices in the main nav', () => {
     renderSidebar()
-    expect(screen.queryByText('Camp')).toBeNull()
+    // The only "Camp" in the main nav is the Camp section title (owner ruling, 2026-10-12).
+    expect(screen.queryAllByText('Camp')).toHaveLength(1)
     expect(screen.queryByText('Conflicts')).toBeNull()
     expect(screen.queryByText('Trash')).toBeNull()
     expect(screen.queryByText('Devices')).toBeNull()
@@ -254,7 +255,8 @@ describe('Sidebar: System items live behind the Settings gear', () => {
   it('reveals them from the Settings gear', () => {
     renderSidebar()
     fireEvent.click(screen.getByTitle('Settings'))
-    expect(screen.getByText('Camp')).toBeTruthy()
+    // The gear adds the Camp screen beside the Camp section title.
+    expect(screen.queryAllByText('Camp')).toHaveLength(2)
     expect(screen.getByText('Conflicts')).toBeTruthy()
     expect(screen.getByText('Trash')).toBeTruthy()
     expect(screen.getByText('Devices')).toBeTruthy()
@@ -277,7 +279,7 @@ describe('Sidebar: System items live behind the Settings gear', () => {
   it('hides Devices from a non-admin role', () => {
     renderSidebar({ role: 'staff' })
     fireEvent.click(screen.getByTitle('Settings'))
-    expect(screen.getByText('Camp')).toBeTruthy()
+    expect(screen.queryAllByText('Camp')).toHaveLength(2)
     expect(screen.queryByText('Devices')).toBeNull()
   })
 
@@ -301,7 +303,7 @@ describe('Sidebar: collapsing never hides a problem', () => {
     renderSidebar({ counts: { ...DEFAULT_COUNTS, days: 0 } })
     expect(screen.getByText('Days')).toBeTruthy()
 
-    fireEvent.click(screen.getByText('Germination').closest('button'))
+    fireEvent.click(screen.getByText('Camp').closest('button'))
 
     expect(screen.queryByText('Days')).toBeNull()
     // A mark, never a number: "3 / 4" did not say which row was missing, and
@@ -314,11 +316,11 @@ describe('Sidebar: collapsing never hides a problem', () => {
   it('remembers which sections were collapsed', () => {
     const { unmount } = renderSidebar()
     expect(screen.getByText('Groups')).toBeTruthy()
-    fireEvent.click(screen.getByText('Germination').closest('button'))
+    fireEvent.click(screen.getByText('Camp').closest('button'))
     unmount()
 
     renderSidebar()
-    expect(screen.getByText('Germination')).toBeTruthy()
+    expect(screen.getByText('Camp')).toBeTruthy()
     expect(screen.queryByText('Groups')).toBeNull()
   })
 })

@@ -81,7 +81,7 @@ describe('RootMap domain layers', () => {
         onClearSelection={noop}
       />,
     )
-    expect(screen.getByText(/No entities imported yet — this layer has no root\./)).toBeTruthy()
+    expect(screen.getByText(/Nothing imported in this area yet\./)).toBeTruthy()
   })
 })
 
@@ -111,7 +111,7 @@ describe('RootMap whole-camp empty state', () => {
     expect(document.querySelector('img[alt=""]').getAttribute('src')).toMatch(/173B63/i) // the sprout mark's navy (Vite inlines the SVG as a data URI)
     expect(screen.getByAltText('')).toBeTruthy()
     // Per-domain teaching notes don't also render underneath the whole-camp moment.
-    expect(screen.queryByText(/No entities imported yet — this layer has no root\./)).toBeNull()
+    expect(screen.queryByText(/Nothing imported in this area yet\./)).toBeNull()
   })
 
   it('does not show the whole-camp moment once any one domain has data', () => {
@@ -139,7 +139,7 @@ describe('RootMap chips', () => {
         onClearSelection={noop}
       />,
     )
-    const chip = screen.getByRole('button', { name: 'Locations — Not yet rooted' })
+    const chip = screen.getByRole('button', { name: 'Locations — Not set up yet' })
     expect(chip.tagName).toBe('BUTTON')
     expect(chip.getAttribute('aria-pressed')).toBe('false')
   })
@@ -168,9 +168,9 @@ describe('RootMap chips', () => {
         onClearSelection={noop}
       />,
     )
-    expect(screen.getByRole('button', { name: 'A — Rooted' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'B — Rooted · Changed' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'C — Not yet rooted' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'A — Set up' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'B — Set up · Changed' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'C — Not set up yet' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'D — Not started' })).toBeTruthy()
   })
 
@@ -194,7 +194,7 @@ describe('RootMap chips', () => {
         onClearSelection={noop}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'A — Rooted' }))
+    fireEvent.click(screen.getByRole('button', { name: 'A — Set up' }))
     expect(onSelectNode).toHaveBeenCalledWith('Structure', 'A')
   })
 
@@ -208,7 +208,7 @@ describe('RootMap chips', () => {
         onClearSelection={noop}
       />,
     )
-    const chip = screen.getByRole('button', { name: 'Locations — Not yet rooted' })
+    const chip = screen.getByRole('button', { name: 'Locations — Not set up yet' })
     expect(chip.getAttribute('style') ?? '').toContain('opacity: 0.35')
     expect(container).toBeTruthy()
   })
@@ -223,7 +223,7 @@ describe('RootMap chips', () => {
         onClearSelection={noop}
       />,
     )
-    const chip = screen.getByRole('button', { name: 'Locations — Not yet rooted' })
+    const chip = screen.getByRole('button', { name: 'Locations — Not set up yet' })
     expect(chip.getAttribute('aria-pressed')).toBe('true')
     expect(chip.getAttribute('style') ?? '').toContain('var(--accent)')
   })
@@ -414,7 +414,7 @@ describe('RootMap hover confirm-hint (attention-only, focus-visible unconditiona
         onClearSelection={noop}
       />,
     )
-    const chip = screen.getByRole('button', { name: 'Locations — Not yet rooted' })
+    const chip = screen.getByRole('button', { name: 'Locations — Not set up yet' })
     fireEvent.focus(chip)
     expect(screen.getByText('Click to confirm →')).toBeTruthy()
   })
@@ -444,7 +444,7 @@ describe('RootMap reduced motion', () => {
         onClearSelection={noop}
       />,
     )
-    expect(screen.getByRole('button', { name: 'Locations — Not yet rooted' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Locations — Not set up yet' })).toBeTruthy()
   })
 })
 
@@ -699,7 +699,7 @@ describe('RootMap "takes root" lifecycle (attention -> understood)', () => {
       expect(container.querySelector('[data-rooting="true"]')).toBeNull()
       // The discrete state/label change is instant, not animated — it still
       // happens under reduced motion.
-      expect(screen.getByRole('button', { name: 'Locations — Rooted' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Locations — Set up' })).toBeTruthy()
     } finally {
       window.matchMedia = originalMatchMedia
     }

@@ -762,7 +762,7 @@ describe('RootMapPanel — Understood tile (census tiles are the interface)', ()
         onClearSelection={noop}
       />,
     )
-    expect(screen.getByText('Nothing rooted yet — import something to get started.')).toBeTruthy()
+    expect(screen.getByText('Nothing set up yet — import a file to get started.')).toBeTruthy()
   })
 })
 
