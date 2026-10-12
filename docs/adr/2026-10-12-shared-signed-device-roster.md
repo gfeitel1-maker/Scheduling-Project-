@@ -2,10 +2,10 @@
 title: "Shared signed device roster: any two enrolled devices admit each other, with or without the host"
 document_type: adr
 authority: normative
-status: proposed
-implementation_state: not-started
+status: accepted
+implementation_state: in-progress
 date: 2026-10-12
-decided: "Direction accepted by the owner 2026-10-12 ('Shared device list (Recommended)'); this design is awaiting Governor/owner acceptance"
+decided: "Direction accepted by the owner 2026-10-12 ('Shared device list (Recommended)'); design amended 2026-10-12 for the Security and Red Hat design-review findings (see 'Design-review amendments')"
 deciders: [product-owner]
 program: security-hardening
 governing_docs:
@@ -83,19 +83,23 @@ Decisions on the fields the brief asked about:
 - **`role`: omitted.** Admin standing is already the signed authority log (`authority_cache`). A role column in the roster would be a second source of truth that can disagree with it. The roster says only "this device is a camp member".
 - **`revoked`: omitted.** Removal is a T331 `revoke` entry, not a mutation of the roster entry. The roster is append-only, which is what makes forged-overwrite and readmission arguments simple.
 
-**Signing an add.** The host key signs, because the only path for brand-new devices is the host approving a join. Signature primitive: a sibling of `electron/auth/authSignature.js` (same hex-DER Ed25519 host key, same `camps.signing_public_key` verification, own domain context `shoresh-roster-sig-v1`), signed tuple `[id, device_id, device_peer_id, added_at]`. Binding `id` and `device_id` stops a captured entry being moved to another device; binding the peer id stops key substitution.
+**Signing an add.** The host key signs, because the only path for brand-new devices is the host approving a join. Signature primitive: a sibling of `electron/auth/authSignature.js` (same hex-DER Ed25519 host key, same `camps.signing_public_key` verification, own domain context `shoresh-roster-sig-v1`), signed tuple `[id, camp_id, device_id, device_peer_id, added_at]`. Binding `id` and `device_id` stops a captured entry being moved to another device; binding the peer id stops key substitution; binding `camp_id` (this device's own `camps.id`, checked on verify) keeps an entry from one camp inert in another even if a host key were ever reused.
 
-**When the host mints.** In `approveDevice` (`electron/main.js`, line 1548), after the existing authorization write, the host also writes the roster entry. Its own genesis enrollment is written by `bootstrapCamp` (genesis may change, fresh camps only). Handoff (`2026-10-09-host-succession-simple`) moves the same key and the same public key, so existing entries stay valid and the successor can sign adds. A successor that is already enrolled needs no new entry.
+**When the host mints.** The joiner's peer id is not known at `approveDevice` time (a pending request carries only a device id; the Noise-proven peer id is bound at login, `evaluateLogin` via `onLogin` in `syncNode.js`). So the host mints on the first successful `login` from a device it has just approved, where the peer id is the Noise-proven `fromPeerId`, not a client claim. The mint is idempotent (a device already in `roster_cache` with that peer id is skipped) and runs only on a device that holds `host_signing_key`. Its own genesis enrollment is written by `bootstrapCamp` (genesis may change, fresh camps only). Handoff (`2026-10-09-host-succession-simple`) moves the same key and the same public key, so existing entries stay valid and the successor can sign adds. A successor that is already enrolled needs no new entry.
 
 **Removal.** Reuses the T331 revoke entry minted in `revokeDevice` (`electron/main.js`, line ~1724, `mintRevokeEntry`) unchanged: any valid admin signs it, ordinary devices are removed immediately, admin targets go through the existing quorum. No new removal primitive.
 
-**Replay and projection.** In `projector.js`, next to `upsertCampAuthorityLogEntity`, a new `upsertDeviceRosterEntity(db, doc)` fully re-derives (never patches) a device-local, never-synced table:
+**Replay and projection (amended: monotonic, never destructive).** In `projector.js`, after `upsertCampAuthorityLogEntity` (it MUST run after it, because it reads `authority_cache`; a test pins the order), a new `upsertDeviceRosterEntity(db, doc)` maintains a device-local, never-synced table:
 
 `roster_cache(device_id TEXT PRIMARY KEY, peer_id TEXT NOT NULL UNIQUE, verified_at TEXT)`
 
-An entry lands in `roster_cache` only if all hold: the signature verifies against `camps.signing_public_key`; both ids are non-empty strings; the `device_id` has no `authority_cache` `revoked` row; and its `peer_id` does not equal the peer id of any revoked device (this closes "re-enroll the same keypair under a new device id" after a removal). Unsigned, mis-signed, partially written (a field overwritten after signing) or wrong-key entries are silently skipped, exactly as `upsertCampAuthorityLogEntity` skips untrusted entries. Absent `signing_public_key` (device rebuilt from the document before the camp row arrived) leaves `roster_cache` unchanged rather than emptying it, the same keep-last-known rule as `verifyAuthFields`. `roster_cache` is added to the device-local list in `electron/automerge/purgeCollateral.js` (re-derived on rebuild, like `authority_cache`).
+An entry is **added** to `roster_cache` only if all hold: the signature verifies against `camps.signing_public_key` and the local `camps.id`; both ids are non-empty strings; neither its `device_id` nor its `peer_id` is already in the cache; and its `peer_id` is not the peer id of any device that `authority_cache` marks `revoked`. The revoked-peer comparison reads the **verified raw document entries as well as the cache** (a revoked device's own entry may exist only in the document), so a revoked machine cannot return under a new device id. Unsigned, mis-signed, partially written, wrong-key and wrong-camp entries are silently skipped, exactly as `upsertCampAuthorityLogEntity` skips untrusted entries. Absent `signing_public_key` adds nothing.
 
-Because it is a pure function of the document, every peer derives the same roster regardless of merge order.
+**The cache is monotonic.** A row, once verified, is never removed because the document record later fails verification, is overwritten, or is deleted. It is removed only by a rebuild/purge of this device (the table is wiped with the other device-local caches and re-derived from the document). Revocation does not delete the row: it denies at admission through `authority_cache` (precedence below). This closes the Security/Red Hat HIGH finding that any document writer (a stolen staff client) could overwrite or delete signed entries and thereby drop every device out of every peer's roster: a writer can no longer subtract anything a peer has already verified. What a writer still can do: corrupt an entry before a given peer has verified it (that peer, or a newly joining device, will not learn that device until the host re-signs it) and, on a device that is rebuilt from a corrupted document, lose entries until the host re-signs. That is a stated residual (below), no longer a total-lockout path.
+
+**Collisions.** Two validly signed entries with the same `device_peer_id` under different `device_id`s (a re-enrolled restored key, a handoff race) cannot throw: entries are processed in ascending `device_id` order and the loser is skipped by the not-already-in-cache check before any insert, so the projector never raises on `UNIQUE` and a collision cannot halt projection of the whole document. Two hosts simultaneously signing one `device_id` (different `added_at`/`sig`): both signatures verify; the first one processed wins and the second is skipped; the resulting `conflicts` row on a signed record needs no human decision.
+
+Because the derivation is order-independent for a fresh cache (sorted processing) and monotonic afterwards, every peer converges on the same admitted set once it has seen the same valid entries. `roster_cache` is added to the device-local list in `electron/automerge/purgeCollateral.js`.
 
 ### 2. Admission
 
@@ -114,7 +118,7 @@ Between two roster members the 24h host-signed network token is **not needed and
 
 **Bootstrap of a brand-new device (the host-only path).** Unchanged front half: join window, code proof (`verifyJoinProof`), director approval, `pairing_request`/`pairing_approved` (not token-gated). Back half changes:
 - Host side: `approveDevice` writes the roster entry and projects it locally, so the host admits the joiner immediately.
-- Joiner side: the joiner cannot verify a roster before it holds the camp document, and the host's signing public key arrives only inside that document. Its trust root for the first sync is the same one it already uses: the host peer id it pinned after `checkHostProof` verified the host's join-code proof (`electron/sync/automerge/joinSession.js`, lines 199-201 and 255-260). `joinSession` marks that peer admitted for first sync; once the document projects, `roster_cache` takes over and the pin is no longer consulted. Pairing and rejoin message types are otherwise untouched.
+- Joiner side: the joiner cannot verify a roster before it holds the camp document, and the host's signing public key arrives only inside that document. Its trust root for the first sync is the one it already uses: the host peer id verified by `checkHostProof` against the join-code proof, admitted through `node.admitPeer(hostPeerId)` in `joinSession.js` (the signing public key reaches the joiner in the join reply, written before projection, `joinSession.js` lines ~408; the roster itself arrives only inside the document). **That admission is in-memory, scoped to that one host peer id and that one connection, and dies with the connection** (`authenticatedPeers.delete` on disconnect). It is therefore single-use and bounded by construction: no persistent pin exists, nothing is written to SQLite, and on reconnect the host is admitted only if `roster_cache` holds it, with `authority_cache` revoked precedence applied (including `tearDownRevokedConnectedPeers` on projection). A test pins that a fresh node in a populated-roster camp does not admit an unrostered peer because of any earlier pin. Pairing and rejoin message types are otherwise untouched. **Known limit (owner-visible, not fixed):** the host must stay on until the joiner's first document sync completes (the join flow reports success only when the camp has arrived, `waitForCamp`); a joiner whose host goes off before then cannot take its first document from another device, because it holds no roster to verify it against. After that first sync the host is not needed.
 
 **Precedence with T331/`authority_cache`.** Unchanged and now strictly additive: `revoked` denies first; `admin` skips only the legacy devices stamp; the roster supplies the positive "is a member" fact that `devices.authorized_at` supplied before. `devices.authorized_at` stops being an admission input for network peers (it remains the Device Manager's display state).
 
@@ -159,6 +163,10 @@ New tests (same file or a sibling `deviceRoster.integration.test.js`; a three-cl
 - **G. revoked device refused everywhere, no readmission.** After C is revoked: C is refused by A and by B; the host re-signs a roster entry for the same `device_id` (ignored); the host signs an entry binding C's old peer id to a new device id (dropped by the peer-id rule); a `pairing_request` for the old device id is refused (existing `evaluatePairingRequest`). Rebuild from document (purge then rebuild) reproduces `roster_cache` and the same refusals.
 - **H. stale view, stated and bounded.** Partition so B has not received C's revoke: B still admits C and C's edit reaches B (asserts the documented window, with a comment citing section 3); then B syncs with A, B evicts C live, C reconnect is refused, and C's edit made in the window **remains** in B's document (documents that data is not rolled back).
 - **I. peer-id binding.** A peer presenting a rostered `device_id` from a different peer id gets `peer_identity_mismatch`; a roster-member peer id claiming another member's `device_id` is refused.
+- **F2/F3. overwrite and delete.** A rostered non-admin overwrites a field of, or deletes, every roster record in its document and syncs: peers that already verified the entries keep admitting each other (monotonic cache). Non-vacuity: an implementation that re-derives destructively fails this test.
+- **G2. revoked entry only in the document.** Revoked device's roster entry exists only in the document on a freshly rebuilt peer; a new roster entry for the same peer id under a new device id is still dropped.
+- **K1/K2. unit.** Two valid entries with one peer id project without throwing and the same winner in either document order; roster projection after authority-log projection (a revoke and the entry targeted by it applied in either order give the same cache).
+- **0b. negative twin.** Two clients that were never rostered refuse each other with `device_not_authorized`.
 - **J. ordering.** A newly enrolled device D is refused by B until B has the roster entry, then admitted after sync without a restart (covers `mutualAuth` denied-recently retry).
 - **K. host-only add.** A non-host rostered client cannot add D: forging an entry signed by A's identity key is skipped (F-style), and `approveDevice` on a non-host throws or is not offered (existing guard).
 - Unit: roster signature canonical form and domain separation (never verifies as an authSig or authority sig); `upsertDeviceRosterEntity` is merge-order independent (apply the same changes in two orders, equal cache); absent `signing_public_key` leaves the cache unchanged; `schema:check` family green after the table bump.
@@ -168,6 +176,24 @@ New tests (same file or a sibling `deviceRoster.integration.test.js`; a three-cl
 Touched: `electron/automerge/campDocument.js` (entity + allowed fields, as for `camp_authority_log`), `electron/automerge/deviceRosterSignature.js` (new, sibling of `authSignature.js`), `electron/automerge/projector.js` (`upsertDeviceRosterEntity`, order list, reconcile exclusion like `camp_authority_log`), `electron/automerge/purgeCollateral.js`, `electron/auth/connectionAuth.js` (roster admission, drop token branch), `electron/auth/localAuth.js` (stop minting network tokens if graph confirms no other consumer), `electron/sync/automerge/syncNode.js` (`onAuthenticate`, frame without token, first-sync host pin), `electron/sync/automerge/peerIdentity.js` (`createBoundPeerTrust` reads `roster_cache`), `electron/sync/automerge/joinSession.js` (pin and drop token hand-off), `electron/main.js` (`approveDevice` and `bootstrapCamp` mint the roster entry), `electron/db/schema.sql` (+ `roster_cache`), `SECURITY.md`, `docs/current/WHERE_DATA_LIVES.md`, the test files above.
 
 **Schema change: yes**, one device-local table `roster_cache`, so a schema version bump with the full `npm run schema:check` family (fresh camps only: no migration of existing data, no backfill; a camp created before this ships is re-created, per the standing rule). Genesis changes (host self-enrollment). The document gains a new entity; no cross-version compatibility is kept. Load note for Maker: follow the brief's rule of one test file at a time, no `npm ci`/verify locally, CI is the gate.
+
+## Design-review amendments (2026-10-12)
+
+Security (score 3) and Red Hat (score 2) reviews of this ADR were incorporated before implementation:
+
+| Finding | Resolution |
+|---|---|
+| Any document writer can overwrite/delete signed entries and lock every device out; recovery fails | Monotonic `roster_cache` (section 1); tests F2 (overwrite) and F3 (delete) pin that admissions of verified devices survive |
+| First-sync trust window unbounded; signing-key arrival misdescribed | Section 2: in-memory, single-connection, host-peer-scoped admission; key arrives in the join reply before projection; test pins no persistent pin |
+| `roster_cache.peer_id UNIQUE` can throw and halt projection | Deterministic sorted processing, skip-before-insert (section 1); unit test K1 |
+| Joiner cannot finish first sync if host goes off after approval | Documented known limit (section 2); not fixable without a roster the joiner cannot yet verify |
+| Device that loses its identity key is locked out | Residual 5: remove and re-pair as a new device; 4405 is the signal |
+| Revoked device's peer id read from the wrong source | Section 1: the check reads verified raw document entries plus the cache; test G2 has the revoked entry present only in the document |
+| 24h bound lost for an unreported stolen client | Accepted by the ruling (section 5, residual 1); Device Manager continues to show last-seen |
+| Projection order | Roster projection runs after authority-log projection; test K2 pins the order |
+| Camp scope | `camp_id` in the signed tuple |
+| Roster add minted at approve time needs the peer id | Minted at first successful login on the host instead (section 1) |
+| Test coverage gaps | Negative twin of test 0 (never-rostered clients refuse each other), revoke-before-entry order test, 4405 test, three-client tests use the real join flow |
 
 ## Interface-contract check (`org-interface-contracts`)
 
@@ -181,8 +207,11 @@ Touched: `electron/automerge/campDocument.js` (entity + allowed fields, as for `
 
 1. No automatic expiry for a stolen, unreported client (section 5). Owner-visible tradeoff of the ruling.
 2. Revocation stale-view window (section 3).
-3. A document writer can overwrite a field of someone else's signed roster entry, which makes that entry fail verification (denial of that device's admission, not escalation). Healed by the host re-signing; a stolen-client attack out of the honest-failure model but noted. Cheap hardening if wanted later: keep a signed-entry hash in the record.
+3. A document writer can overwrite or delete a roster record. The monotonic cache (section 1) means this cannot remove a device a peer has already verified, so it is no longer a total-lockout path; it can only keep a not-yet-verified device out of a given peer's roster (or out of a rebuilt device's) until the host re-writes the signed record. Not an escalation: no one can add a device without the host key.
 4. First-sync trust in the join-pinned host peer id is as strong as the join code, unchanged.
+5. A healthy device that loses its identity key (restore from backup, keystore reset) is refused with `peer_identity_mismatch` (4405). The way back is the director removing the old device and pairing it again as a new device (new identity key, new roster entry). No in-place re-key exists, deliberately: it would be a path for a revoked machine to return.
+6. Stale entries for wiped devices stay in the roster until an admin removes them; removal is a revoke. The Device Manager keeps showing every device with last-seen, so an absent device is discoverable.
+7. If the host's own device is revoked, its key can still sign roster adds (the key, not the device row, is the authority, as for `users` credentials today); a revoked host is a host-key compromise, handled by the rebuild recovery in section 5.
 
 ## Open questions for Governor
 
