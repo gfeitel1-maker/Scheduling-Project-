@@ -30,7 +30,7 @@ export const ROOTS_ITEM = { key: 'roots', label: 'Roots' }
 export const NAV_SECTIONS = [
   {
     key: 'germination',
-    title: 'Germination',
+    title: 'Camp',
     // The irreducible structure everything grows from.
     items: [
       // Programs is not listed. Every camp has exactly one, created for
@@ -50,7 +50,7 @@ export const NAV_SECTIONS = [
   },
   {
     key: 'sprouts',
-    title: 'Sprouts',
+    title: 'Activities & Events',
     // The program that grows from the structure.
     items: [
       { key: 'activities',   label: 'Activities',    area: 'activities' },
@@ -89,7 +89,7 @@ export const NAV_SECTIONS = [
   },
   {
     key: 'plants',
-    title: 'Plants',
+    title: 'Schedules',
     // Pinned: never collapsible (WS5 S1, docs/work/specs/2026-08-29-ws5-
     // schedule-screens.md §1a). Route legibility lives in the sidebar — the
     // active schedule row's highlight is how a director knows which of the

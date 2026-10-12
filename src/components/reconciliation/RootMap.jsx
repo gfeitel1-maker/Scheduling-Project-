@@ -25,9 +25,9 @@ const STATE_TOKEN = {
 // crown-tile-era STATE_LABEL. 'absent' is domain-only (Context, import mode)
 // and stays visually/textually distinct from 'not_set_up'.
 const STATE_LABEL = {
-  understood: 'Rooted',
-  changed: 'Rooted · Changed',
-  attention: 'Not yet rooted',
+  understood: 'Set up',
+  changed: 'Set up · Changed',
+  attention: 'Not set up yet',
   not_set_up: 'Not started',
 }
 const ABSENT_LABEL = 'Not in source'
@@ -333,7 +333,7 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
               onSelect={() => onSelectNode(domain.key, undefined)}
             />
             {domain.children.length === 0 ? (
-              <div style={styles.emptyNote}>No entities imported yet — this layer has no root.</div>
+              <div style={styles.emptyNote}>Nothing imported in this area yet.</div>
             ) : (
               <div style={styles.chipRow}>
                 {domain.children.map((child) => (
