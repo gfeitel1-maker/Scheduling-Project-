@@ -1,7 +1,7 @@
 ---
 title: T369-punch-ice-disconnected-grace-before-open
 document_type: ticket
-status: open
+status: completed
 created: 2026-10-11
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/TESTING_STANDARD.md]
