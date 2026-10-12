@@ -9,8 +9,10 @@ import { randomUUID } from 'node:crypto'
 import * as A from '@automerge/automerge'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../../db/testDbTemplate.js'
 import { getOrCreateDeviceId, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
-import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
+import { createEmptyDoc, applyWrite, readRecord } from '../../automerge/campDocument.js'
 import { rosterDevice } from './rosterTestSupport.js'
+import { buildRosterWrites } from '../../automerge/deviceRoster.js'
+import { upsertDeviceRosterEntity } from '../../automerge/projector.js'
 import { createUser, issueCampToken, issueDeviceToken, attemptLogin, isHostDevice, verifySessionToken } from '../../auth/localAuth.js'
 import { appendOp } from '../../ops/operations.js'
 import { startSyncNode } from './syncNode.js'
@@ -127,6 +129,12 @@ describe('host handoff over real libp2p', () => {
     await connect(H, C, tokens.H)
     await connect(S, C, tokens.S)
 
+    // T376 R5: an entry the old Host signs before the handoff, written to the shared document.
+    let preDoc = H.node.getDoc()
+    for (const w of buildRosterWrites(H.db, { deviceId: 'enrolled-by-old-host', peerId: 'peer-old-host' })) preDoc = applyWrite(preDoc, w)
+    await H.node.applyLocal(preDoc)
+    await waitFor(() => readRecord(C.node.getDoc(), 'device_roster', 'enrolled-by-old-host'))
+
     const hIdsBefore = hostOnlyRowIds(H.db)
     const hCountsBefore = hostOnlyRowCounts(H.db)
     // Only an admin device on the LAN is eligible: C is connected but is not an admin device.
@@ -163,13 +171,23 @@ describe('host handoff over real libp2p', () => {
     await start(H)
     await start(S)
     const sHostToken = issueDeviceToken(S.db, S.deviceId) // what chooseMode self-issues once S is host
-    S.node.setAuthToken(sHostToken)
-    H.node.setAuthToken(tokens.H) // H keeps the token it already held; it is signed by the unchanged key
     await connect(S, H, sHostToken)
     await connect(H, S, tokens.H)
     await connect(C, S, tokens.C) // the third client re-authenticates against the new host
     await connect(C, H, tokens.C)
     expect(() => issueDeviceToken(H.db, H.deviceId)).toThrow(/not the Host/)
+
+    // T376 R5: the signing key moved, so the new Host signs roster enrollments and the old Host can no longer; the entry the
+    // old Host signed stays valid under the unchanged public key, including after a device rebuilds its cache from the document.
+    expect(buildRosterWrites(H.db, { deviceId: 'enrolled-by-new-host', peerId: 'peer-new-host' })).toBeNull()
+    let postDoc = S.node.getDoc()
+    for (const w of buildRosterWrites(S.db, { deviceId: 'enrolled-by-new-host', peerId: 'peer-new-host' })) postDoc = applyWrite(postDoc, w)
+    await S.node.applyLocal(postDoc)
+    await waitFor(() => readRecord(C.node.getDoc(), 'device_roster', 'enrolled-by-new-host'))
+    C.db.exec('DELETE FROM roster_cache')
+    upsertDeviceRosterEntity(C.db, C.node.getDoc())
+    const rebuilt = C.db.prepare('SELECT device_id FROM roster_cache').all().map((r) => r.device_id)
+    expect(rebuilt).toEqual(expect.arrayContaining(['enrolled-by-old-host', 'enrolled-by-new-host']))
 
     // PIN logins verify on every device against the one unchanged public key.
     for (const side of [H, S, C]) {

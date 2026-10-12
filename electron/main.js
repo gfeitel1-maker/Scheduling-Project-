@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, encryptingDatabaseCtor, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
-import { createUser, verifySessionToken, isSessionEnded, attemptLogin, ensureHostSigningKey, isHostDevice, issueDeviceToken } from './auth/localAuth.js'
+import { createUser, verifySessionToken, isSessionEnded, attemptLogin, ensureHostSigningKey, isHostDevice } from './auth/localAuth.js'
 import { promoteToAdmin } from './ops/promoteToAdmin.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
 import { listPendingConflicts, latestOpSeq } from './ops/operations.js'
@@ -1057,7 +1057,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // bootstrapCamp) but is deliberately NOT read here: LAN discovery is
     // camp-scoped by an opaque hash of the camp id and never carries the name
     // (electron/sync/automerge/discovery.js).
-    const { mode: requestedMode, token } = args || {}
+    const { mode: requestedMode } = args || {}
     if (requestedMode !== 'host' && requestedMode !== 'client') {
       throw new Error('mode must be "host" or "client"')
     }
@@ -1104,24 +1104,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       ).run(new Date().toISOString(), deviceId)
       syncClient = createLocalWriteClient(db, { device_id: deviceId, author_user_id: null })
       wireOpApplied()
-      // Stage 5d-2b: the automerge/libp2p node (if running) also needs this
-      // Host's own token to authenticate itself to any Client it discovers
-      // — startAutomergeSyncNodeIfEnabled already tries to self-issue one at
-      // startup, but the Host device row may not have been auto-authorized
-      // yet at that point (the UPDATE above just did it, for the FIRST
-      // time), so retry here where it's guaranteed to succeed.
-      //
-      // Finding 2 fix: issueDeviceToken, NOT issueCampToken(db, null,
-      // deviceId) — a 'camp' token requires a real userId (verifySessionToken
-      // rejects a null one outright), so the old call always minted a token
-      // that could never verify. issueDeviceToken mints a distinct
-      // admission-only token with no userId — see its doc comment.
-      try {
-        getAutomergeNode()?.setAuthToken(issueDeviceToken(db, deviceId))
-      } catch {
-        // Still not the Host (no host_signing_key) — unreachable in
-        // practice on this branch, but never worth throwing over.
-      }
     } else {
       // Stage 6c: a Client is no longer a different kind of device. It writes
       // locally exactly as a Host does, and its writes reach the camp because
@@ -1132,12 +1114,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // over libp2p.
       syncClient = createLocalWriteClient(db, { device_id: deviceId, author_user_id: null })
       wireOpApplied()
-      // Stage 5d-2b: a returning device that already holds a token hands it to
-      // the libp2p node so it can authenticate to peers without a fresh login.
-      if (isNonEmptyString(token)) {
-        nodeAuthToken = token
-        getAutomergeNode()?.setAuthToken(token)
-      }
     }
 
     mode = effectiveMode
@@ -3094,10 +3070,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // an app restart mid-join starts over, which is correct — nothing has been
   // written yet at any point before login.
   let activeJoin = null
-  // This Client's session token for the libp2p node (from the join's sign-in or chooseMode). Held
-  // here because the node may not exist yet when it arrives; the starter reads it at node start
-  // (getNodeAuthToken). A Host never needs it — it self-issues.
-  let nodeAuthToken = null
   // Pair again stopped the persistent node to run the join node on the same peer identity; any
   // exit that is not a completed join must start it again.
   let activeJoinIsRejoin = false
@@ -3123,8 +3095,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     documentWaitMs,
     rejoin = false,
   } = {}) {
-    // A new join supersedes any earlier session: a token kept from it must never reach the node.
-    nodeAuthToken = null
     if (activeJoin) {
       const cancelled = await joinCancel()
       // T274 round 3 — a `stop_failed` here means the OLD temporary node is
@@ -3191,9 +3161,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   async function joinLogin({ name, pin, deviceSecretIdentifier } = {}) {
     if (!activeJoin) throw new Error('no join in progress')
     const result = await activeJoin.login({ name, pin, deviceSecretIdentifier })
-    // The persistent node starts only after joinAwaitData, and the renderer's chooseMode can run
-    // before it exists — kept here so the starter hands it over when the node comes up.
-    if (result?.status === 'ok' && isNonEmptyString(result.token)) nodeAuthToken = result.token
     return result
   }
 
@@ -3281,8 +3248,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // failed stop keeps the reference alive (retryable, never orphaned) instead
   // of being silently dropped.
   async function joinCancel() {
-    // An abandoned join must not leave its sign-in (or an older session's) for a later node start.
-    nodeAuthToken = null
     if (!activeJoin) return { status: 'idle' }
     const session = activeJoin
     try {
@@ -3402,7 +3367,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     handoffDecline,
     joinStart,
     joinFindHost,
-    getNodeAuthToken: () => nodeAuthToken,
     joinRequestPairing,
     joinAwaitPairingDecision,
     joinLogin,

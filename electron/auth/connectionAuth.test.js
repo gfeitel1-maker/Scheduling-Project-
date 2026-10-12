@@ -8,7 +8,7 @@
 // Stage 6c cutover, so there is one consumer now — see connectionAuth.js's own
 // header for why the extraction is kept anyway. Testing at the function level
 // rather than through a transport is still the right level._
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import fs from 'node:fs'
 import { randomUUID, randomBytes, scryptSync } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
@@ -212,6 +212,27 @@ describe('evaluateAuthenticate — shared admission decision (signed device rost
 
     for (let i = 0; i < 5; i++) evaluateAuthenticate(db, { device_id: randomUUID(), peerId: `stranger-${i}` })
     expect(rows()).toHaveLength(1)
+  })
+
+  it('rate-limits the audit rows a refused rostered peer writes by redialling, and reports the suppressed count', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    db.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)').run(deviceId, 'revoked', new Date().toISOString())
+    const rows = () => db.prepare("SELECT reason, metadata FROM audit_events WHERE action = 'auth.authenticate' ORDER BY id").all()
+    const realNow = Date.now()
+    const spy = vi.spyOn(Date, 'now')
+    try {
+      spy.mockReturnValue(realNow)
+      for (let i = 0; i < 6; i++) evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) })
+      expect(rows()).toHaveLength(1)
+      spy.mockReturnValue(realNow + 61_000)
+      evaluateAuthenticate(db, { device_id: deviceId, peerId: peerOf(deviceId) })
+      const after = rows()
+      expect(after).toHaveLength(2)
+      expect(JSON.parse(after[1].metadata)).toEqual({ suppressed: 5 })
+    } finally {
+      spy.mockRestore()
+    }
   })
 })
 

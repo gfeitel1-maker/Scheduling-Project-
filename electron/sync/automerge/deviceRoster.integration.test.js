@@ -7,7 +7,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { setupThreeJoinedDevices, AmClient, cleanupDirs, waitFor } from '../../../test/integration/harnessAutomerge.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
-import { applyWrite } from '../../automerge/campDocument.js'
+import { applyWrite, readRecord } from '../../automerge/campDocument.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 import { signRosterEntry } from '../../automerge/deviceRosterSignature.js'
 import { buildRosterWrites } from '../../automerge/deviceRoster.js'
@@ -256,25 +256,25 @@ describe('I. a peer id is bound to its device id', () => {
   }, 120000)
 })
 
-describe('J. a newly enrolled device is refused until the roster entry reaches a peer', () => {
-  it('B refuses D while it lacks D\'s entry and admits it after syncing with a device that has it, with no restart', async () => {
+describe('J. a newly enrolled device is admitted by presenting its own entry (R1)', () => {
+  it('B has never seen D\'s entry and the Host is off, yet D is admitted and its entry is merged, with no restart and no third device', async () => {
     rig = await setupThreeJoinedDevices()
-    const { host, clientA: a, clientB: b, tmpDir } = rig
+    const { host, clientB: b, tmpDir } = rig
     const bDir = `${tmpDir}/ub`
     await b.node.stop()
     const d = new AmClient(`${tmpDir}/clientD.db`)
     d.open()
     extra.push(d)
     await d.join(host)
-    await waitFor(() => rosterOf(a).some((r) => r.device_id === d.deviceId), 8000)
     await host.stop()
     await b.restart(bDir, rig.campId)
     expect(rosterOf(b).some((r) => r.device_id === d.deviceId)).toBe(false)
-    const refused = await link(d, b)
-    expect(refused.ab.reason ?? refused.ba.reason).toBe('device_not_authorized')
-    expect(refused.admits).toBe(false)
-    expect((await link(a, b)).admits).toBe(true)
-    await waitFor(() => rosterOf(b).some((r) => r.device_id === d.deviceId), 8000)
+    const own = readRecord(d.getDoc(), 'device_roster', d.deviceId)
+    const presented = { device_id: own.device_id, device_peer_id: own.device_peer_id, added_at: own.added_at, added_by_device_id: own.added_by_device_id, sig: own.sig }
+    await d.node.dial(b.node.getMultiaddrs()[0])
+    const reply = await settle(d.node.authenticateWith(b.node.peerId, { ...frame(d), roster_entry: presented }))
+    expect(reply.type).toBe('auth_ok')
+    expect(rosterOf(b).some((r) => r.device_id === d.deviceId && r.peer_id === d.node.peerId)).toBe(true)
     expect((await link(d, b)).admits).toBe(true)
   }, 120000)
 })

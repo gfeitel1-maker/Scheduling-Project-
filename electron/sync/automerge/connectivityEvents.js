@@ -24,7 +24,6 @@ export const EVENTS = Object.freeze({
   // Vocabulary only. Reserved for the still-parked rendezvous adapter (T211) — no running code
   // emits this today, and nothing under electron/sync/automerge/rendezvous*.js is imported here.
   RENDEZVOUS_UNAVAILABLE: 'RENDEZVOUS_UNAVAILABLE',
-  NO_TOKEN: 'NO_TOKEN',
   // Rung 2: a signed signal or gossip entry was refused because the sender's clock disagrees with ours.
   CLOCK_SKEW: 'CLOCK_SKEW',
   // S4c: every rung of the reconnect ladder failed for a peer (e.g. symmetric NAT or CGNAT on both ends).
@@ -53,7 +52,6 @@ export const FIELD_ALLOWLIST = Object.freeze({
   [EVENTS.AUTH_ERROR]: ['retried', 'errorClass', 'attemptId'],
   [EVENTS.AUTH_OK]: ['attemptId'],
   [EVENTS.RENDEZVOUS_UNAVAILABLE]: ['reason'],
-  [EVENTS.NO_TOKEN]: ['attemptId'],
   [EVENTS.CLOCK_SKEW]: ['reason', 'skewMs'],
   [EVENTS.SAME_NETWORK_REQUIRED]: ['reason'],
   [EVENTS.PUNCH_STORE_FAILED]: ['store'],

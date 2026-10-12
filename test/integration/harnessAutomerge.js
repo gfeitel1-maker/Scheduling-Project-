@@ -252,7 +252,6 @@ export class AmHost {
       this.campId = existingCamp.id
       try {
         this.adminToken = issueDeviceToken(this.db, this.deviceId)
-        this.node.setAuthToken(this.adminToken)
       } catch {
         // No host_signing_key yet — a first-run Host, whose bootstrap() will
         // mint one in a moment.
@@ -277,7 +276,6 @@ export class AmHost {
     this.campId = campId
     this.adminUserId = user.id
     this.adminToken = issueDeviceToken(this.db, this.deviceId)
-    this.node.setAuthToken(this.adminToken)
 
     // The camp must be in the DOCUMENT, not only in SQLite — the document is
     // what a joining device receives. main.js's ensureAutomergeDocSeeded does
@@ -512,7 +510,6 @@ export class AmClient {
       await this.node.dial(host.node.getMultiaddrs()[0])
       await waitForCond(() => this.node.getPeers().includes(this.hostPeerId))
     }
-    this.node.setAuthToken(this.token)
     // T271 round 3 cleanup: each side announces its OWN handshakeSchemaVersion override when one was
     // given at construction, not always the real constant — a scenario combining an override with
     // restart+reconnect would otherwise silently exercise the wrong (real) value and false-pass.

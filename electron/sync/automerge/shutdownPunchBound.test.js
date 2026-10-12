@@ -53,7 +53,7 @@ async function started() {
     getMainWindow: () => null, getLiveHandlers: () => null,
     startSyncNodeImpl: async () => async (args) => {
       args.punchTransportFactory({ logger: { forComponent: () => noop } })
-      return { broadcastLocalDoc() {}, onPeersChanged() {}, setAuthToken() {}, stop: async () => {} }
+      return { broadcastLocalDoc() {}, onPeersChanged() {}, stop: async () => {} }
     },
     punchStopTimeoutMs: 50,
   })

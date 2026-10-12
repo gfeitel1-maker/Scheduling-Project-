@@ -97,7 +97,7 @@ async function startStarter({ deps, withFactory = false } = {}) {
   const startSyncNode = vi.fn(async (opts) => {
     listen = opts.listen
     if (withFactory) opts.punchTransportFactory({ logger: { forComponent: () => noop } })
-    return { broadcastLocalDoc() {}, onPeersChanged() {}, setAuthToken() {}, stop: async () => {} }
+    return { broadcastLocalDoc() {}, onPeersChanged() {}, stop: async () => {} }
   })
   const starter = createAutomergeSyncStarter({
     deviceId, db, userDataPath, docCipher: null,

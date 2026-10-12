@@ -100,7 +100,7 @@ const DISCOVERY_EMIT_STATE_MAX_SIZE = 500
 // that never purges a camper) gets an empty self-report rather than a crash. syncNode.js is the
 // one production caller that supplies a real one, reading the `tombstones` table. Read fresh on
 // every dial/authenticate attempt, same discipline as getSchemaVersion.
-export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter(), getSchemaVersion = () => CURRENT_SCHEMA_VERSION, getAppliedTombstones = () => [], isSelfRemoved = () => false, reauthAfterDisconnectMs = 1_000 } = {}) {
+export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter(), getSchemaVersion = () => CURRENT_SCHEMA_VERSION, getAppliedTombstones = () => [], getRosterEntry = () => null, isSelfRemoved = () => false, reauthAfterDisconnectMs = 1_000 } = {}) {
   if (typeof isPeerTrusted !== 'function') {
     throw new TypeError(
       'wireMutualAuth requires an isPeerTrusted(peerId) predicate: this seam decides who receives ' +
@@ -184,6 +184,11 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onReje
     }
     state.suppressedCount += 1
     return { emit: false, repeatCount: 0 }
+  }
+
+  const rosterEntryField = () => {
+    const roster_entry = getRosterEntry()
+    return roster_entry ? { roster_entry } : {}
   }
 
   async function tryAuthenticate(peerId) {
@@ -342,7 +347,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onReje
     try {
       let reply
       try {
-        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', device_id: deviceId, schemaVersion: getSchemaVersion(), appliedTombstones: getAppliedTombstones() }, { signal: controller.signal })
+        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', device_id: deviceId, schemaVersion: getSchemaVersion(), appliedTombstones: getAppliedTombstones(), ...rosterEntryField() }, { signal: controller.signal })
       } catch (err) {
         // T162 made a device's PeerId STABLE across restarts. That closed a real
         // hole, and opened this one: when a Host restarts, it comes back under
@@ -368,7 +373,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onReje
           if (!stalled) emitter.emit(EVENTS.DIAL_FAILED, { peerId, reused: true, errorClass: classifyError(dialErr), attemptId })
           throw dialErr
         }
-        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', device_id: deviceId, schemaVersion: getSchemaVersion(), appliedTombstones: getAppliedTombstones() }, { signal: controller.signal })
+        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', device_id: deviceId, schemaVersion: getSchemaVersion(), appliedTombstones: getAppliedTombstones(), ...rosterEntryField() }, { signal: controller.signal })
       }
       release()
       if (!reply || reply.type !== 'auth_ok') {

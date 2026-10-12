@@ -3,9 +3,11 @@
 // T351 STOP-rule evidence: a CLIENT-mode device (no host_signing_key row) can take a first-join
 // pairing request while its Add-a-device window is open and deliver it to the UI, but the joiner's
 // login is answered with a 'local' token (issueTokenForThisDevice falls back to it with no Host
-// key), which evaluateAuthenticate refuses for the network. So getJoinCode/setJoinWindow stay
-// setup-device-only. This test PINS that limit: when a client device can issue a 'camp' token,
-// it fails, and those two gates can then be lifted.
+// key). T376 (docs/adr/2026-10-12-shared-signed-device-roster.md): only the Host can sign a roster
+// entry, so a client that hosts a join cannot enroll the joiner, and the joiner is refused for the
+// network with device_not_authorized. So getJoinCode/setJoinWindow stay setup-device-only. This test
+// PINS that limit: when a client device can enroll a joiner, it fails, and those two gates can then
+// be lifted.
 import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -17,6 +19,8 @@ import { createEmptyDoc } from '../../automerge/campDocument.js'
 import { startSyncNode } from './syncNode.js'
 import { startJoinSession } from './joinSession.js'
 import { mintJoinSecret } from '../joinCode.js'
+import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
+import { evaluateAuthenticate } from '../../auth/connectionAuth.js'
 
 const CAMP_ID = 'camp-client-hosts'
 const CODE = mintJoinSecret()
@@ -77,5 +81,9 @@ describe('a client-mode device (no host_signing_key) hosting a first join', () =
     expect(login.status).toBe('ok')
     const payload = JSON.parse(Buffer.from(login.token.split('.')[0], 'base64url').toString('utf8'))
     expect(payload.type).toBe('local')
+
+    expect(clientDb.prepare('SELECT 1 FROM roster_cache WHERE device_id = ?').get('joiner-device')).toBeUndefined()
+    const joinerPeerId = (await ensureDeviceIdentity(joinerDb)).peerId
+    expect(evaluateAuthenticate(clientDb, { device_id: 'joiner-device', peerId: joinerPeerId })).toMatchObject({ ok: false, code: 4403, reason: 'device_not_authorized' })
   }, 30000)
 })

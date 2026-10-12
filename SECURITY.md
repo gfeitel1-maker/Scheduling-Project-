@@ -702,6 +702,9 @@ Stolen-device model (the honest-failure model scopes a malicious admin or host o
 | Admin client | The above plus revoking ordinary devices and granting admin to rostered devices. Cannot enroll a new device (needs the host key). A lone stolen admin cannot evict other admins (quorum, T331) | Another admin removes it |
 | Host | Everything above plus signing roster entries, credentials and purge tombstones. The worst case; there is no key rotation | Recovery is the existing rule: export the last file, start a new camp, re-upload |
 
+**If a device is lost or stolen, remove it from Devices right away; until you do, it can still sync.**
+Removal is one action (Devices screen, Revoke) available on any admin device, not only the host.
+
 **Accepted costs, stated plainly.** (1) There is **no automatic expiry** any more: the 24-hour token
 used to bound a stolen, unreported client (only while the host was also unreachable); now a stolen
 device stays a member until a director removes it. (2) Removal is eventually consistent: a device that

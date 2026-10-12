@@ -62,7 +62,6 @@ function makeFakeNode(overrides = {}) {
   return {
     broadcastLocalDoc: () => {},
     onPeersChanged: () => {},
-    setAuthToken: () => {},
     stop: async () => {},
     ...overrides,
   }

@@ -25,8 +25,8 @@ import { createBoundPeerTrust } from './peerIdentity.js'
 import { rememberPeerAddress, redialTrustedPeers } from './peerAddressBook.js'
 import { forgetRevokedPeer } from './punchIdentity.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
-import { sharesGenesis, applyWrite } from '../../automerge/campDocument.js'
-import { buildRosterWrites } from '../../automerge/deviceRoster.js'
+import { sharesGenesis, applyWrite, hasAnyRecord } from '../../automerge/campDocument.js'
+import { buildRosterWrites, verifyPresentedRosterEntry, presentedEntryWrites, readOwnRosterEntry } from '../../automerge/deviceRoster.js'
 import { joinProof, verifyJoinProof, rejoinCampProof } from '../joinCode.js'
 import { createHostHandoff } from '../../auth/hostHandoff.js'
 import { createHandoffWire } from './hostHandoffWire.js'
@@ -543,13 +543,21 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   // already-logged-in device presenting a live token). `pairing_request`/
   // `login` are 5d-2 and are not handled here; any other message type is
   // already rejected by authGate.js before this is even called.
-  // Assigned once wireMutualAuth runs below; read lazily by onAuthenticate and setAuthToken.
+  // Assigned once wireMutualAuth runs below; read lazily by onAuthenticate.
   let mutualAuth = null
   async function onAuthenticate(msg, { fromPeerId }) {
     // T162: peerId binding now happens INSIDE evaluateAuthenticate
     // (bindOrVerifyPeerIdentity) — recordLibp2pPeerId's unconditional
     // overwrite is no longer called here, since it would let a reinstalled/
     // impostor device bypass the mismatch check.
+    // Merged only into a document that already holds the camp: a device that has not yet received its camp (a joiner mid-join) has an
+    // empty, genesis-less doc, and writing a lone entry into it would stop it ever unifying with the camp's.
+    const heldDoc = getCurrentDoc(db)
+    if (msg.roster_entry && heldDoc && hasAnyRecord(heldDoc, 'camps') && !db.prepare('SELECT 1 FROM roster_cache WHERE peer_id = ?').get(fromPeerId) && verifyPresentedRosterEntry(db, msg.roster_entry, { deviceId: msg.device_id, peerId: fromPeerId })) {
+      let doc = heldDoc
+      for (const write of presentedEntryWrites(msg.roster_entry)) doc = applyWrite(doc, write)
+      await applyLocalDoc(doc)
+    }
     const result = evaluateAuthenticate(db, { device_id: msg.device_id, peerId: fromPeerId, appliedTombstones: msg.appliedTombstones })
     if (result.ok) {
       // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md, Decision 2): record
@@ -822,10 +830,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   })
 
   // Stage 5d-2b production wiring: this is what turns "nothing calls
-  // authenticateWith outside tests" into a real running node. Only fires at
-  // all once a token exists (`setAuthToken` below) — until then a
-  // discovered peer is simply not dialed, matching mutualAuth.js's own
-  // documented behavior for the not-logged-in-yet case. `peerDiscovery`
+  // authenticateWith outside tests" into a real running node. `peerDiscovery`
   // being unset (every existing test, and any caller that dials directly)
   // means `onPeerDiscovery` never fires, so this is a pure no-op for them.
   // T208 (docs/work/tickets/T208-discovery-seam-has-no-local-trust-filter.md). The
@@ -935,7 +940,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
 
   mutualAuth = wireMutualAuth(
     { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },
-    { deviceId, onRejected: handleAuthRejected, isSelfRemoved: () => isRemovedFromCamp(db), isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion, getAppliedTombstones }
+    { deviceId, onRejected: handleAuthRejected, isSelfRemoved: () => isRemovedFromCamp(db), isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion, getAppliedTombstones, getRosterEntry: () => readOwnRosterEntry(getCurrentDoc(db), deviceId) }
   )
 
   return {
@@ -968,11 +973,6 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     // Fires when this device's reachable-peer set changes (admission or
     // disconnect). main.js pushes a fresh sync status to the renderer from it.
     onPeersChanged: (cb) => { peersChangedListeners.push(cb) },
-    // _Prior: the caller handed over this device's session token here and mutualAuth sent it in every `authenticate`
-    // frame. T376 (docs/adr/2026-10-12-shared-signed-device-roster.md) removed the token from admission, so nothing
-    // reads it. Kept as a no-op so the callers that still hand a session over (main.js, syncStarter.js, joinSession.js,
-    // the test harness) need no change; delete with them.
-    setAuthToken: () => {},
     // Exposed for adversarial-input tests (sending raw bytes that are not a
     // valid Automerge doc); not part of the normal edit/broadcast flow.
     sendDocTo: transport.sendDocTo,

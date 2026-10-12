@@ -79,6 +79,25 @@ function persistAppliedTombstones(db, deviceId, appliedTombstones) {
   }
 }
 
+// A refused device redials on a timer, and the audit table is append-only: one row per window per refused roster
+// member, carrying how many further refusals it stands for. Keys are roster members only (see deny), so the map is
+// bounded by the roster, not by what a stranger can invent.
+const REFUSAL_AUDIT_WINDOW_MS = 60_000
+const refusalAudit = new WeakMap()
+
+function auditRefusal(db, { key, deviceId, reason }) {
+  let byKey = refusalAudit.get(db)
+  if (!byKey) refusalAudit.set(db, (byKey = new Map()))
+  const at = Date.now()
+  const state = byKey.get(key)
+  if (state && at - state.at < REFUSAL_AUDIT_WINDOW_MS) {
+    state.suppressed += 1
+    return
+  }
+  recordAuditEvent(db, { actorUserId: null, deviceId, action: 'auth.authenticate', outcome: 'deny', reason, ...(state?.suppressed ? { metadata: { suppressed: state.suppressed } } : {}) })
+  byKey.set(key, { at, suppressed: 0 })
+}
+
 // Admission of an `authenticate` frame (docs/adr/2026-10-12-shared-signed-device-roster.md, T376). There is no
 // token: a peer is admitted iff the Host-signed device roster (roster_cache, derived by projector.js's
 // upsertDeviceRosterEntity) binds the device id it claims to the libp2p peer id it connected from, and neither
@@ -104,9 +123,7 @@ export function evaluateAuthenticate(db, { device_id, peerId, appliedTombstones 
   // authenticate frames at will, and the audit table is append-only, so auditing every stranger would let one
   // write unbounded rows.
   const deny = (code, reason) => {
-    if (byPeer || byDevice) {
-      recordAuditEvent(db, { actorUserId: null, deviceId: device_id, action: 'auth.authenticate', outcome: 'deny', reason })
-    }
+    if (byPeer || byDevice) auditRefusal(db, { key: `${byPeer ? 'p' : 'd'}:${byPeer ? peerId : device_id}:${reason}`, deviceId: device_id, reason })
     return { ok: false, code, reason }
   }
 

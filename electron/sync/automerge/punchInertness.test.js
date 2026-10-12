@@ -51,7 +51,7 @@ afterEach(() => {
   cleanupTemplatedDbs()
 })
 
-const fakeNode = () => ({ broadcastLocalDoc: () => {}, onPeersChanged: () => {}, setAuthToken: () => {}, stop: async () => {} })
+const fakeNode = () => ({ broadcastLocalDoc: () => {}, onPeersChanged: () => {}, stop: async () => {} })
 
 async function startWith({ punchSignaling } = {}) {
   const fakeStartSyncNode = vi.fn(async () => fakeNode())

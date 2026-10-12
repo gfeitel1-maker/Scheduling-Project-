@@ -52,7 +52,7 @@ const snapshot = (peerId = 'peer-1') => ({
 })
 
 async function start() {
-  const startSyncNode = vi.fn(async () => ({ broadcastLocalDoc() {}, onPeersChanged() {}, setAuthToken() {}, stop: async () => {} }))
+  const startSyncNode = vi.fn(async () => ({ broadcastLocalDoc() {}, onPeersChanged() {}, stop: async () => {} }))
   const [signaling] = makeSignalingPair()
   const starter = createAutomergeSyncStarter({
     deviceId, db, userDataPath, docCipher: null,
