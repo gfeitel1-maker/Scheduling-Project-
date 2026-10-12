@@ -286,8 +286,8 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
             <div style={S.authTitle}>{rejoin ? 'Pair again' : 'Camp code'}</div>
             <div style={S.authSubtitle}>
               {rejoin
-                ? <>On a camp device that is on the camp's network: <strong>Device Manager</strong> → <strong>Add a device</strong>, then type its code here. Your changes on this device are kept.</>
-                : <>On the device this camp was set up on: <strong>Device Manager</strong> → <strong>Add a device</strong>.</>}
+                ? <>On a camp device that is on the camp's network: <strong>Devices</strong> → <strong>Add a device</strong>, then type its code here. Your changes on this device are kept.</>
+                : <>On the device this camp was set up on: <strong>Devices</strong> → <strong>Add a device</strong>.</>}
             </div>
             <input
               style={codeInput}
@@ -391,7 +391,7 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
           <Outcome
             title={deniedReason === 'pairing-requires-local-network' ? "Not on the camp's network" : "This device wasn't allowed in"}
             body={deniedReason === 'pairing-requires-local-network'
-              ? <>Join the same Wi-Fi/LAN as the device that showed the code. VPN, Tailscale and mobile connections can't pair.</>
+              ? <>Join the same Wi-Fi or local network as the device that showed the code. VPN, Tailscale and mobile connections can't pair.</>
               : <>The request was turned down on the device that showed the code.</>}
             actionLabel="Try again"
             onAction={startOver}

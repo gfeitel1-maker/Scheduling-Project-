@@ -153,7 +153,7 @@ export const ADMIN_MENU_ITEMS = [
 // that pair or are pairing" — that is this screen, so it is a separate,
 // role-gated list rather than a fourth entry in ADMIN_MENU_ITEMS).
 export const ADMIN_ONLY_MENU_ITEMS = [
-  { key: 'devices', label: 'LAN & Devices' },
+  { key: 'devices', label: 'Devices' },
 ]
 
 // Which tables each row counts. Rows not listed here show no count.

@@ -342,7 +342,7 @@ export async function run(h) {
     const header = () => Object.fromEntries(dbFiles().map((f) => [path.relative(UD, f), plain(f) ? 'plain' : 'encrypted']))
     const snap0 = await snapshot()
     const h0 = header()
-    await nav('LAN & Devices')
+    await nav('Devices')
     await click('Turn off encryption…', true, 15000)
     await waitFor(`const i=[...document.querySelectorAll('label input')].filter(__vis)[0]; if(!i) return false; __set(i,'DISABLE ENCRYPTION'); return true`, 10000, 'confirmation input')
     await sleep(300); await click('Turn off encryption', true, 10000)

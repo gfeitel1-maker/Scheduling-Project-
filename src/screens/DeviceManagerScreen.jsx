@@ -275,7 +275,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
   return (
     <div style={{ ...styles.page, ...enterStyle }}>
       <div style={styles.header}>
-        <h1 style={styles.title}>Device Manager</h1>
+        <h1 style={styles.title}>Devices</h1>
       </div>
 
       <PortMappingFlag />

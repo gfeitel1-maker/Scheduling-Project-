@@ -31,7 +31,7 @@ const TITLES = {
   camp:         'Camp',
   conflicts:    'Conflicts',
   trash:        'Trash',
-  devices:      'LAN & Devices',
+  devices:      'Devices',
   about:        'About & Legal',
   pairAgain:    'Pair again',
   learned:      'What Shoresh has learned',

@@ -459,7 +459,7 @@ Shoresh stores your camp's information encrypted on each computer. This is on fr
 
 Turning it off is rarely needed, and only a director can do it. It affects only the computer you do it on.
 
-1. Click the **Settings** gear, then **LAN & Devices**.
+1. Click the **Settings** gear, then **Devices**.
 2. Scroll to **Encryption on this computer** and click **Turn off encryption…**.
 3. Read the warning. Camper information and PIN protection become readable by anyone who can open the files on this computer. Other paired computers keep their own encryption until you turn it off on each of them. **Older backups made while encryption was on can no longer be opened afterwards.**
 4. Type `DISABLE ENCRYPTION` where it says **Type DISABLE ENCRYPTION to confirm**. The red **Turn off encryption** button stays grey until it matches. **Cancel** leaves everything as it was.
@@ -479,11 +479,11 @@ Both computers must be on the **same Wi-Fi**. VPN and phone hotspots won't work.
 
 **On the host computer** (the one the camp was set up on, unless you moved hosting — see [Moving hosting to another computer](#moving-hosting-to-another-computer)):
 
-1. Open the **Settings** gear → **LAN & Devices**.
+1. Open the **Settings** gear → **Devices**.
 2. Click **Add a device**.
 3. Note the camp code shown. Shoresh makes a new code each time you click **Add a device**, and it stops working when you click **Stop adding devices**.
 
-![Device Manager showing the camp code under Add a device](img/device-manager-code-showing.jpg)
+![Devices showing the camp code under Add a device](img/device-manager-code-showing.jpg)
 
 **On the new computer:**
 
@@ -506,7 +506,7 @@ If it says **No camp answered that code**, check the code, check **Add a device*
 Only the host computer can add devices. If that computer is being replaced or turned in, hand hosting to another computer that is already joined to the camp. That computer must be a director's (admin) device.
 
 1. Make sure both computers are open, signed in, and on the **same Wi-Fi**.
-2. On the current host, open the **Settings** gear → **LAN & Devices**.
+2. On the current host, open the **Settings** gear → **Devices**.
 3. On the other computer's row, click **Hand hosting to <name>**.
 4. On the other computer, read the message and click **Make this the host**. (**Cancel** leaves everything as it was.)
 5. Both apps restart. Wait until the new computer shows the camp code under **Add a device**.
@@ -529,7 +529,7 @@ Fix it from the laptop that shows the flag, and one other camp computer. Both mu
 
 **On a camp computer that is working:**
 
-1. Open the **Settings** gear → **LAN & Devices**.
+1. Open the **Settings** gear → **Devices**.
 2. Click **Add a device**.
 3. Note the camp code.
 
@@ -550,9 +550,9 @@ Fix it from the laptop that shows the flag, and one other camp computer. Both mu
 - A message that says **Update Shoresh on this device first** (or on the camp device) means the two have different versions. Update, then try again.
 - A message that says a director removed this device means it can't pair again. A director adds it as a new device instead, as in [Adding a device](#9-adding-a-device).
 
-### The router flag on LAN & Devices
+### The router flag on Devices
 
-On **LAN & Devices**, right under the **Device Manager** title, Shoresh sometimes shows one small grey line with a short explanation. It's about your router. It lets camp computers that are on other networks connect to this one directly. It is information only. There is nothing to click.
+On **Devices**, right under the **Devices** title, Shoresh sometimes shows one small grey line with a short explanation. It's about your router. It lets camp computers that are on other networks connect to this one directly. It is information only. There is nothing to click.
 
 [shot: devices/router-flag]
 
