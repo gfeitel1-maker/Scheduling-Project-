@@ -99,3 +99,27 @@ describe('syncStarterHolder switch serialization', () => {
     })).rejects.toThrow('build boom')
   })
 })
+
+// T368: a quit that lands while the sync node is still starting must not leave it running.
+describe('shutdown during a start in flight', () => {
+  it('waits for the in-flight start, then stops the node it produced', async () => {
+    const gate = deferred()
+    const f = fakeFactory(gate)
+    const holder = createSyncStarterHolder(f.make)
+    const started = holder.start()
+    const down = holder.close()
+    gate.resolve()
+    await started
+    await down
+    expect(f.made[0].node).toBeNull()
+    expect(f.made[0].stops).toBe(1)
+  })
+
+  it('a start asked for after shutdown does not start a node', async () => {
+    const f = fakeFactory()
+    const holder = createSyncStarterHolder(f.make)
+    await holder.close()
+    await holder.start()
+    expect(f.made[0].startCalls).toBe(0)
+  })
+})
