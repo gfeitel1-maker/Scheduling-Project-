@@ -28,7 +28,12 @@ export default function DisableEncryptionPanel() {
     setError(null)
     try {
       const res = await localClient.disableAtRestEncryption(typed)
-      if (res?.ok) setDone(true)
+      if (res?.ok) {
+        // Every session on this device has ended (the main process no longer accepts it), so the
+        // stored one is forgotten too and the relaunch opens on sign-in.
+        try { localStorage.removeItem('shoresh-token') } catch { /* storage unavailable: the main process still refuses it */ }
+        setDone(true)
+      }
       else setError(reasonFor(res))
     } catch (err) {
       setError(err?.message || 'unknown problem')

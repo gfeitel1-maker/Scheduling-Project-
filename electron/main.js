@@ -13,6 +13,7 @@ import { createLocalWriteClient } from './sync/localWriteClient.js'
 import { listPendingConflicts, latestOpSeq } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
 import { applyUserDataPath } from './db/userDataPath.js'
+import { endAllSessions, loadSessionsValidAfter } from './sessionsValidAfter.js'
 import { readBuildInfo, formatBuildLabel, readAppVersion, buildAboutPanelOptions } from './buildInfo.js'
 import { installMenu } from './menu.js'
 import { formatStartupFailureLog, handleStartupFailure } from './startupFailure.js'
@@ -3506,6 +3507,8 @@ if (isElectronEntryPoint()) {
   // infers the directory from argv, which put every dev clone in one shared
   // "Electron" directory while the packaged app used "shoresh".
   const userDataPath = applyUserDataPath(app)
+  // Before any session is verified: sessions ended on this device (turning encryption off) stay ended.
+  loadSessionsValidAfter(userDataPath)
   // T340 switch-on: resolved once, before any sync start reads the env (syncStarter.js stays strict-equality).
   applyPackagedWanDefaults(process.env, app.isPackaged)
   const defaultDbPath = path.join(userDataPath, 'shoresh.sqlite')
@@ -4173,6 +4176,7 @@ if (isElectronEntryPoint()) {
     closeDb: () => db.close(),
     listDbPaths: () => dataPathsForKey().filter((p) => fs.existsSync(p)),
     disable: ({ dbPaths }) => disableAtRestEncryption({ userDataDir: userDataPath, dbPaths, safeStorage, Database: encryptingDatabaseCtor() }),
+    endSessions: () => endAllSessions(userDataPath),
     restart: (ms) => setTimeout(() => { app.relaunch(); app.exit(0) }, ms),
   }))
   const initialHandlers = makeHandlers(db, deviceId, {

@@ -131,3 +131,60 @@ describe('disableAtRestEncryption handler', () => {
     expect(await handlers.disableAtRestEncryption({ token, phrase: DISABLE_PHRASE })).toEqual({ ok: false, error: 'unavailable' })
   })
 })
+
+// Final audit (packaged 3ae9fb9): the panel says turning encryption off signs everyone out, and the
+// app came back from the restart still signed in. Sessions are stateless signed tokens, so the
+// disable records a device-local "sessions valid after" time (electron/sessionsValidAfter.js)
+// before the restart; every session issued before it fails verification from then on, including
+// after the relaunch reads it back.
+describe('turning encryption off signs everyone out', () => {
+  const dirs = []
+  afterAll(async () => { const fs = await import('node:fs'); for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }) })
+
+  async function realRunner(dir, { disableFails = false } = {}) {
+    const { createAtRestDisableRunner } = await import('./atRestDisableRunner.js')
+    const { endAllSessions } = await import('./sessionsValidAfter.js')
+    return createAtRestDisableRunner({
+      flushDoc: () => {}, shutdownSync: async () => {}, suspendDocSaves: () => {}, closeDb: () => {},
+      listDbPaths: () => [],
+      disable: () => { if (disableFails) throw new Error('boom'); return { disabled: true, warnings: [] } },
+      endSessions: () => endAllSessions(dir),
+      restart: () => {}, log: () => {},
+    })
+  }
+  const tmp = async () => { const fs = await import('node:fs'); const d = fs.mkdtempSync(os.tmpdir() + '/shoresh-sva-'); dirs.push(d); return d }
+
+  it('every session issued before the disable fails verification, now and after the relaunch', async () => {
+    const dir = await tmp()
+    setAtRestDisableRunner(await realRunner(dir))
+    const { handlers, token } = await loginAs('Director', '135790')
+    const staff = await loginAs('Staffer', '246810')
+    // Positive control: both sessions are valid before the disable.
+    expect(handlers.verifySession({ token }).valid).toBe(true)
+    expect(handlers.verifySession({ token: staff.token }).valid).toBe(true)
+
+    expect(await handlers.disableAtRestEncryption({ token, phrase: DISABLE_PHRASE })).toMatchObject({ ok: true, restarting: true })
+
+    expect(handlers.verifySession({ token }).valid).toBe(false)
+    expect(handlers.verifySession({ token: staff.token }).valid).toBe(false)
+    // The relaunch: a fresh process reads the recorded time back before anything verifies.
+    const { setSessionsValidAfter } = await import('./auth/localAuth.js')
+    setSessionsValidAfter(0)
+    const { loadSessionsValidAfter } = await import('./sessionsValidAfter.js')
+    loadSessionsValidAfter(dir)
+    expect(handlers.verifySession({ token }).valid).toBe(false)
+    // Signing in again works.
+    await new Promise((r) => setTimeout(r, 5))
+    const again = await loginAs('Director', '135790')
+    expect(again.handlers.verifySession({ token: again.token }).valid).toBe(true)
+    setSessionsValidAfter(0)
+  })
+
+  it('a disable that fails changes nothing, so it signs nobody out', async () => {
+    const dir = await tmp()
+    setAtRestDisableRunner(await realRunner(dir, { disableFails: true }))
+    const { handlers, token } = await loginAs('Director', '135790')
+    expect(await handlers.disableAtRestEncryption({ token, phrase: DISABLE_PHRASE })).toMatchObject({ ok: false })
+    expect(handlers.verifySession({ token }).valid).toBe(true)
+  })
+})

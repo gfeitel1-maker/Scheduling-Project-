@@ -11,7 +11,7 @@ export function boundedSyncStop(close, ms) {
   return Promise.race([close(), timeout]).finally(() => clearTimeout(timer))
 }
 
-export function createAtRestDisableRunner({ flushDoc, shutdownSync, suspendDocSaves, closeDb, listDbPaths, disable, restart, log = console.error }) {
+export function createAtRestDisableRunner({ flushDoc, shutdownSync, suspendDocSaves, closeDb, listDbPaths, disable, endSessions = () => {}, restart, log = console.error }) {
   const flush = () => {
     try { flushDoc() } catch (err) {
       throw Object.assign(new Error('Encryption was not changed: the latest camp changes could not be saved first. Nothing was touched.'), { code: 'flush_failed', cause: err })
@@ -25,6 +25,9 @@ export function createAtRestDisableRunner({ flushDoc, shutdownSync, suspendDocSa
       suspendDocSaves(true)
       closeDb()
       const res = disable({ dbPaths: listDbPaths() })
+      // The panel promises this signs everyone out: every session issued before now stops verifying,
+      // here and after the relaunch. Only after the disable succeeded; a failed one changed nothing.
+      endSessions()
       restart(1500)
       return { ok: true, restarting: true, warnings: res.warnings }
     } catch (err) {

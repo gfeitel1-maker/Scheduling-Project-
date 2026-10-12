@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../localClient', () => ({ localClient: { disableAtRestEncryption: vi.fn() } }))
@@ -47,6 +47,27 @@ describe('DisableEncryptionPanel', () => {
     await user.click(screen.getByRole('button', { name: /^turn off encryption$/i }))
     expect(localClient.disableAtRestEncryption).toHaveBeenCalledWith('DISABLE ENCRYPTION')
     expect(await screen.findByText(/encryption is off.*restart/i)).toBeTruthy()
+  })
+
+  it('forgets the stored sign-in on success, so the relaunch opens on sign-in; keeps it on failure', async () => {
+    const store = new Map()
+    vi.stubGlobal('localStorage', { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) })
+    localStorage.setItem('shoresh-token', 'tok')
+    localClient.disableAtRestEncryption.mockResolvedValue({ ok: false, error: 'rekey_failed', restarting: true })
+    let user = await openConfirm()
+    await user.type(screen.getByLabelText(/type DISABLE ENCRYPTION/i), 'DISABLE ENCRYPTION')
+    await user.click(screen.getByRole('button', { name: /^turn off encryption$/i }))
+    await screen.findByText(/still on/i)
+    expect(localStorage.getItem('shoresh-token')).toBe('tok')
+    cleanup()
+
+    localClient.disableAtRestEncryption.mockResolvedValue({ ok: true, restarting: true })
+    user = await openConfirm()
+    await user.type(screen.getByLabelText(/type DISABLE ENCRYPTION/i), 'DISABLE ENCRYPTION')
+    await user.click(screen.getByRole('button', { name: /^turn off encryption$/i }))
+    await screen.findByText(/encryption is off.*restart/i)
+    expect(localStorage.getItem('shoresh-token')).toBeNull()
+    vi.unstubAllGlobals()
   })
 
   it('surfaces a failed disable and says encryption is still on', async () => {

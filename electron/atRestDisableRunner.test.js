@@ -17,6 +17,7 @@ function harness({ shutdown, disable } = {}) {
     closeDb: () => order.push('close'),
     listDbPaths: () => { order.push('list'); return ['/a.sqlite'] },
     disable: disable ?? ((args) => { order.push(`disable:${args.dbPaths.join(',')}`); return { disabled: true, warnings: ['w'] } }),
+    endSessions: () => order.push('end-sessions'),
     restart: (ms) => order.push(`restart:${ms}`),
     log: () => {},
   })
@@ -27,7 +28,7 @@ describe('createAtRestDisableRunner', () => {
   it('quiesces in order: flush, stop sync, flush again, block saves, close db, disable, then restart', async () => {
     const { order, runner } = harness()
     expect(await runner()).toEqual({ ok: true, restarting: true, warnings: ['w'] })
-    expect(order).toEqual(['flush', 'shutdown', 'flush', 'suspend:true', 'close', 'list', 'disable:/a.sqlite', 'restart:1500'])
+    expect(order).toEqual(['flush', 'shutdown', 'flush', 'suspend:true', 'close', 'list', 'disable:/a.sqlite', 'end-sessions', 'restart:1500'])
   })
 
   it('sync shutdown failing never reaches the disable and never suspended saves', async () => {

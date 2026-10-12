@@ -454,6 +454,11 @@ function issueTokenForThisDevice(db, userId, deviceId) {
 // mirroring the "validate before touching properties" pattern already used
 // for this function's `.` split. `exp` is enforced here — new behavior, see
 // docs/superpowers/specs/2026-07-25-device-trust-revocation-design.md.
+// Every user session issued before this time is no longer valid on this device (see
+// electron/sessionsValidAfter.js: turning at-rest encryption off signs everyone out).
+let sessionsValidAfter = 0
+export function setSessionsValidAfter(ms) { sessionsValidAfter = Number.isFinite(ms) ? ms : 0 }
+
 export function verifySessionToken(db, token) {
   if (typeof token !== 'string') return null
   const parts = token.split('.')
@@ -512,6 +517,7 @@ export function verifySessionToken(db, token) {
 
   if (!sigOk) return null
   if (Date.now() > exp) return null
+  if (type !== 'device' && sessionsValidAfter > 0 && !(typeof payload.iat === 'number' && payload.iat > sessionsValidAfter)) return null
 
   return {
     userId: type === 'device' ? null : userId,
