@@ -55,7 +55,7 @@ export function nameMap(db, table, campId, nameColumn = 'name') {
  * @param {{campId: string, authorUserId: string, placements: Array}} args
  * @returns {Promise<{created: boolean, snapshotId: string|null, allWeeksArchived?: boolean, unresolvedCount: number, unresolvedNames: string[]}>}
  */
-export async function materializeImportedVersion(db, syncClient, { campId, authorUserId, placements, sourceFileName = null }) {
+export async function materializeImportedVersion(db, syncClient, { campId, authorUserId, placements, sourceFileName = null, onSnapshotCreated = null }) {
   if (!placements || placements.length === 0) {
     return { created: false, snapshotId: null, unresolvedCount: 0, unresolvedNames: [] }
   }
@@ -106,7 +106,6 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
   const name = sourceFileName ? `Imported from ${sourceFileName}` : 'Imported schedule'
   const slotsJson = JSON.stringify(slots)
   let snapshotId = null
-  const snapshotIds = []
   for (const kind of ['manual', 'generated']) {
     const existing = db.prepare('SELECT id FROM schedule_templates WHERE week_id = ? AND kind = ?').get(weekId, kind)
     let templateId = existing?.id
@@ -131,9 +130,10 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
       slots: slotsJson,
     }, authorUserId)
     snapshotId ??= id
-    snapshotIds.push(id)
+    // Reported as each is saved, so a later failure cannot leave one the import does not own.
+    onSnapshotCreated?.(id, name)
   }
 
   if (!snapshotId) return { created: false, snapshotId: null, unchanged: true, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
-  return { created: true, snapshotId, snapshotIds, versionName: name, electiveCellCount: slots.filter((slot) => slot.elective_set_id).length, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
+  return { created: true, snapshotId, versionName: name, electiveCellCount: slots.filter((slot) => slot.elective_set_id).length, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
 }

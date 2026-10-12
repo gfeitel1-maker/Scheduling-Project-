@@ -76,4 +76,37 @@ describe('undo of an import that saved its own version', () => {
     expect(db.prepare('SELECT 1 FROM schedule_snapshots WHERE id = ?').get(mine)).toBeTruthy()
     expect(db.prepare("SELECT COUNT(*) AS n FROM schedule_snapshots WHERE name = 'Imported from week.txt'").get().n).toBe(0)
   })
+
+  it('keeps an imported version the director renamed, and the rows it names', async () => {
+    const run = await importWeek(['Otters 1'], 'Otters')
+    const own = db.prepare("SELECT id FROM schedule_snapshots WHERE name = 'Imported from week.txt'").all()
+    appendOp(db, { entity: 'schedule_snapshots', entity_id: own[0].id, field: 'name', value: 'Last summer (keep)', author_user_id: null, device_id: deviceId, source: 'human' })
+    const res = await handlers.ingestUndo({ token, importRunId: run.importRunId, client_write_id: randomUUID(), invertibleOps: [], createdEntityIds: [] })
+    expect(db.prepare('SELECT 1 FROM schedule_snapshots WHERE id = ?').get(own[0].id)).toBeTruthy()
+    expect(res.kept).toContainEqual(expect.objectContaining({ name: 'Otters 1', reason: 'used_in_saved_version' }))
+  })
+})
+
+describe('a version saved before the version step failed', () => {
+  it('is reported as soon as it is saved, so the import still owns it', async () => {
+    const { materializeImportedVersion } = await import('./ops/materializeImportedVersion.js')
+    await importWeek(['Otters 1'], 'Otters') // camp, week and catalog to place against
+    db.prepare('DELETE FROM schedule_snapshots').run()
+    let snapshotWrites = 0
+    const failing = {
+      async write({ entity, entity_id, field, value, author_user_id }) {
+        if (entity === 'schedule_snapshots' && field === 'template_id' && ++snapshotWrites === 2) throw new Error('disk full')
+        return { status: 'applied', op: appendOp(db, { entity, entity_id, field, value, author_user_id, device_id: deviceId }) }
+      },
+    }
+    const reported = []
+    await expect(materializeImportedVersion(db, failing, {
+      campId, authorUserId: null, sourceFileName: 'other.txt',
+      placements: [{ groupName: 'Otters 1', dayName: 'Monday', blockLabel: '9:00-10:00', activityName: 'Swim' }],
+      onSnapshotCreated: (id) => reported.push(id),
+    })).rejects.toThrow('disk full')
+    const saved = db.prepare("SELECT id FROM schedule_snapshots WHERE name = 'Imported from other.txt'").all().map((r) => r.id)
+    expect(saved).toHaveLength(1)
+    expect(reported).toEqual(saved)
+  })
 })

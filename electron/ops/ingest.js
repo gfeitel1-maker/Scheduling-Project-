@@ -3377,10 +3377,11 @@ function recordUndoableRun(db, runId, invertibleOps, createdEntityIds) {
 // The "Imported from X" versions an import saved (materializeImportedVersion, called by the commit
 // handler after commitIngest). They name the rows the import created, so undo must neither keep those
 // rows on their account nor leave the versions behind once the rows are gone.
-export function recordRunVersions(db, runId, snapshotIds) {
+// Each entry is { id, name }: a version the director has since renamed is theirs, not the import's.
+export function recordRunVersion(db, runId, id, name) {
   const rec = undoableRuns.get(db)?.get(runId)
-  if (!rec || !Array.isArray(snapshotIds) || snapshotIds.length === 0) return
-  rec.ownSnapshotIds = [...new Set([...(rec.ownSnapshotIds ?? []), ...snapshotIds])]
+  if (!rec || typeof id !== 'string') return
+  rec.ownSnapshots = [...(rec.ownSnapshots ?? []).filter((v) => v.id !== id), { id, name }]
 }
 
 /**
@@ -3394,7 +3395,7 @@ export function undoImportRun(db, { importRunId, author_user_id, device_id, clie
   return ingestUndo(db, {
     invertibleOps: structuredClone(rec.invertibleOps),
     createdEntityIds: structuredClone(rec.createdEntityIds),
-    ownSnapshotIds: [...(rec.ownSnapshotIds ?? [])],
+    ownSnapshots: structuredClone(rec.ownSnapshots ?? []),
     importRunId,
     author_user_id, device_id, client_write_id,
   })
@@ -3454,7 +3455,7 @@ function deriveUndoDeleteClientWriteId(outerClientWriteId, entity, entity_id) {
  * edited a field the import left blank (or any field) since commit, or a live
  * row outside this undo's own deletion set still references it.
  */
-export function ingestUndo(db, { invertibleOps, createdEntityIds = [], ownSnapshotIds = [], importRunId = null, author_user_id, device_id, client_write_id }) {
+export function ingestUndo(db, { invertibleOps, createdEntityIds = [], ownSnapshots = [], importRunId = null, author_user_id, device_id, client_write_id }) {
   if (!Array.isArray(invertibleOps)) throw new Error('ingestUndo: invertibleOps must be an array')
   if (!Array.isArray(createdEntityIds)) throw new Error('ingestUndo: createdEntityIds must be an array')
   if (typeof client_write_id !== 'string' || client_write_id.length === 0) {
@@ -3560,8 +3561,11 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], ownSnapsh
     }
 
     // A saved schedule version that names a row would restore with a blank cell; keep the row and say so.
-    // The versions this import saved itself do not count: they go with the import (deleted below).
-    const ownVersions = new Set(ownSnapshotIds)
+    // The versions this import saved itself do not count: they go with the import (deleted below),
+    // unless the director has renamed one since, which makes it theirs.
+    const ownVersions = new Set(ownSnapshots
+      .filter((v) => db.prepare('SELECT name FROM schedule_snapshots WHERE id = ?').get(v.id)?.name === v.name)
+      .map((v) => v.id))
     const namedInSavedVersions = new Set()
     for (const { id, slots } of db.prepare('SELECT id, slots FROM schedule_snapshots WHERE slots IS NOT NULL').all()) {
       if (ownVersions.has(id)) continue
