@@ -153,8 +153,10 @@ export default function CohortsScreen({ campId }) {
 
   useEffect(() => { load() }, [campId])
 
-  async function load() {
-    setLoading(true)
+  // A reload after a change is quiet: flipping `loading` swaps the table (and its add row) for a placeholder
+  // and drops focus to <body> after every add (design audit 2026-10-12 #1). Only the first load shows it.
+  async function load({ quiet = false } = {}) {
+    if (!quiet) setLoading(true)
     setError(null)
     try {
       const data = await localClient.list('cohorts')
@@ -207,7 +209,7 @@ export default function CohortsScreen({ campId }) {
         capacity_source: 'groups_per_slot',
         sort_order: sortVal,
       })
-      await load()
+      await load({ quiet: true })
       return true
     } catch (err) {
       setError(
@@ -224,7 +226,7 @@ export default function CohortsScreen({ campId }) {
   async function saveCohort(id, fields) {
     try {
       await writeFields(id, fields)
-      await load()
+      await load({ quiet: true })
     } catch (err) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
@@ -256,7 +258,7 @@ export default function CohortsScreen({ campId }) {
         throw new Error('delete failed')
       }
       setPendingDelete(null)
-      await load()
+      await load({ quiet: true })
     } catch (err) {
       setError(
         /FOREIGN KEY/i.test(err?.message ?? '')

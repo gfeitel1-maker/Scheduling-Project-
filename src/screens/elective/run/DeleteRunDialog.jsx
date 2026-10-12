@@ -13,6 +13,7 @@
 import { useState } from 'react'
 import { localClient } from '../../../localClient'
 import { S, useEnterTransition } from '../../../styles/shared'
+import ModalCard from '../../../components/ModalCard'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 
 // Verbatim, per the brief's D10 honest-cost copy, factually corrected
@@ -57,8 +58,8 @@ export default function DeleteRunDialog({ run, camperCount = 0, placementCount =
 
   return (
     <div data-testid="delete-run-dialog" style={{ ...overlay, ...enterStyle }}>
-      <div style={panel}>
-        <div style={title}>Delete &quot;{run.name}&quot;?</div>
+      <ModalCard onCancel={working ? undefined : onCancel} style={panel} aria-labelledby="delete-run-title">
+        <div id="delete-run-title" style={title}>Delete &quot;{run.name}&quot;?</div>
         <p style={body}>
           {camperCount} campers and {placementCount} placements will be removed.
         </p>
@@ -67,14 +68,14 @@ export default function DeleteRunDialog({ run, camperCount = 0, placementCount =
         {error && <div style={{ ...S.errorBanner, marginTop: 14, marginBottom: 0 }}>{error}</div>}
 
         <div style={actions}>
-          <button className="press-97" onClick={onCancel} disabled={working} style={S.btnSecondary}>
+          <button data-autofocus className="press-97" onClick={onCancel} disabled={working} style={S.btnSecondary}>
             Cancel
           </button>
           <button className="press-97" onClick={confirm} disabled={working} style={S.btnDanger}>
             {working ? 'Deleting…' : 'Delete run'}
           </button>
         </div>
-      </div>
+      </ModalCard>
     </div>
   )
 }

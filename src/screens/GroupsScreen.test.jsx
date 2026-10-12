@@ -112,6 +112,28 @@ describe('GroupsScreen', () => {
     expect(localClient.list).toHaveBeenCalledWith('tiers')
   })
 
+  // Design audit 2026-10-12 #1, the screens with their own load(): the post-add reload is quiet, so
+  // the add row is not swapped out for "Loading…" and keeps focus for the next entry.
+  it('an Enter add keeps the same add row mounted and focused, with no Loading flash', async () => {
+    localClient.list.mockImplementation((entity) => Promise.resolve(entity === 'tiers' ? [tier()] : []))
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('No groups yet')).not.toBeNull())
+    const input = screen.getByPlaceholderText('Bunk 1')
+    // A real reload is an IPC round trip; an instant mock lets React batch loading on and off.
+    localClient.list.mockImplementation((entity) => new Promise((r) => setTimeout(() => r(entity === 'groups' ? [group({ id: 'new-group-id', name: 'New Group' })] : [tier()]), 30)))
+    let sawLoading = false
+    const obs = new MutationObserver(() => { if (screen.queryByText('Loading…')) sawLoading = true })
+    obs.observe(document.body, { childList: true, subtree: true })
+    input.focus()
+    fireEvent.change(input, { target: { value: 'New Group' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(screen.queryByText('New Group')).not.toBeNull())
+    obs.disconnect()
+    expect(sawLoading).toBe(false)
+    expect(input.isConnected).toBe(true)
+    expect(document.activeElement).toBe(input)
+  })
+
   it('adding a group writes each field via localClient.write with the token and reloads', async () => {
     localClient.list.mockImplementation((entity) => Promise.resolve(entity === 'tiers' ? [tier()] : []))
     render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)

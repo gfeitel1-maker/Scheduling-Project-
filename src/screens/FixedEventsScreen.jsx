@@ -5,6 +5,7 @@ import { aoaToSanitizedSheet, readEntitySheet } from '../utils/exportSanitize.js
 import { mapWithCollisions } from '../ingest/mapWithCollisions.js'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
+import ModalCard from '../components/ModalCard'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
@@ -184,7 +185,7 @@ function FixedEventModal({ fixedEvent, kind, tiers, groups, days, timeBlocks, lo
 
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
-      <div style={{ ...S.modalLg, width: 520 }}>
+      <ModalCard onCancel={onClose} style={{ ...S.modalLg, width: 520 }} aria-label={isNew ? `Add ${kindLabel}` : `Edit ${fixedEvent.name}`}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, marginBottom: 20 }}>
           {isNew ? `Add ${kindLabel}` : `Edit: ${fixedEvent.name}`}
         </div>
@@ -254,7 +255,7 @@ function FixedEventModal({ fixedEvent, kind, tiers, groups, days, timeBlocks, lo
             {saving ? 'Saving…' : isNew ? `Add ${kindLabel}${selectedDays.length > 1 ? ` (×${selectedDays.length})` : ''}` : 'Save Changes'}
           </button>
         </div>
-      </div>
+      </ModalCard>
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { S, useEnterTransition } from '../../styles/shared'
+import ModalCard from '../ModalCard'
 
 // Confirmation dialog for permanently deleting a week.
 // Queries real counts before rendering and shows only clauses whose count > 0.
@@ -69,9 +70,9 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
   if (!counts) {
     return (
       <div style={{ ...S.overlay, ...enterStyle }}>
-        <div style={dialogStyle}>
+        <ModalCard onCancel={onCancel} style={dialogStyle} aria-label="Delete week">
           <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Loading…</p>
-        </div>
+        </ModalCard>
       </div>
     )
   }
@@ -94,8 +95,8 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
 
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
-      <div style={dialogStyle}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
+      <ModalCard onCancel={confirming ? undefined : onCancel} style={dialogStyle} aria-labelledby="delete-week-title">
+        <h3 id="delete-week-title" style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
           Permanently delete "{week.name}"?
         </h3>
         {clauses.length > 0 && (
@@ -112,7 +113,7 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
           </p>
         )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button className="press-97"
+          <button data-autofocus className="press-97"
             onClick={onCancel}
             disabled={confirming}
             style={{ ...S.btnSecondary, fontSize: 13 }}
@@ -127,7 +128,7 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
             {confirming ? 'Deleting…' : `Delete "${week.name}" permanently`}
           </button>
         </div>
-      </div>
+      </ModalCard>
     </div>
   )
 }

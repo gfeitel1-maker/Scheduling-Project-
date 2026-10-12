@@ -1,5 +1,6 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import { S, useEnterTransition } from '../../styles/shared'
+import { useModalA11y } from '../../hooks/useModalA11y'
 
 // Copy rules (CONSTITUTION.md Art. V): the director's nouns only — schedule,
 // week, activity — never template/slot/candidate/route/kind. It says what will
@@ -13,10 +14,12 @@ import { S, useEnterTransition } from '../../styles/shared'
 export default function ConfirmRegenModal({ role, onConfirm, onCancel }) {
   const isAdmin = role === 'admin'
   const enterStyle = useEnterTransition('liftFade')
+  const cancelRef = useRef()
+  const a11y = useModalA11y({ onCancel, initialFocusRef: cancelRef })
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
-      <div style={{ ...S.modalLg, maxWidth: 420 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Rebuild this schedule?</div>
+      <div {...a11y} aria-labelledby="confirm-regen-title" style={{ ...S.modalLg, maxWidth: 420 }}>
+        <div id="confirm-regen-title" style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Rebuild this schedule?</div>
         <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
           Replaces this schedule, including your edits.
         </div>
@@ -24,7 +27,7 @@ export default function ConfirmRegenModal({ role, onConfirm, onCancel }) {
           Saved to Versions first.
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="press-97" onClick={onCancel} style={S.btnSecondary}>Cancel</button>
+          <button ref={cancelRef} className="press-97" onClick={onCancel} style={S.btnSecondary}>Cancel</button>
           <button
             onClick={onConfirm}
             disabled={!isAdmin}

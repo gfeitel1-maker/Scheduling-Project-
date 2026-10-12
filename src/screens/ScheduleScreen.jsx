@@ -7,6 +7,7 @@ import { createScheduleRepository } from '../data/scheduleRepository'
 import { getSetupGaps, describeSetupGaps } from '../engine/readiness'
 import { everyDayReplaced } from '../engine/effectiveDays'
 import { S, useEnterTransition } from '../styles/shared'
+import ModalCard from '../components/ModalCard'
 import StatBadge from '../components/schedule/StatBadge'
 import ScheduleSkeleton from '../components/schedule/ScheduleSkeleton'
 import IndeterminateBar from '../components/schedule/IndeterminateBar'
@@ -1546,20 +1547,20 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
 
       {openVersionConfirm && (
         <div style={S.overlay}>
-          <div style={{ ...S.modalLg, maxWidth: 420 }}>
-            <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Open last year&apos;s schedule in Manual?</div>
+          <ModalCard onCancel={finishOpenVersion} style={{ ...S.modalLg, maxWidth: 420 }} aria-labelledby="open-version-title">
+            <div id="open-version-title" style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Open last year&apos;s schedule in Manual?</div>
             <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 20 }}>
               Your current Manual schedule is saved as a version first.
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="press-97" onClick={finishOpenVersion} style={S.btnSecondary}>Cancel</button>
+              <button data-autofocus className="press-97" onClick={finishOpenVersion} style={S.btnSecondary}>Cancel</button>
               <button
                 className="press-97"
                 onClick={() => { const snap = openVersionConfirm; setOpenVersionConfirm(null); restoreSnapshot(snap).finally(finishOpenVersion) }}
                 style={S.btnPrimary}
               >Open it</button>
             </div>
-          </div>
+          </ModalCard>
         </div>
       )}
 

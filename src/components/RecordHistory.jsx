@@ -1,4 +1,5 @@
 import { S, useEnterTransition } from '../styles/shared'
+import ModalCard from './ModalCard'
 import { entityLabel, fieldLabel, formatMoment, FK_TARGET } from '../screens/recordLabels'
 import { useRecordHistory } from '../hooks/useRecordHistory'
 
@@ -68,12 +69,12 @@ export default function RecordHistory({ entity, entityId, name, onClose }) {
 
   return (
     <div style={{ ...S.overlay, ...enterStyle }} onClick={onClose}>
-      <div style={{ ...S.modalLg, maxHeight: '80vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+      <ModalCard onCancel={onClose} style={{ ...S.modalLg, maxHeight: '80vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()} aria-label="History">
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
           <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, color: 'var(--text)' }}>
             History
           </div>
-          <button className="press-97" onClick={onClose} style={S.btnSecondary}>Close</button>
+          <button data-autofocus className="press-97" onClick={onClose} style={S.btnSecondary}>Close</button>
         </div>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>
           {entityLabel(entity)}{name ? ` · ${name}` : ''}
@@ -94,7 +95,7 @@ export default function RecordHistory({ entity, entityId, name, onClose }) {
             ))}
           </ul>
         )}
-      </div>
+      </ModalCard>
     </div>
   )
 }

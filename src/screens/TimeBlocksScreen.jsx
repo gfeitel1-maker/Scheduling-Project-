@@ -175,11 +175,13 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   // of leaving the screen stuck on "Loading…" forever.
   const showLoading = activeCohort ? loading : cohortsLoading
 
-  async function load() {
+  // A reload after a change is quiet: flipping `loading` swaps the table (and its add row) for a placeholder
+  // and drops focus to <body> after every add (design audit 2026-10-12 #1). Only the first load shows it.
+  async function load({ quiet = false } = {}) {
     if (!activeCohort) return
     const cohortIdAtStart = activeCohort.id
     const requestId = ++loadRequestRef.current
-    setLoading(true)
+    if (!quiet) setLoading(true)
     setError(null)
     try {
       const data = await localClient.list('time_blocks')
@@ -232,7 +234,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         part_of_day: values.part_of_day,
         sort_order: minutesFromMidnight(start),
       })
-      await load()
+      await load({ quiet: true })
       return true
     } catch (err) {
       setError(
@@ -249,7 +251,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   async function saveBlock(id, fields) {
     try {
       await repository.writeFields('time_blocks', id, fields)
-      await load()
+      await load({ quiet: true })
     } catch (err) {
       setError(describeWriteFailure(err, 'That time block could not be saved.'))
       throw err
@@ -273,7 +275,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         throw new Error('delete failed')
       }
       setPendingDelete(null)
-      await load()
+      await load({ quiet: true })
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
@@ -307,7 +309,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         .filter(b => b.camp_id === campId && b.cohort_id === activeCohort.id)
         .map(b => b.id)
       const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('time_blocks', ids)
-      await load()
+      await load({ quiet: true })
       if (failed > 0) {
         setError(
           failedDueToRole
@@ -438,7 +440,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       setError(describeWriteFailure(err, 'That import could not be completed.'))
       setImportStep(null); setImportRows([])
     } finally {
-      setImporting(false); await load()
+      setImporting(false); await load({ quiet: true })
     }
   }
 

@@ -1,4 +1,5 @@
 import { S, useEnterTransition } from '../../styles/shared'
+import ModalCard from '../ModalCard'
 
 // A camp can hold two schedules and NEITHER is the real one — that decision
 // belongs to the director, not to us. Export is the one place the app must act
@@ -12,7 +13,7 @@ export default function ExportChooserModal({ options, onChoose, onCancel, format
   const enterStyle = useEnterTransition('liftFade')
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
-      <div style={{ ...S.modalLg, maxWidth: 460 }}>
+      <ModalCard onCancel={onCancel} style={{ ...S.modalLg, maxWidth: 460 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Export which?</div>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18 }}>
           You have more than one week in progress. Pick the one to send to {formatLabel}.
@@ -44,9 +45,9 @@ export default function ExportChooserModal({ options, onChoose, onCancel, format
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button className="press-97" onClick={onCancel} style={S.btnSecondary}>Cancel</button>
+          <button data-autofocus className="press-97" onClick={onCancel} style={S.btnSecondary}>Cancel</button>
         </div>
-      </div>
+      </ModalCard>
     </div>
   )
 }

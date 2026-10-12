@@ -7,6 +7,7 @@ import { aoaToSanitizedSheet, readEntitySheet } from '../utils/exportSanitize.js
 import { localClient } from '../localClient'
 import { ChevronIcon, OutdoorIcon } from '../components/icons'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
+import ModalCard from '../components/ModalCard'
 import WeekToggle from '../components/WeekToggle'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
@@ -330,7 +331,7 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
 
   return (
     <div style={{ ...S.overlay, alignItems: 'flex-start', overflowY: 'auto' }}>
-      <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 600, maxWidth: '100%' }}>
+      <ModalCard onCancel={onClose} style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 600, maxWidth: '100%' }} aria-label={isNew ? 'Add Activity' : `Edit ${activity.name}`}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, marginBottom: 20 }}>
           {isNew ? 'Add Activity' : `Edit: ${activity.name}`}
         </div>
@@ -472,7 +473,7 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
           <button className="press-97" onClick={onClose} style={S.btnSecondary}>Cancel</button>
           <button className="press-97" onClick={save} disabled={saving || !name.trim()} style={S.btnPrimary}>{saving ? 'Saving…' : isNew ? 'Add Activity' : 'Save Changes'}</button>
         </div>
-      </div>
+      </ModalCard>
     </div>
   )
 }

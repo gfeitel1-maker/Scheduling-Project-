@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { localClient } from '../localClient'
 import { useHostHandoff } from '../hooks/useHostHandoff'
 import { S, useEnterTransition } from '../styles/shared'
+import ModalCard from './ModalCard'
 
 // The successor's single confirm (docs/adr/2026-10-09-host-succession-simple.md, UI). Mounted once
 // at the app shell so it appears on whichever screen the director is on when the offer arrives.
@@ -42,7 +43,7 @@ export default function HostHandoffConfirm() {
 
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
-      <div style={styles.panel} role="dialog" aria-modal="true" aria-label="Move hosting to this computer">
+      <ModalCard onCancel={busy ? undefined : decline} style={styles.panel} aria-label="Move hosting to this computer">
         <div style={styles.title}>{`${selfName} becomes the host for ${status.campName || 'this camp'}`}</div>
         {waiting && activationFailed ? (
           <div role="status" style={styles.body}>
@@ -63,14 +64,14 @@ export default function HostHandoffConfirm() {
               </div>
             )}
             <div style={styles.actions}>
-              <button className="press-97" style={S.btnSecondary} onClick={decline} disabled={busy}>Cancel</button>
+              <button data-autofocus className="press-97" style={S.btnSecondary} onClick={decline} disabled={busy}>Cancel</button>
               <button className="press-97" style={S.btnPrimary} onClick={accept} disabled={busy}>
                 {busy ? 'Working…' : 'Make this the host'}
               </button>
             </div>
           </>
         )}
-      </div>
+      </ModalCard>
     </div>
   )
 }

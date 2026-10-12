@@ -11,6 +11,7 @@ import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
+import ModalCard from '../components/ModalCard'
 import WeekToggle from '../components/WeekToggle'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
@@ -82,7 +83,8 @@ function NearDuplicateGate({ group, remaining, onMerge, onKeepSeparate, busy, er
 
   return (
     <div style={gateStyles.scrim}>
-      <div style={{ ...gateStyles.card, ...enter }}>
+      {/* No onCancel: this gate is deliberately un-dismissible (no Escape), but it is still a dialog with focus. */}
+      <ModalCard style={{ ...gateStyles.card, ...enter }} aria-label="Same location?">
         <div style={gateStyles.top}>
           <div style={gateStyles.eyebrow}>
             <span style={gateStyles.prog}>{remaining} location{remaining === 1 ? '' : 's'} left to review</span>
@@ -132,7 +134,7 @@ function NearDuplicateGate({ group, remaining, onMerge, onKeepSeparate, busy, er
           </button>
           <div style={gateStyles.undo}>You can undo this. The merged location stays in Trash if you change your mind.</div>
         </div>
-      </div>
+      </ModalCard>
     </div>
   )
 }

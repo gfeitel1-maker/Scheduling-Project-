@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { localClient } from '../../../localClient'
 import { S, prefersReducedMotion, useEnterTransition } from '../../../styles/shared'
+import ModalCard from '../../../components/ModalCard'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { readWorkbookRows } from '../../../utils/exportSanitize.js'
 import { detectWholeSheetGrid, inferPreferenceLayout, hasContradictoryRanks } from '../../../ingest/preferenceSheet.js'
@@ -205,18 +206,18 @@ function ReplaceDraftModal({ onConfirm, onCancel }) {
   const enterStyle = useEnterTransition('liftFade')
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
-      <div style={{ ...S.modalLg, maxWidth: 420 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>
+      <ModalCard onCancel={onCancel} style={{ ...S.modalLg, maxWidth: 420 }} aria-labelledby="replace-draft-title">
+        <div id="replace-draft-title" style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>
           Replace this sheet?
         </div>
         <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 20 }}>
           Its rows, mapping and resolutions will be lost.
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="press-97" onClick={onCancel} style={S.btnSecondary}>Cancel</button>
+          <button data-autofocus className="press-97" onClick={onCancel} style={S.btnSecondary}>Cancel</button>
           <button className="press-97" onClick={onConfirm} style={S.btnDanger}>Replace It</button>
         </div>
-      </div>
+      </ModalCard>
     </div>
   )
 }
