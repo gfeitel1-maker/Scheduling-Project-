@@ -2762,7 +2762,8 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
     db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('revoke-target-2', 'MacBook', new Date().toISOString())
 
     const result = handlers.revokeDevice({ token: adminToken, deviceId: 'revoke-target-2', reason: 'lost' })
-    expect(result).toEqual({ deviceId: 'revoke-target-2', revoked: true })
+    // No signed admin grant for this device in this fixture, so the removal is local only (T376 fleetWide).
+    expect(result).toEqual({ deviceId: 'revoke-target-2', revoked: true, fleetWide: false })
 
     const row = db.prepare('SELECT revoked_at, revocation_reason, pairing_status FROM devices WHERE id = ?').get('revoke-target-2')
     expect(row.revoked_at).toEqual(expect.any(String))
@@ -2790,7 +2791,7 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
     await handlers.chooseMode({ mode: 'client' })
 
     const result = handlers.revokeDevice({ token: adminToken, deviceId: 'revoke-target-client' })
-    expect(result).toEqual({ deviceId: 'revoke-target-client', revoked: true })
+    expect(result).toEqual({ deviceId: 'revoke-target-client', revoked: true, fleetWide: false })
 
     const row = db.prepare('SELECT revoked_at, pairing_status FROM devices WHERE id = ?').get('revoke-target-client')
     expect(row.revoked_at).toEqual(expect.any(String))
