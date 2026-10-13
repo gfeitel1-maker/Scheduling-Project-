@@ -241,9 +241,11 @@ export async function run(h) {
     return waitFor(`const r=(()=>{${STATS}})(); return r && r.placed>0 && r`, 30000, 'restored stats')
   }
   // Visible grid cells naming `word`, with the number of rows each spans.
+  // Row pitch comes from the grid's row-header cells (one per block). Block times now wrap onto two
+  // lines, so the gap between two time-text lines is not a row; the text fallback ignores gaps under 40px.
   // Only the schedule grid: anything left of the BLOCK column header (the activities palette, which
   // also names the elective) is not a cell. Innermost matches only, so a cell is counted once.
-  const cellsNaming = (word) => ev(`const vis=[...document.querySelectorAll('*')].filter(__vis); const hdr=vis.find(e=>e.children.length===0&&(e.innerText||'').trim()==='BLOCK'); if(!hdr) return []; const x0=hdr.getBoundingClientRect().right; const labels=vis.filter(e=>{const r=e.getBoundingClientRect(); return r.right<=x0+2&&r.left>=hdr.getBoundingClientRect().left-2&&/^\\d{1,2}:\\d{2}/.test((e.innerText||'').trim())&&![...e.children].some(c=>/^\\d{1,2}:\\d{2}/.test((c.innerText||'').trim()))}).map(e=>e.getBoundingClientRect().top).sort((a,b)=>a-b); const pitch=labels.length>1?labels[1]-labels[0]:0; const hits=vis.filter(e=>{const r=e.getBoundingClientRect(); return r.left>=x0&&(e.innerText||'').trim()===${JSON.stringify(word)}}); const cells=hits.map(e=>{let c=e; while(c.parentElement&&c.parentElement.innerText.trim()===e.innerText.trim()) c=c.parentElement; return c}); return [...new Set(cells)].map(c=>pitch?Math.max(1,Math.round((c.getBoundingClientRect().height+pitch*0.25)/pitch)):0)`)
+  const cellsNaming = (word) => ev(`const vis=[...document.querySelectorAll('*')].filter(__vis); const hdr=vis.find(e=>e.children.length===0&&(e.innerText||'').trim()==='BLOCK'); if(!hdr) return []; const x0=hdr.getBoundingClientRect().right; const labels=vis.filter(e=>{const r=e.getBoundingClientRect(); return r.right<=x0+2&&r.left>=hdr.getBoundingClientRect().left-2&&/^\\d{1,2}:\\d{2}/.test((e.innerText||'').trim())&&![...e.children].some(c=>/^\\d{1,2}:\\d{2}/.test((c.innerText||'').trim()))}).map(e=>e.getBoundingClientRect().top).sort((a,b)=>a-b); const heads=[...document.querySelectorAll('[role=rowheader]')].filter(__vis).map(e=>e.getBoundingClientRect().top).sort((a,b)=>a-b); const gaps=labels.slice(1).map((t,i)=>t-labels[i]).filter(g=>g>40); const pitch=heads.length>1?heads[1]-heads[0]:(gaps.length?Math.min(...gaps):0); const hits=vis.filter(e=>{const r=e.getBoundingClientRect(); return r.left>=x0&&(e.innerText||'').trim()===${JSON.stringify(word)}}); const cells=hits.map(e=>{let c=e; while(c.parentElement&&c.parentElement.innerText.trim()===e.innerText.trim()) c=c.parentElement; return c}); return [...new Set(cells)].map(c=>pitch?Math.max(1,Math.round((c.getBoundingClientRect().height+pitch*0.25)/pitch)):0)`)
 
   await step(9, 'Locations round-trip: Download worksheet, edit a capacity in the xlsx, Import from Excel, the location updates', async () => {
     featureIn(959, 'Locations sheet round-trip')
@@ -423,17 +425,25 @@ export async function run(h) {
       await peer.click('Join with a camp code', false)
       await peer.waitFor(`const i=__inp('input[placeholder="K4P7-2MRQ"]'); if(!i) return false; __set(i, ${JSON.stringify(code)}); return true`, 15000, `${peer.label}: code field`)
       await sleep(300); await peer.click('Continue', true, 10000)
+      h.log(`[t13] ${new Date().toISOString()} ${peer.label}: pairing request sent (code ${code})`)
       await waitFor(`return [...document.querySelectorAll('button')].filter(__vis).some(b=>b.innerText.trim()==='Approve'&&!b.disabled)`, 90000, `${peer.label}'s pairing request on A`)
       await ev(`[...document.querySelectorAll('button')].filter(__vis).find(b=>b.innerText.trim()==='Approve'&&!b.disabled).click(); return true`)
+      h.log(`[t13] ${new Date().toISOString()} A: Approve clicked for ${peer.label}`)
       await peer.waitFor(`return !!__inp('#join-name')`, 90000, `${peer.label}: sign-in after approval`)
       await peer.ev(`__set(__inp('#join-name'), ${JSON.stringify(h.ADMIN)}); __set(__inp('#join-pin'), ${JSON.stringify(h.PIN)}); return true`)
       await sleep(300); await peer.click('Sign in', true, 10000)
       // The join completes only once the camp document has arrived from A (the host must stay on until then).
       await peer.waitFor(`return __click('Continue', true) || document.body.innerText.includes('Log out')`, 120000, `${peer.label}: camp arrived`)
       await peer.waitFor(`return document.body.innerText.includes('Log out')`, 60000, `${peer.label}: signed in`)
+      h.log(`[t13] ${new Date().toISOString()} ${peer.label}: first sign-in complete`)
       return code
     }
+    // Timeline for diagnosis (T376 host self-sign-out): the instant A shows it lost access is logged.
+    let signedOutAt = null
+    const watch = setInterval(() => { if (!signedOutAt) ev(`return document.body.innerText.includes("This device's access was removed")`).then((v) => { if (v && !signedOutAt) { signedOutAt = new Date().toISOString(); h.log(`[t13] ${signedOutAt} A: shows "access was removed"`) } }).catch(() => {}) }, 500)
+    h.log(`[t13] ${new Date().toISOString()} launching peers B and C`)
     const B = await h.launchPeer('B', h.PORT + 10), C = await h.launchPeer('C', h.PORT + 20)
+    h.log(`[t13] ${new Date().toISOString()} peers B and C up`)
     try {
       const codeB = await pair(B), codeC = await pair(C)
       await click('Stop adding devices', true, 5000).catch(() => {})
@@ -462,6 +472,7 @@ export async function run(h) {
       if (off.s == null) throw new Error(note)
       return note
     } finally {
+      clearInterval(watch)
       await B.stop(); await C.stop()
     }
   })

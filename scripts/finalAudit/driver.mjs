@@ -183,6 +183,7 @@ async function adopt(timeoutMs = 120000) {
 // Another packaged instance on its own userData and port (multi-device steps). Refuses a busy port
 // like the main one; stopped and its userData removed by stop() or at finish.
 const peers = []
+const peerData = [] // every peer's userData; removed at finish only when no step failed
 async function launchPeer(label, port) {
   for (const p of [port, port + 1]) if (await portBusy(p)) throw new Error(`peer ${label}: port ${p} is already in use`)
   const ud = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'shoresh-pkg-smoke-'))
@@ -196,9 +197,11 @@ async function launchPeer(label, port) {
     try { process.kill(child.pid, 'SIGTERM') } catch {}
     const t = Date.now(); while (Date.now() - t < 15000) { try { process.kill(child.pid, 0) } catch { break } await sleep(250) }
     try { process.kill(child.pid, 'SIGKILL') } catch {}
-    try { fs.rmSync(ud, { recursive: true, force: true }) } catch {}
+    // userData is NOT removed here: finish() removes it only when every step passed, so a failure's
+    // databases can be inspected.
   }
   peers.push(stop)
+  peerData.push({ label, ud })
   conn = await connect(port, 120000)
   const shotPeer = async (name) => { const f = path.join(SHOTS, `${String(results.length + 1).padStart(2, '0')}-${label}-${name}.png`); try { await conn.shot(f) } catch (e) { log(`  peer screenshot failed: ${e.message}`) } }
   return { label, pid: child.pid, ud, stop, shot: shotPeer, ...ctxFor(() => conn) }
@@ -219,7 +222,7 @@ function finish() {
   try { app?.close() } catch {}
   if (process.argv.includes('--keep')) { log(`--keep: app left running pid=${pid} port=${PORT} userData=${UD}`); fs.writeFileSync(path.join(RUN, 'kept.json'), JSON.stringify({ pid, UD })); process.exit(0) }
   try { process.kill(pid, 'SIGTERM') } catch {}
-  log(`run dir ${RUN}; userData ${UD} (removed)`)
+  log(`run dir ${RUN}`)
   // Remove userData only once the app has exited (it writes on the way out, which re-created the
   // folder when this ran on a fixed 3s timer), SIGKILLing after 20s.
   const t = Date.now()
@@ -227,7 +230,15 @@ function finish() {
     let alive = true; try { process.kill(pid, 0) } catch { alive = false }
     if (alive && Date.now() - t < 20000) return setTimeout(tick, 250)
     if (alive) try { process.kill(pid, 'SIGKILL') } catch {}
-    setTimeout(() => { try { fs.rmSync(UD, { recursive: true, force: true }) } catch {} ; process.exit(results.some((r) => r.status === 'FAIL') ? 1 : 0) }, 500)
+    setTimeout(() => {
+      // On any failure every app's userData is kept (host, and each peer) so its database can be
+      // inspected; on a clean run all of it is removed.
+      const failed = results.some((r) => r.status === 'FAIL')
+      const all = [{ label: 'host', ud: UD }, ...peerData]
+      if (failed) for (const { label, ud } of all) log(`kept userData (${label}): ${ud}`)
+      else for (const { ud } of all) { try { fs.rmSync(ud, { recursive: true, force: true }) } catch {} }
+      process.exit(failed ? 1 : 0)
+    }, 500)
   }
   tick()
 }
