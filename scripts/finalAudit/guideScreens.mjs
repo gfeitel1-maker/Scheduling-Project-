@@ -5,9 +5,9 @@
 // Two stand-ins, both outside the app's own logic:
 // - Restore from backup picks its file with a native dialog, which CDP cannot drive. The main process's
 //   dialog.showOpenDialog is replaced, for that one click, by a function returning a backup this run made.
-// - The "can't reach the camp" flag needs 6 hours without a peer (peerReachability.js). The reachable sibling
-//   row ("removed from this camp · pair again", same place, same Pair again screen) is shot instead (keeper
-//   ruling 2026-10-13, option a).
+// - A removed computer is shown through a real removal: B joins, A revokes B, B relaunches and learns it, and its
+//   "This computer was removed from the camp" screen and the Start fresh confirm are shot. The confirm is cancelled;
+//   the guide run never wipes anything.
 import path from 'node:path'
 
 export async function guideScreens(h, { importFile, done, openDevices, STATS }) {
@@ -158,18 +158,29 @@ export async function guideScreens(h, { importFile, done, openDevices, STATS }) 
       await click('Copy time blocks', true, 15000)
       await waitFor(`return /created — build it/.test(__main())`, 120000, 'copy finished')
     }
-    await nav('Special Schedules'); await click('Audit Day', false)
-    if (!await ev(`return /Week 1 · Fri/.test(__main())`)) {
+    // A placement made before step 6's Replace import can still show for a moment and then disappear, so the
+    // result is checked on the schedule, and the day is placed again once if it is not there.
+    const placeOnFriday = async () => {
+      await nav('Special Schedules'); await click('Audit Day', false); await sleep(1500)
+      if (await ev(`return /Week 1 · Fri/.test(__main())`)) return
       await click('+ Place on a day', true)
       await waitFor(`const b=document.querySelector('button[aria-label^="Week 1, Friday"]'); if(!b) return false; b.click(); return true`, 10000, 'Week 1 Friday')
-      await click('Skip', true, 5000).catch(() => {})
+      // Bring the day's recurring events, so the replaced day shows a real grid rather than empty blocks.
+      await sleep(600); await click('Bring', true, 5000).catch(() => {})
     }
-    await nav('Generated Schedule'); await sleep(800)
-    await click('Daily View', true, 5000).catch(() => {}); await sleep(800)
-    await ev(`const p=[...document.querySelectorAll('.day-pill')].filter(__vis).find(p=>p.hasAttribute('data-replaced')||/Audit Day|Fri/.test(p.innerText)); if(p) p.click(); return !!p`)
-    await sleep(800)
-    await waitFor(`return !!document.querySelector('[data-replaced]')`, 15000, 'replaced day')
-    await ev(`document.querySelector('[data-replaced]').scrollIntoView({block:'center', inline:'center'}); return true`)
+    const replacedShows = async () => {
+      await nav('Generated Schedule'); await sleep(800)
+      await click('Daily View', true, 5000).catch(() => {}); await sleep(800)
+      if (!await ev(`return [...document.querySelectorAll('.day-pill')].some(p=>p.hasAttribute('data-replaced'))`)) {
+        await click('Rebuild', true, 10000); if (await ev(`return !!__btn('Rebuild it', true)`)) await click('Rebuild it', true)
+        await waitFor(STATS, 120000, 'Generate stats after Rebuild')
+      }
+      return waitFor(`const p=[...document.querySelectorAll('.day-pill')].filter(__vis).find(p=>p.hasAttribute('data-replaced')); if(p) p.click(); return !!document.querySelector('.replaced-day-cell,[data-replaced].cell,.replaced-lane-row') || (p && p.getAttribute('aria-pressed')==='true') || !!p`, 15000, 'replaced day').then(() => true).catch(() => false)
+    }
+    await placeOnFriday()
+    if (!await replacedShows()) { await placeOnFriday(); if (!await replacedShows()) throw new Error('the special day never showed as a replaced day on the Generated schedule') }
+    await sleep(600)
+    await ev(`const e=document.querySelector('.replaced-day-cell,[data-replaced]'); e && e.scrollIntoView({block:'center', inline:'center'}); return true`)
     await guide('generated/replaced-day')
   })
 
@@ -195,6 +206,15 @@ export async function guideScreens(h, { importFile, done, openDevices, STATS }) 
     await h.app().send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y })
     await sleep(800)
     await guide('generated/unfillable-hover')
+    // Turn the activities back on and rebuild, so later screens (rainy day) show an ordinary camp.
+    await nav('Activities')
+    for (let i = 0; i < 60; i++) {
+      if (!await ev(`return document.querySelectorAll('button[aria-label^="Off in "]').length`)) break
+      await ev(`document.querySelectorAll('button[aria-label^="Off in "]')[0].click(); return true`); await sleep(250)
+    }
+    await nav('Generated Schedule')
+    await click('Rebuild', true, 10000); if (await ev(`return !!__btn('Rebuild it', true)`)) await click('Rebuild it', true)
+    await waitFor(STATS, 120000, 'Generate stats after turning activities back on')
   })
 
   // --- Devices: the router flag ---
@@ -222,7 +242,7 @@ export async function guideScreens(h, { importFile, done, openDevices, STATS }) 
   if (failed.length) throw new Error(`${failed.length} guide screen(s) failed: ${failed.join(' | ')}`)
   return 'all guide-only screens shot'
 
-  async function peerSection() { await shot('sidebar/cant-reach-the-camp-flag', async () => {
+  async function peerSection() { await shot('devices/removed-start-fresh', async () => {
     let B = await h.launchPeer('G', h.PORT + 50)
     try {
       await openDevices()
@@ -254,14 +274,14 @@ export async function guideScreens(h, { importFile, done, openDevices, STATS }) 
       await B.waitFor(`return /Log out/.test(document.body.innerText) || !!__inp('#login-name')`, 120000, 'B: back up')
       if (await B.ev(`return !!__inp('#login-name')`)) { await B.ev(`__set(__inp('#login-name'), ${JSON.stringify(h.ADMIN)}); __set(__inp('#login-pin'), ${JSON.stringify(h.PIN)}); return true`); await B.click('Sign in', true, 10000) }
       h.log(`  [peer] ${new Date().toISOString()} B relaunched and signed in`)
-      await B.waitFor(`return /removed from this camp|can.t reach the camp/.test(document.body.innerText)`, 180000, "B: the pair-again row")
-      await B.ev(`const e=[...document.querySelectorAll('button')].find(b=>/pair again/.test(b.innerText)); e && e.scrollIntoView({block:'center'}); return true`)
-      await sleep(400)
-      // Shots of B come from B's own connection.
-      await guideFromPeer(B, 'sidebar/cant-reach-the-camp-flag')
-      await B.ev(`[...document.querySelectorAll('button')].find(b=>/pair again/.test(b.innerText)).click(); return true`)
-      await B.waitFor(`return !!document.querySelector('input[aria-label="Camp code"]')`, 15000, 'B: Pair again screen')
-      await guideFromPeer(B, 'pair-again/code-screen')
+      // A removed computer shows this on its sign-in screen, with Start fresh (#1022). The confirm step is shot and then
+      // CANCELLED: the guide run never wipes anything.
+      await B.waitFor(`return /This computer was removed from the camp/.test(document.body.innerText) && [...document.querySelectorAll('button')].some(b=>b.innerText.trim()==='Start fresh on this computer')`, 240000, 'B: removed screen with Start fresh')
+      await guideFromPeer(B, 'devices/removed-start-fresh')
+      await B.click('Start fresh on this computer', true, 10000)
+      await B.waitFor(`return [...document.querySelectorAll('button')].some(b=>b.innerText.trim()==='Yes, start fresh')`, 15000, 'B: Start fresh confirm')
+      await guideFromPeer(B, 'devices/start-fresh-confirm')
+      await B.click('Cancel', true, 10000)
     } finally { await B.stop() }
   })
   if (failed.length) throw new Error(`${failed.length} guide screen(s) failed: ${failed.join(' | ')}`)

@@ -19,10 +19,10 @@ const REPO = path.resolve(HERE, '../..')
 const GUIDE = path.join(REPO, 'docs/guide/DIRECTOR_GUIDE.md')
 const IMG = path.join(REPO, 'docs/guide/img')
 // The audit steps that hold a guide shot: 1 (one-day file card), 4 (bring recurring events), 5 (keep or
-// replace, undo receipt), 6 (what Shoresh has learned), 9 (locations), 12 (turn off encryption). Steps 2 and
+// replace, undo receipt), 6 (what Shoresh has learned), 9 (locations), 16 (rainy day), 12 (turn off encryption). Steps 2 and
 // 3 hold no shot but build the schedules, so the Replace choice shows "saved as a version first" as the
 // guide describes (and step 5's "Before replace" check has a schedule to save).
-const STEPS = '1,2,3,4,5,6,9,18,12'
+const STEPS = '1,2,3,4,5,6,9,16,18,12'
 
 // Alt text for each shot: what the picture shows, in the guide's words.
 const ALT = {
@@ -45,10 +45,10 @@ const ALT = {
   'schedule/cell-editor-elective-sets': 'A schedule cell being edited, its suggestions listing the Elective sets',
   'generated/replaced-day': 'The Generated Schedule with Friday replaced by the special day, shown as its own lane',
   'sidebar/restore-confirmation': 'Restore from backup confirmation, naming the backup date and saying it replaces this camp\'s data',
-  'sidebar/cant-reach-the-camp-flag': 'The sidebar row on a laptop that has to pair again, leading to the Pair again screen',
-  'pair-again/code-screen': 'The Pair again screen, asking for the camp code',
   'devices/router-flag': 'Devices, with the router line under the title: Devices on this Wi-Fi connect normally',
   'electives/camper-import-preview': 'A camper preference sheet being read: its columns matched to Camper name, Camper ID, Division and each Rank',
+  'devices/removed-start-fresh': 'A removed computer\'s screen: This computer was removed from the camp, with the Start fresh on this computer button',
+  'devices/start-fresh-confirm': 'The Start fresh confirm step: what it clears, what is kept elsewhere, and the Yes, start fresh button',
   'rainy-day': 'Rainy day… open on the schedule toolbar with the week\'s days to pick from, and the note after a rainy day saying how many switched to rain plans, with Undo',
 }
 
