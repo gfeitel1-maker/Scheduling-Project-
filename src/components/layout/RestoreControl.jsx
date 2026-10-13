@@ -83,7 +83,7 @@ export default function RestoreControl() {
         <div role="alertdialog" aria-label="Confirm restore" style={{ fontSize: 11, margin: '2px 0 6px', color: 'var(--text)' }}>
           <div>Replaces this camp's data with the backup from {formatDate(backupDate)}.</div>
           <div>Restores this computer's copy; changes other devices still hold will sync back. Anything erased since then may reappear until other devices sync.</div>
-          <div style={{ color: 'var(--text-secondary)' }}>Backups restore on this computer only. To protect against losing this laptop, pair a second device, or use Save whole camp and keep the file somewhere private.</div>
+          <div style={{ color: 'var(--text-secondary)' }}>Backups restore on this computer only. To protect against losing this laptop, pair a second device.</div>
           <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
             <button type="button" onClick={handleConfirm} style={{ ...linkButton, width: 'auto', color: 'var(--danger, #ef4444)' }}>Restore</button>
             <button type="button" onClick={() => setBackupDate(null)} style={{ ...linkButton, width: 'auto' }}>Cancel</button>
