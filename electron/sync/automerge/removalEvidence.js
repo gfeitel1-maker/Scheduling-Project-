@@ -24,6 +24,14 @@ export const MAX_EVIDENCE_BYTES = 4 * 1024 * 1024
 const HASH_RE = /^[0-9a-f]{64}$/
 export const REVOCATION_REFUSAL_REASONS = new Set(['device_revoked', 'device_revoked_by_authority'])
 
+/**
+ * Evidence is history of the camp, so it goes only to a peer the roster binds to the device id it claims: the Noise
+ * handshake proves the peer holds that rostered key, whereas `device_id` alone is a claim any stranger can make.
+ */
+export function mayReceiveRevocationEvidence(db, peerId, deviceId) {
+  return db.prepare('SELECT device_id FROM roster_cache WHERE peer_id = ?').get(peerId)?.device_id === deviceId
+}
+
 /** The heads this device sends so a refuser can tell which history it already holds. */
 export function ownHeadsForHandshake(doc) {
   try { return A.getHeads(doc).slice(0, MAX_HEADS) } catch { return [] }
@@ -138,10 +146,16 @@ export function validateRefusalEvidence(doc, deviceId, evidence) {
     if (!sharesGenesis(next)) return null
     if (!currentRevokedDeviceIds(A, next, { isEntryTrusted: createVerifiedEntryTrust(A, next) }).includes(deviceId)) return null
     const entryChange = entryChangeHashIndex(A, next)
+    const alreadyRevoked = new Set(currentRevokedDeviceIds(A, doc, { isEntryTrusted: createVerifiedEntryTrust(A, doc) }))
     const revokeIds = new Set()
     for (const id of listRecordIds(next, AUTHORITY_LOG_ENTITY)) {
       const row = readRecord(next, AUTHORITY_LOG_ENTITY, id)
-      if (isCompleteEntry(row) && row.kind === 'revoke' && row.target_device_id === deviceId && entryChange.has(id)) revokeIds.add(id)
+      if (isCompleteEntry(row) && row.kind === 'revoke' && row.target_device_id === deviceId && entryChange.has(id)) {
+        // A signer this device already knows to be revoked may only have written this on a fork from before its own
+        // removal: valid at its causal position, but the refusal is a delivery route ordinary sync would have closed.
+        if (alreadyRevoked.has(row.signer_device_id)) return null
+        revokeIds.add(id)
+      }
     }
     const allowed = ancestorClosure([...revokeIds].map((id) => entryChange.get(id)).filter((h) => addedByHash.has(h)), addedByHash)
     const addedBytes = A.getChangesSince(next, held)

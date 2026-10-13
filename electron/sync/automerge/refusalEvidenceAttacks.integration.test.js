@@ -96,6 +96,26 @@ describe('(A) a revoked ex-admin forges a revoke of the healthy device', () => {
   }, 90000)
 })
 
+describe('(G) a revoked admin backdates a revoke of the healthy device', () => {
+  it('H already knows D is revoked: a revoke D wrote before its own revocation does not remove H', async () => {
+    const r = await rig()
+    const { host, clientA, clientB, rejections } = r
+    const forgery = signed(clientB.db, clientB.deviceId, 'revoke', clientA.deviceId)
+    const forkWithForgery = withEntry(A.clone(host.node.getDoc()), forgery.id, forgery.fields)
+    const revokeD = signed(host.db, host.deviceId, 'revoke', clientB.deviceId)
+    await host.node.applyLocal(withEntry(host.node.getDoc(), revokeD.id, revokeD.fields))
+    await waitFor(() => statusOf(clientA.db, clientB.deviceId) === 'revoked', 10000)
+    lie.build = (doc, deviceId, peerHeads) => ({ changes: toB64(sinceOf(forkWithForgery, peerHeads)) })
+    const seen = rejections.length
+    await hostRefusesH(r)
+    await waitFor(() => rejections.length > seen, 10000)
+    await settleMs(500)
+    expect(isRemovedFromCamp(clientA.db)).toBe(false)
+    expect(readRecord(clientA.node.getDoc(), 'camp_authority_log', forgery.id)).toBeFalsy()
+    expect(statusOf(clientA.db, clientA.deviceId)).not.toBe('revoked')
+  }, 90000)
+})
+
 describe('(B) a revoked admin smuggles a post-revoke grant for an attacker', () => {
   it('the attacker is not an admin on H', async () => {
     const r = await rig()

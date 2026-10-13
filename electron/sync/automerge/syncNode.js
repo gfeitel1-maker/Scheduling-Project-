@@ -10,7 +10,7 @@
 // connected peer (mirrors test-cr4-live.mjs's except-self broadcast, which is
 // what lets a 3+ peer LAN mesh converge without a full connection graph).
 import { isRemovedFromCamp, markRemovedFromCamp } from './selfRemoval.js'
-import { collectRevocationEvidence, validateRefusalEvidence, ownHeadsForHandshake, isRevokedByOwnAuthority, REVOCATION_REFUSAL_REASONS } from './removalEvidence.js'
+import { mayReceiveRevocationEvidence, collectRevocationEvidence, validateRefusalEvidence, ownHeadsForHandshake, isRevokedByOwnAuthority, REVOCATION_REFUSAL_REASONS } from './removalEvidence.js'
 import * as A from '@automerge/automerge'
 import { createJoinTagAdvertiser } from './joinTagDiscovery.js'
 import { startTransport } from './transport.js'
@@ -583,8 +583,8 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     }
     if (result.ok) return { ok: true }
     // A revocation refusal carries the real changes that wrote the revoke entries, so the refused device can derive the
-    // removal from its own document. Only to a peer on this build's schema: the same exact-match rule ordinary sync applies.
-    const evidence = REVOCATION_REFUSAL_REASONS.has(result.reason) && msg.schemaVersion === getHandshakeSchemaVersion()
+    // removal from its own document. Only to a peer on this build's schema (the exact-match rule ordinary sync applies) that the roster binds to the device id it claims.
+    const evidence = REVOCATION_REFUSAL_REASONS.has(result.reason) && msg.schemaVersion === getHandshakeSchemaVersion() && mayReceiveRevocationEvidence(db, String(fromPeerId), msg.device_id)
       ? collectRevocationEvidence(getCurrentDoc(db), msg.device_id, msg.heads)
       : null
     return { ok: false, reason: result.reason, ...(evidence ? { evidence: { ...evidence, schemaVersion: getHandshakeSchemaVersion() } } : {}) }
