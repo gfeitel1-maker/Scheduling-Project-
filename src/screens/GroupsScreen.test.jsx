@@ -118,7 +118,7 @@ describe('GroupsScreen', () => {
     localClient.list.mockImplementation((entity) => Promise.resolve(entity === 'tiers' ? [tier()] : []))
     render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No groups yet')).not.toBeNull())
-    const input = screen.getByPlaceholderText('Bunk 1')
+    const input = screen.getByPlaceholderText('e.g. Bunk 1')
     // A real reload is an IPC round trip; an instant mock lets React batch loading on and off.
     localClient.list.mockImplementation((entity) => new Promise((r) => setTimeout(() => r(entity === 'groups' ? [group({ id: 'new-group-id', name: 'New Group' })] : [tier()]), 30)))
     let sawLoading = false
@@ -145,7 +145,7 @@ describe('GroupsScreen', () => {
       )
     )
 
-    fireEvent.change(screen.getByPlaceholderText('Bunk 1'), { target: { value: 'New Group' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Bunk 1'), { target: { value: 'New Group' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(screen.queryByText('New Group')).not.toBeNull())
@@ -361,7 +361,7 @@ describe('GroupsScreen', () => {
       return Promise.reject(new Error('disk failure'))
     })
 
-    fireEvent.change(screen.getByPlaceholderText('Bunk 1'), { target: { value: 'New Group' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Bunk 1'), { target: { value: 'New Group' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() =>
@@ -381,7 +381,7 @@ describe('GroupsScreen', () => {
 
     localClient.write.mockRejectedValue(new Error('UNIQUE constraint failed: groups.camp_id, groups.name'))
 
-    fireEvent.change(screen.getByPlaceholderText('Bunk 1'), { target: { value: 'Dup' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Bunk 1'), { target: { value: 'Dup' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() =>

@@ -286,9 +286,9 @@ export default function CohortsScreen({ campId }) {
             <thead>
               <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
-                <th style={S.th}>Session Weeks</th>
-                <th style={S.th}>Recurring Events</th>
-                <th style={S.th}>Capacity Source</th>
+                <th style={S.th}>Session week</th>
+                <th style={S.th}>Recurring event</th>
+                <th style={S.th}>Capacity source</th>
                 <th style={S.th}>Order</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
@@ -311,7 +311,7 @@ export default function CohortsScreen({ campId }) {
                   defaults and are edited in-row afterward. */}
               <InlineAddRow
                 fields={[
-                  { key: 'name', type: 'text', placeholder: 'Main', required: true },
+                  { key: 'name', type: 'text', placeholder: 'e.g. Main', required: true },
                 ]}
                 onAdd={addCohort}
                 adding={adding}

@@ -480,7 +480,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
                 <th style={S.th}>Name</th>
                 <th style={S.th}>Start</th>
                 <th style={S.th}>End</th>
-                <th style={S.th}>Part of Day</th>
+                <th style={S.th}>Part of day</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
@@ -499,7 +499,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
                   last row of the time blocks table (Excel-like inline add). */}
               <InlineAddRow
                 fields={[
-                  { key: 'name', type: 'text', placeholder: 'Optional, e.g. Period 1' },
+                  { key: 'name', type: 'text', placeholder: 'e.g. Period 1' },
                   { key: 'start_time', type: 'time', required: true, width: 110 },
                   { key: 'end_time', type: 'time', required: true, width: 110 },
                   { key: 'part_of_day', type: 'select', default: 'morning', width: 120, options: POD_OPTIONS },

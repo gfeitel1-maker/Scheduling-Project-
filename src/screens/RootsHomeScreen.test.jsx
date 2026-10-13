@@ -21,6 +21,8 @@ vi.mock('../localClient', () => ({
     listOpenReconciliationDecisions: vi.fn(() => Promise.resolve([])),
     dismissOpenReconciliationDecisions: vi.fn(() => Promise.resolve({ ok: true, dismissed: 0 })),
     addHeldEventForAllGroups: vi.fn(() => Promise.resolve({ created: 1 })),
+    ingestUndo: vi.fn(() => Promise.resolve({ ok: true })),
+    lastImportUndo: vi.fn(() => Promise.resolve(null)),
     attributeSubject: vi.fn(),
   },
 }))
@@ -614,6 +616,27 @@ describe('RootsHomeScreen — a held-back event question (UX audit A1)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add for all groups' }))
     await waitFor(() => expect(localClient.addHeldEventForAllGroups).toHaveBeenCalledWith('fixed_events:flag'))
     await waitFor(() => expect(screen.queryByText(/Flag was in your file for only some/)).toBeNull())
+  })
+
+  it('offers a short-lived Undo after adding, which undoes exactly that add', async () => {
+    localClient.addHeldEventForAllGroups.mockResolvedValue({ created: 1, importRunId: 'run-add' })
+    localClient.ingestUndo.mockReset().mockResolvedValue({ ok: true })
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add for all groups' }))
+    await waitFor(() => expect(screen.queryByText(/Added Flag for every group/)).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(localClient.ingestUndo).toHaveBeenCalledWith(expect.objectContaining({ importRunId: 'run-add' })))
+    await waitFor(() => expect(screen.queryByText(/Added Flag for every group/)).toBeNull())
+  })
+
+  it('says so when the undo fails, and keeps the Undo', async () => {
+    localClient.addHeldEventForAllGroups.mockResolvedValue({ created: 1, importRunId: 'run-add' })
+    localClient.ingestUndo.mockReset().mockRejectedValue(new Error('boom'))
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add for all groups' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(screen.queryByText(/Could not undo adding this event/)).not.toBeNull())
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeNull()
   })
 
   it('"Leave as is" sets the question aside', async () => {

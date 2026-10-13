@@ -107,7 +107,7 @@ describe('FixedEventsScreen fan-out-per-day creation', () => {
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
 
-    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Mifkad' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad'), { target: { value: 'Mifkad' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.click(screen.getByText('Tuesday'))
     fireEvent.click(screen.getByText('Wednesday'))
@@ -180,7 +180,7 @@ describe('FixedEventsScreen — T267 PR2 activity_id link on save', () => {
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
-    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Lunch' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad'), { target: { value: 'Lunch' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
     fireEvent.click(screen.getAllByText('Add Fixed Event').slice(-1)[0])
@@ -211,7 +211,7 @@ describe('FixedEventsScreen — T267 PR2 activity_id link on save', () => {
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
-    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'lunch' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad'), { target: { value: 'lunch' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
     fireEvent.click(screen.getAllByText('Add Fixed Event').slice(-1)[0])
@@ -420,7 +420,7 @@ describe('FixedEventsScreen cleanup-failure surfacing', () => {
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
-    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Mifkad' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad'), { target: { value: 'Mifkad' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.click(screen.getByText('Tuesday'))
     fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
@@ -458,7 +458,7 @@ describe('FixedEventsScreen write serialization (characterization)', () => {
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
-    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Mifkad' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad'), { target: { value: 'Mifkad' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add Fixed Event' }))
@@ -683,7 +683,7 @@ describe('FixedEventsScreen — caution and error banners use shared primitives'
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
-    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Mifkad' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad'), { target: { value: 'Mifkad' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add Fixed Event' }))
@@ -724,7 +724,7 @@ describe('FixedEventsScreen — recurring event division scope (T180)', () => {
     await waitFor(() => expect(screen.queryByText('No recurring events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Recurring Event'))
-    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Swim' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad'), { target: { value: 'Swim' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.click(screen.getByText('Juniors'))
     fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
@@ -1037,7 +1037,7 @@ describe('FixedEventsScreen — saving with an ambiguous catalog name is refused
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
-    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Lunch' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad'), { target: { value: 'Lunch' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
     fireEvent.click(screen.getAllByText('Add Fixed Event').slice(-1)[0])

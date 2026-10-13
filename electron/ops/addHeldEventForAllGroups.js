@@ -27,6 +27,7 @@ export function addHeldEventForAllGroups(db, { campId, decisionId, author_user_i
     mode: 'add',
     captureInverse: true,
     keepOpenDecisions: true,
+    standaloneUndo: true,
     fixedEvents: [{ ...fe, confidence: 'high', scope: { is_all_groups: true, groups: [] } }],
   })
   if (outcome?.held) throw new Error('addHeldEventForAllGroups: the event could not be added (the commit was held)')

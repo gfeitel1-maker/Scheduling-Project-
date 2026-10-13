@@ -783,7 +783,7 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
  * that DOES hold returns the normal `{ held: true, conflicts, ... }` shape,
  * with none of these three fields present — same as a real held commit.
  */
-export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents, shortBlockPrints, activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], specialDay = null, wholeCampDays = [], divisionSupport = {}, openDecisions = [], keepOpenDecisions = false }) {
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents, shortBlockPrints, activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], specialDay = null, wholeCampDays = [], divisionSupport = {}, openDecisions = [], keepOpenDecisions = false, standaloneUndo = false }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -833,7 +833,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
   const import_run_id = randomUUID()
   const committed_at = new Date().toISOString()
 
-  const outcome = commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions, import_run_id, committed_at, dryRun, captureInverse, heldBack: openDecisions, keepOpenDecisions })
+  const outcome = commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions, import_run_id, committed_at, dryRun, captureInverse, heldBack: openDecisions, keepOpenDecisions, standaloneUndo })
 
   // D1: these run strictly AFTER commitPlan returns — the dry-run transaction
   // has already rolled back by this point. Computing them earlier, inside the
@@ -902,7 +902,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
  * @param {import('../../src/ingest/buildPlan.js').ReconciliationPlan} plan
  * @param {{ author_user_id: string|null, device_id: string, import_run_id?: string, committed_at?: string, dryRun?: boolean }} actor
  */
-export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [], import_run_id = null, committed_at = null, dryRun = false, captureInverse = false, heldBack = [], keepOpenDecisions = false }) {
+export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [], import_run_id = null, committed_at = null, dryRun = false, captureInverse = false, heldBack = [], keepOpenDecisions = false, standaloneUndo = false }) {
   // B4: a direct commitPlan caller (tests, or any future caller that skips
   // commitIngest) still gets evidence rows minted with a run id/timestamp of
   // their own, rather than writing NOT NULL columns as null.
@@ -3357,7 +3357,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // gate needs (undoReferences.schemaParity.test.js keeps this constant in
     // sync with the registry that gates the actual deletes).
     outcome.createdEntityIds = createdEntityIds.filter((e) => U2_DELETABLE_ENTITIES.has(e.entity))
-    if (!dryRunAborted) recordUndoableRun(db, evidenceRunId, outcome.invertibleOps, outcome.createdEntityIds)
+    if (!dryRunAborted) recordUndoableRun(db, evidenceRunId, outcome.invertibleOps, outcome.createdEntityIds, { standalone: standaloneUndo })
   }
   return outcome
 }
@@ -3368,19 +3368,24 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
 // can be undone after a restart, until the next import replaces it (director test 2026-10-12).
 const UNDOABLE_RUNS_MAX = 20
 const undoableRuns = new WeakMap()
-function recordUndoableRun(db, runId, invertibleOps, createdEntityIds) {
+// A standalone run (addHeldEventForAllGroups.js) is not an import of a file: it gets its own short-lived
+// undo, held in memory only, and leaves the last import's undo, in memory and in the db, as it was.
+function recordUndoableRun(db, runId, invertibleOps, createdEntityIds, { standalone = false } = {}) {
   if (!undoableRuns.has(db)) undoableRuns.set(db, new Map())
   const runs = undoableRuns.get(db)
   const prev = runs.get(runId)
   // Only the last import can be undone: a new run retires every earlier one, in memory as in the db.
-  if (!prev) runs.clear()
+  if (!prev && !standalone) {
+    for (const [id, rec] of runs) if (!rec.standalone) runs.delete(id)
+  }
   runs.delete(runId)
   runs.set(runId, structuredClone({
     invertibleOps: [...(prev?.invertibleOps ?? []), ...invertibleOps],
     createdEntityIds: [...(prev?.createdEntityIds ?? []), ...createdEntityIds],
+    ...(standalone ? { standalone: true } : {}),
   }))
   while (runs.size > UNDOABLE_RUNS_MAX) runs.delete(runs.keys().next().value)
-  persistLastRun(db, runId)
+  if (!standalone) persistLastRun(db, runId)
 }
 
 // The last import's record, stored in the encrypted db (one row). Written whenever its record changes;

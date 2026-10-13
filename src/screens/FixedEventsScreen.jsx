@@ -201,7 +201,7 @@ function FixedEventModal({ fixedEvent, group = null, kind, tiers, groups, days, 
         )}
 
         <Field label="Name">
-          <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} placeholder="Mifkad" />
+          <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} placeholder="e.g. Mifkad" />
         </Field>
 
         {group ? (
@@ -1133,9 +1133,9 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
               <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
                 <th style={S.th}>Day</th>
-                <th style={S.th}>Time Block</th>
-                <th style={S.th}>Age Divisions</th>
-                <th style={S.th}>Weeks</th>
+                <th style={S.th}>Time block</th>
+                <th style={S.th}>Age division</th>
+                <th style={S.th}>Week</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
@@ -1183,7 +1183,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
         step={importStep}
         title={importStep === 'done' ? 'Import Complete' : 'Import Preview'}
         width={620}
-        columns={[{ key: 'name', label: 'Name' }, { key: 'day', label: 'Day' }, { key: 'block', label: 'Block' }, { key: 'tiers', label: 'Age Divisions' }, { key: 'status', label: 'Status' }]}
+        columns={[{ key: 'name', label: 'Name' }, { key: 'day', label: 'Day' }, { key: 'block', label: 'Block' }, { key: 'tiers', label: 'Age division' }, { key: 'status', label: 'Status' }]}
         rows={importRows}
         readyCount={readyRows.length}
         warnCount={warnRows.length}

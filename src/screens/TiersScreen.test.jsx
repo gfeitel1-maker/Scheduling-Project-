@@ -186,9 +186,9 @@ describe('TiersScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Yeladim')
+    await screen.findByPlaceholderText('e.g. Yeladim')
 
-    fireEvent.change(screen.getByPlaceholderText('Yeladim'), { target: { value: 'Bogrim' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Yeladim'), { target: { value: 'Bogrim' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
@@ -234,9 +234,9 @@ describe('TiersScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Yeladim')
+    await screen.findByPlaceholderText('e.g. Yeladim')
 
-    fireEvent.change(screen.getByPlaceholderText('Yeladim'), { target: { value: 'Chalutzim' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Yeladim'), { target: { value: 'Chalutzim' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
@@ -256,9 +256,9 @@ describe('TiersScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Yeladim')
+    await screen.findByPlaceholderText('e.g. Yeladim')
 
-    fireEvent.change(screen.getByPlaceholderText('Yeladim'), { target: { value: 'Bogrim' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Yeladim'), { target: { value: 'Bogrim' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'tiers', 'new-tier-id'))
@@ -283,9 +283,9 @@ describe('TiersScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Yeladim')
+    await screen.findByPlaceholderText('e.g. Yeladim')
 
-    fireEvent.change(screen.getByPlaceholderText('Yeladim'), { target: { value: 'Bogrim' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Yeladim'), { target: { value: 'Bogrim' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(screen.queryByText(/already exists/)).not.toBeNull())

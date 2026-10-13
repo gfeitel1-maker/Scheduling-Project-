@@ -350,7 +350,7 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
 
         <div style={grid2}>
           <Field label="Name">
-            <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} placeholder="Activity name" />
+            <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} placeholder="e.g. Swim" />
           </Field>
           <Field label="Location (optional)">
             <LocationPicker value={locationId} locations={locations} onChange={setLocationId} onCreate={onCreateLocation} onUpdateCapacity={onUpdateLocationCapacity} />

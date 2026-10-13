@@ -878,7 +878,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                     field here — an empty trailing cell keeps the columns aligned. */}
                 <InlineAddRow
                   fields={[
-                    { key: 'name', type: 'text', placeholder: 'Pool', required: true },
+                    { key: 'name', type: 'text', placeholder: 'e.g. Pool', required: true },
                     { key: 'capacity', type: 'number', default: 1, width: 90 },
                     { key: 'kind', type: 'select', default: '', options: [
                       { value: '', label: '— none —' },

@@ -339,7 +339,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
                   <InlineAddRow
                     fields={[
                       { key: 'day_of_week', type: 'select', default: 1, options: DOW.map((d, i) => ({ value: i, label: d })) },
-                      { key: 'label', type: 'text', placeholder: 'Same as the weekday' },
+                      { key: 'label', type: 'text', placeholder: 'e.g. Monday' },
                     ]}
                     onAdd={addDay}
                     adding={adding}
@@ -355,7 +355,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
         step={importStep}
         title={importStep === 'done' ? 'Import Complete' : 'Import Preview'}
         width={520}
-        columns={[{ key: 'label', label: 'Day' }, { key: 'day_of_week', label: 'Day of Week' }, { key: 'status', label: 'Status' }]}
+        columns={[{ key: 'label', label: 'Day' }, { key: 'day_of_week', label: 'Day of week' }, { key: 'status', label: 'Status' }]}
         rows={importRows}
         readyCount={readyRows.length}
         warnCount={warnRows.length}

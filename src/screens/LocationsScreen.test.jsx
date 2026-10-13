@@ -120,7 +120,7 @@ describe('LocationsScreen', () => {
     expect(screen.queryByRole('table')).not.toBeNull()
     expect(screen.queryByText('0 locations')).not.toBeNull()
     expect(screen.queryByText('Import from Excel')).not.toBeNull()
-    expect(screen.queryByPlaceholderText('Pool')).not.toBeNull()
+    expect(screen.queryByPlaceholderText('e.g. Pool')).not.toBeNull()
     // The old calm-card "Add your first location" CTA + Add Location card are gone.
     expect(screen.queryByText('Add your first location')).toBeNull()
     expect(screen.queryByText('Add Location')).toBeNull()
@@ -149,7 +149,7 @@ describe('LocationsScreen', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Pool'), { target: { value: 'Gym' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Pool'), { target: { value: 'Gym' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
@@ -164,7 +164,7 @@ describe('LocationsScreen', () => {
   it('an Enter add keeps the same add row mounted and focused, with no Loading flash', async () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
-    const input = screen.getByPlaceholderText('Pool')
+    const input = screen.getByPlaceholderText('e.g. Pool')
     const listCalls = localClient.list.mock.calls.length
     // A real reload is an IPC round trip; an instant mock lets React batch loading on and off into
     // one render and hides the flash.
@@ -181,7 +181,7 @@ describe('LocationsScreen', () => {
     obs.disconnect()
     expect(sawLoading).toBe(false)
     expect(input.isConnected).toBe(true)
-    expect(screen.getByPlaceholderText('Pool')).toBe(input)
+    expect(screen.getByPlaceholderText('e.g. Pool')).toBe(input)
     expect(document.activeElement).toBe(input)
   })
 
@@ -189,7 +189,7 @@ describe('LocationsScreen', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Pool'), { target: { value: 'Gym' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Pool'), { target: { value: 'Gym' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
@@ -201,7 +201,7 @@ describe('LocationsScreen', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
 
-    const nameInput = screen.getByPlaceholderText('Pool')
+    const nameInput = screen.getByPlaceholderText('e.g. Pool')
     fireEvent.change(nameInput, { target: { value: 'Pool' } })
     // The inline row's kind <select> — the only select on the empty screen.
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'pool' } })

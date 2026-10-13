@@ -35,7 +35,7 @@ const TYPE_OPTIONS = [
 
 const LABELS = {
   emptyMessage: 'No special events yet',
-  namePlaceholder: 'Color War',
+  namePlaceholder: 'e.g. Color War',
   seedPrompt: 'Start from your time blocks?',
   varyNote: 'Lunch waves differ by weekday \u2014 place this day to bring them',
   seedFromBlocks: 'Copy time blocks',

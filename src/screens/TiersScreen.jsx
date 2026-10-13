@@ -441,7 +441,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
             <thead>
               <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
-                <th style={S.th}>Groups</th>
+                <th style={S.th}>Group</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
@@ -470,7 +470,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
                   the Groups column so "+ Add" sits under Actions. */}
               <InlineAddRow
                 fields={[
-                  { key: 'name', type: 'text', placeholder: 'Yeladim', required: true },
+                  { key: 'name', type: 'text', placeholder: 'e.g. Yeladim', required: true },
                 ]}
                 onAdd={addTier}
                 adding={adding}
