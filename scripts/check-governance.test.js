@@ -4,6 +4,7 @@ import {
   parseCompletionRefs, resolveIds, isClosed, checkStatusDrift, checkAll,
   checkClosureClaimWithoutId, checkNoLiteralNul,
   checkMergedTicketStatus, parseMainLog,
+  checkTestsDeletedWithoutNote, checkPinnedTestsPresent, PINNED_TESTS,
 } from './check-governance.js'
 
 // The checker's whole job is to fail on things a human reading one file would
@@ -658,5 +659,43 @@ describe('checkNoLiteralNul', () => {
   it('stays silent on coverage when the scanned globs are a healthy share of the tree', () => {
     const findings = checkNoLiteralNul('/fake/root', { execFn: makeExecFn({}), readFn: cleanRead })
     expect(findings.map((f) => f.code)).not.toContain('literal-nul-coverage-floor')
+  })
+})
+
+describe('checkTestsDeletedWithoutNote', () => {
+  const T = 'electron/sync/automerge/selfRemoval.test.js'
+  const codes = (r) => r.map((f) => f.code)
+
+  it('fails a deleted test that no note names', () => {
+    expect(codes(checkTestsDeletedWithoutNote([T], '', []))).toEqual(['test-deleted-without-note'])
+  })
+  it('passes when the PR body names it under a Removed tests heading', () => {
+    const body = `## Summary\nx\n\n### Removed tests\n- ${T} - superseded\n`
+    expect(checkTestsDeletedWithoutNote([T], body, [])).toEqual([])
+  })
+  it('passes when a changed ticket names it under Removed tests (case-insensitive)', () => {
+    expect(checkTestsDeletedWithoutNote([T], '', [`# T1\n\n# removed TESTS\n${T}\n`])).toEqual([])
+  })
+  it('fails when the path appears under a different heading', () => {
+    const body = `## Summary\n${T}\n\n## Removed tests\nnone here\n`
+    expect(codes(checkTestsDeletedWithoutNote([T], body, []))).toEqual(['test-deleted-without-note'])
+  })
+  it('ignores non-test deletions; flags test/ dir files', () => {
+    expect(checkTestsDeletedWithoutNote(['src/a.js'], '', [])).toEqual([])
+    expect(codes(checkTestsDeletedWithoutNote(['test/integration/x.js'], '', []))).toHaveLength(1)
+  })
+  it('a rename is not a deletion (gatherer uses -M, so only the new name is listed)', () => {
+    expect(checkTestsDeletedWithoutNote([], '', [])).toEqual([])
+  })
+})
+
+describe('checkPinnedTestsPresent', () => {
+  it('fails each missing pinned test', () => {
+    const r = checkPinnedTestsPresent((p) => p !== PINNED_TESTS[0])
+    expect(r.map((f) => f.code)).toEqual(['pinned-test-missing'])
+    expect(r[0].message).toContain(PINNED_TESTS[0])
+  })
+  it('passes when all exist', () => {
+    expect(checkPinnedTestsPresent(() => true)).toEqual([])
   })
 })

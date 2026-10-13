@@ -633,6 +633,86 @@ export function checkMergedTicketStatus(merges, docs, branchFiles = []) {
   return out
 }
 
+/**
+ * #995 (a stale-branch merge) silently deleted the #991 security fix AND its seven tests,
+ * so CI stayed green. A deleted test must now be NAMED, under a "Removed tests" heading,
+ * in the PR body or in a ticket changed on the branch. The caller lists deletions with
+ * `--diff-filter=D -M`, so a moved/renamed test is a rename, not a deletion, and is not
+ * flagged here.
+ */
+const TEST_FILE = /\.(test\.jsx?|test\.mjs|integration\.test\.js)$|^test\//
+
+function removedTestsSections(text) {
+  const lines = String(text || '').split('\n')
+  const out = []
+  for (let i = 0; i < lines.length; i++) {
+    const h = lines[i].match(/^(#{1,6})\s+removed tests\s*$/i)
+    if (!h) continue
+    const body = []
+    for (i++; i < lines.length && !/^#{1,6}\s/.test(lines[i]); i++) body.push(lines[i])
+    i--
+    out.push(body.join('\n'))
+  }
+  return out.join('\n')
+}
+
+export function checkTestsDeletedWithoutNote(deleted, prBody, ticketTexts = []) {
+  const named = [prBody, ...ticketTexts].map(removedTestsSections).join('\n')
+  return (deleted || [])
+    .filter((f) => TEST_FILE.test(f) && !named.includes(f))
+    .map((f) => finding('test-deleted-without-note',
+      `${f} is deleted on this branch but not named under a "Removed tests" heading in the PR body ` +
+      `or a changed ticket. If the removal is intended, list the path there with the reason; ` +
+      `if not, the branch is stale or over-merged — restore the file.`))
+}
+
+// The #991 / T376 security-critical set: a peer's refusal never signs a device out. Deleting
+// any of these once went unnoticed, so their EXISTENCE is pinned independently of the note rule.
+export const PINNED_TESTS = [
+  'electron/sync/automerge/hostStaysAuthorized.integration.test.js',
+  'electron/sync/automerge/refusalIsNotAVerdict.integration.test.js',
+  'electron/sync/automerge/refusalEvidenceAttacks.integration.test.js',
+  'electron/sync/automerge/removalEvidenceGate.test.js',
+  'electron/sync/automerge/falseRemovalHeals.integration.test.js',
+  'electron/sync/automerge/selfRemoval.test.js',
+  'electron/revokedDeviceLearns.test.js',
+  'electron/sync/automerge/hostOffRoster.integration.test.js',
+  'electron/sync/automerge/selfCertifyingRoster.integration.test.js',
+  'electron/sync/automerge/deviceRoster.integration.test.js',
+  'electron/sync/automerge/rosterEnrollmentScope.integration.test.js',
+]
+
+export function checkPinnedTestsPresent(exists, pinned = PINNED_TESTS) {
+  return pinned.filter((p) => !exists(p)).map((p) => finding('pinned-test-missing',
+    `${p} is a pinned security-critical test (#991 / T376) and does not exist. Restore it.`))
+}
+
+function gatherDeletedTests(root, execFn) {
+  try {
+    return execFn(`git -C ${root} diff --name-only --diff-filter=D -M origin/main...HEAD`)
+      .split('\n').map((x) => x.trim()).filter(Boolean)
+  } catch {
+    return null
+  }
+}
+
+function readPrBody() {
+  try {
+    return JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request?.body || ''
+  } catch {
+    return ''
+  }
+}
+
+function gatherChangedTicketTexts(root, branchFiles) {
+  const out = []
+  for (const f of branchFiles) {
+    if (!/^docs\/work\/tickets\/.*\.md$/.test(f)) continue
+    try { out.push(readFileSync(join(root, f), 'utf8')) } catch { /* deleted on branch */ }
+  }
+  return out
+}
+
 function gatherBranchFiles(root, execFn) {
   try {
     return execFn(`git -C ${root} diff --name-only origin/main...HEAD`).split('\n').map((x) => x.trim()).filter(Boolean)
@@ -1212,6 +1292,15 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
     'origin/main is not available, so the merged-ticket status check could not run. ' +
     'CI must check out full history (actions/checkout fetch-depth: 0 in .github/workflows/gate.yml).'))
   else console.warn('check:governance — merged-ticket status check skipped (no origin/main log)')
+
+  findings.push(...checkPinnedTestsPresent(exists))
+  const deletedTests = gatherDeletedTests(root, execFn)
+  if (deletedTests !== null) {
+    findings.push(...checkTestsDeletedWithoutNote(deletedTests, readPrBody(),
+      gatherChangedTicketTexts(root, gatherBranchFiles(root, execFn))))
+  } else if (ci) findings.push(finding('test-deleted-unchecked',
+    'origin/main is not available, so deleted tests could not be checked (fetch-depth: 0 in gate.yml).'))
+  else console.warn('check:governance — deleted-test check skipped (no origin/main to diff against)')
 
   const subjects = gatherCompletionSubjects(root, execFn)
   if (subjects !== null) {
