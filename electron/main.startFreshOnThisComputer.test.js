@@ -23,10 +23,11 @@ import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
 import { makeHandlers, setLocalResetRunner } from './main.js'
 import { createLocalResetRunner } from './localResetRunner.js'
 import { runLocalReset, recoverInterruptedLocalReset, LOCAL_RESET_JOURNAL } from './db/localReset.js'
-import { createEmptyDoc, applyWrite } from './automerge/campDocument.js'
+import { createEmptyDoc } from './automerge/campDocument.js'
 import { signAuthorityEntry } from './automerge/authorityLogSignature.js'
+import { makeTestCamp, writeAuthorityEntry } from './automerge/genesisTestKit.js'
 import { projectAll } from './automerge/projector.js'
-import { markRemovedFromCamp, isLocallyRemoved, isRemovedFromCamp } from './sync/automerge/selfRemoval.js'
+import { markRemovedFromCamp, isLocallyRemoved, isRemovedFromCamp, clearRemovedFromCamp } from './sync/automerge/selfRemoval.js'
 import { resetForTests as resetLiveDocForTests } from './sync/automerge/liveDoc.js'
 
 const tmpFiles = []
@@ -41,14 +42,16 @@ async function makeDevice() {
   const { peerId } = await ensureDeviceIdentity(kdb)
   return { db: kdb, peerId }
 }
-const put = (d, id, fields) => Object.entries(fields).reduce((acc, [field, value]) => applyWrite(acc, { entity: 'camp_authority_log', entity_id: id, field, value }), d)
+// An authority entry is one change, and the genesis is signed by the camp key (#1024).
+const camp = makeTestCamp('camp-1')
+const put = (d, id, fields) => writeAuthorityEntry(d, id, fields)
 let seq = 0
 const entryId = () => `sf-entry-${seq++}`
-function genesis(d, deviceIdOf, peerId) { return put(d, entryId(), { kind: 'genesis', target_device_id: deviceIdOf, target_peer_id: peerId }) }
+function genesis(d, deviceIdOf, peerId) { const id = entryId(); return put(d, id, camp.genesisFields({ id, deviceId: deviceIdOf, peerId })) }
 function signedEntry(d, kind, signerDb, signerId, targetId, extra = {}, { sign = true } = {}) {
   const id = entryId()
   const fields = { kind, target_device_id: targetId, signer_device_id: signerId, ...extra }
-  if (sign) fields.signature = signAuthorityEntry(signerDb, { id, kind, target_device_id: targetId, signer_device_id: signerId })
+  if (sign) fields.signature = signAuthorityEntry(signerDb, { id, kind, target_device_id: targetId, target_peer_id: extra.target_peer_id ?? '', signer_device_id: signerId })
   return put(d, id, fields)
 }
 
@@ -88,7 +91,7 @@ beforeEach(async () => {
   seq = 0
   ;({ db } = openTemplatedDb())
   deviceId = getOrCreateDeviceId(db)
-  db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
+  db.prepare('INSERT INTO camps (id, name, signing_public_key) VALUES (?, ?, ?)').run('camp-1', 'Camp One', camp.publicKey)
   userData = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-startfresh-ud-'))
   tmpDirs.push(userData)
   populate()
@@ -212,12 +215,13 @@ describe('startFreshOnThisComputer: refusals touch nothing', () => {
     expect(events).toEqual([])
   })
 
-  it('a re-grant that lands while sync stops aborts the wipe, restarts, and moves nothing', async () => {
+  it('a removal that stops holding while sync stops aborts the wipe, restarts, and moves nothing', async () => {
+    // A removed device id is never granted again (#1024), so the removal stops holding only when the removed mark clears
+    // (healRemovedMark); modelled by clearing it while sync stops.
     revokeThisDevice()
     const before = snapshot(userData)
     shutdownHook = () => {
-      doc = signedEntry(doc, 'grant', founder.db, 'founder', deviceId, { target_peer_id: founder.peerId })
-      projectAll(db, doc)
+      clearRemovedFromCamp(db)
     }
     const res = await handlers.startFreshOnThisComputer({ confirm: 'START_FRESH' })
     expect(res).toEqual({ ok: false, error: 'not_removed', restarting: true })

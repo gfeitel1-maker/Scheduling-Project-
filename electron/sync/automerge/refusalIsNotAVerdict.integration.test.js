@@ -22,6 +22,7 @@ import { setupTwoJoinedDevices, AmHost, makeTmpDir, cleanupDirs, waitFor, config
 import { startSyncNode } from './syncNode.js'
 import { applyWrite, applyWrites } from '../../automerge/campDocument.js'
 import { mintRevokeEntry } from '../../automerge/authorityLog.js'
+import { hostGenesisSignature } from '../../automerge/genesisTestKit.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { isRemovedFromCamp } from './selfRemoval.js'
@@ -56,13 +57,12 @@ async function rigWithWatchingClientA() {
 
 const writesFor = (entity, id, fields) => Object.entries(fields).map(([field, value]) => ({ entity, entity_id: id, field, value }))
 async function writeAuthorityEntry(host, id, fields) {
-  let doc = host.node.getDoc()
-  for (const w of writesFor('camp_authority_log', id, fields)) doc = applyWrite(doc, w)
-  await host.node.applyLocal(doc)
+  await host.node.applyLocal(applyWrites(host.node.getDoc(), writesFor('camp_authority_log', id, fields)))
 }
 async function genesisOnEveryone(rig) {
   const { host, clientA } = rig
-  await writeAuthorityEntry(host, randomUUID(), { kind: 'genesis', target_device_id: host.deviceId, target_peer_id: host.node.peerId })
+  const genesisId = randomUUID()
+  await writeAuthorityEntry(host, genesisId, { kind: 'genesis', target_device_id: host.deviceId, target_peer_id: host.node.peerId, signature: hostGenesisSignature(host.db, { id: genesisId, target_device_id: host.deviceId, target_peer_id: host.node.peerId }) })
   await waitFor(() => clientA.db.prepare('SELECT 1 FROM applied_authority_log').get() || clientA.db.prepare("SELECT 1 FROM roster_cache").get(), 3000).catch(() => {})
   await waitFor(() => Object.keys(clientA.node.getDoc().camp_authority_log ?? {}).length > 0, 8000)
 }
@@ -183,16 +183,14 @@ describe('(d) a genuinely revoked device learns it from the refusal', () => {
   }, 60000)
 })
 
-describe('(h) production write shape: one change per field, each carrying provenance and authorship', () => {
-  it('a genuine revoke written as appendOp writes it (separate human-sourced, authored changes) is still verified and merged', async () => {
+describe('(h) production write shape: one change for the whole entry, carrying provenance and authorship', () => {
+  it('a genuine revoke written as mintRevokeEntry writes it (one human-sourced, authored change) is still verified and merged', async () => {
     const { rig, rejections } = await rigWithWatchingClientA()
     await genesisOnEveryone(rig)
     const { host, clientA } = rig
     host.node.revokePeer(clientA.node.peerId)
     const { id, ...fields } = signedRevoke(host.db, host.deviceId, clientA.deviceId)
-    for (const w of writesFor('camp_authority_log', id, fields)) {
-      await host.node.applyLocal(applyWrite(host.node.getDoc(), { ...w, source: 'human', author_user_id: 'user-admin-1' }))
-    }
+    await host.node.applyLocal(applyWrites(host.node.getDoc(), writesFor('camp_authority_log', id, fields).map((w) => ({ ...w, source: 'human', author_user_id: 'user-admin-1' }))))
     host.db.prepare("UPDATE devices SET revoked_at = ?, pairing_status = 'revoked' WHERE id = ?").run(new Date().toISOString(), clientA.deviceId)
 
     await hostEvictsClientA(rig)
@@ -201,18 +199,15 @@ describe('(h) production write shape: one change per field, each carrying proven
   }, 60000)
 })
 
-describe('(h2) a marker or write for anything else riding in the signature change', () => {
+describe('(h2) a marker or write for anything else riding in the revoke entry\'s change', () => {
   it('is not evidence: the device stays signed in', async () => {
     const { rig, rejections } = await rigWithWatchingClientA()
     await genesisOnEveryone(rig)
     const { host, clientA } = rig
     host.node.revokePeer(clientA.node.peerId)
-    const { id, signature, ...fields } = signedRevoke(host.db, host.deviceId, clientA.deviceId)
-    for (const w of writesFor('camp_authority_log', id, fields)) {
-      await host.node.applyLocal(applyWrite(host.node.getDoc(), { ...w, source: 'human', author_user_id: 'user-admin-1' }))
-    }
+    const { id, ...fields } = signedRevoke(host.db, host.deviceId, clientA.deviceId)
     const smuggle = { entity: 'activities', entity_id: randomUUID(), field: 'name', value: 'Smuggled', source: 'human', author_user_id: 'user-admin-1' }
-    await host.node.applyLocal(applyWrites(host.node.getDoc(), [{ entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature, source: 'human', author_user_id: 'user-admin-1' }, smuggle]))
+    await host.node.applyLocal(applyWrites(host.node.getDoc(), [...writesFor('camp_authority_log', id, fields).map((w) => ({ ...w, source: 'human', author_user_id: 'user-admin-1' })), smuggle]))
     host.db.prepare("UPDATE devices SET revoked_at = ?, pairing_status = 'revoked' WHERE id = ?").run(new Date().toISOString(), clientA.deviceId)
 
     await hostEvictsClientA(rig)
@@ -249,7 +244,7 @@ describe('(g) the revoking admin is one the refused device has never heard of', 
     const grantId = randomUUID()
     await writeAuthorityEntry(host, grantId, {
       kind: 'grant', target_device_id: clientB.deviceId, target_peer_id: clientB.node.peerId, signer_device_id: host.deviceId,
-      signature: signAuthorityEntry(host.db, { id: grantId, kind: 'grant', target_device_id: clientB.deviceId, signer_device_id: host.deviceId }),
+      signature: signAuthorityEntry(host.db, { id: grantId, kind: 'grant', target_device_id: clientB.deviceId, target_peer_id: clientB.node.peerId, signer_device_id: host.deviceId }),
     })
     const { id, ...fields } = signedRevoke(clientB.db, clientB.deviceId, clientA.deviceId)
     await writeAuthorityEntry(host, id, fields)

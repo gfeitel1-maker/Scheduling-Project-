@@ -132,7 +132,7 @@ describe('Pair again: two devices', () => {
     const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-pairagain-ud-'))
     setUserDataDirGetter(() => userData)
     aDb.prepare("INSERT OR IGNORE INTO devices (id, name, authorized_at, pairing_status) VALUES ('device-a', 'A', ?, 'authorized')").run(new Date().toISOString())
-    mintGenesisEntry(aDb, { founderDeviceId: 'device-a', founderPeerId: (await ensureDeviceIdentity(aDb)).peerId })
+    mintGenesisEntry(aDb, { founderDeviceId: 'device-a', founderPeerId: (await ensureDeviceIdentity(aDb)).peerId, campId: CAMP_ID })
     const oldSecret = await pairB(a)
     const bSecretsBefore = readRendezvousSecrets(getCurrentDoc(bDb), CAMP_ID)
     expect(bSecretsBefore.namespace).toBe(readRendezvousSecrets(a.getDoc(), CAMP_ID).namespace)

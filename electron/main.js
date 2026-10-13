@@ -81,13 +81,14 @@ import { forgetRevokedPeer } from './sync/automerge/punchIdentity.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/authorityLog.js'
+import { readCampRoot } from './automerge/genesisSignature.js'
 import { mintRosterEntry } from './automerge/deviceRoster.js'
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
 import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc, suspendDocSaves as suspendAutomergeDocSaves } from './sync/automerge/liveDoc.js'
 import { runRendezvousRotation } from './sync/automerge/rendezvousRotation.js'
 import { createPeerReachabilityTracker } from './sync/automerge/peerReachability.js'
 import { projectEntity } from './automerge/projector.js'
-import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
+import { AUTHORITY_LOG_ENTITY, createVerifiedEntryTrust, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
 import * as Automerge from '@automerge/automerge'
 import { checkPickedBackup, restoreFromBackup } from './db/backupRestore.js'
 import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
@@ -1269,14 +1270,15 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
     // T331 (docs/adr/2026-10-02-distributed-revocation-authority.md) — the axiomatic genesis
     // entry: this device, by virtue of being the one that just created the camp, IS the founder.
-    // No signature (axiomatic, per the ADR) — just this device's own device_identity_key PEER ID,
-    // so every OTHER device can later verify entries this founder signs. Best-effort: a camp that
+    // Signed with the Host camp signing key (Amendment 2026-10-13), which is what makes it THE genesis on every
+    // other device; carries this device's own device_identity_key PEER ID, so every OTHER device can later verify
+    // entries this founder signs. Best-effort: a camp that
     // bootstrapped successfully must never be reported as failed because this mint hiccuped (same
     // non-fatal posture as the sync-node-start try/catch directly below) — the founder's own
     // admin status falls back to (re-)resolving on the next projection pass once this succeeds.
     try {
       const { peerId: founderPeerId } = await ensureDeviceIdentity(db)
-      mintGenesisEntry(db, { founderDeviceId: deviceId, founderPeerId })
+      mintGenesisEntry(db, { founderDeviceId: deviceId, founderPeerId, campId })
       projectAuthorityLogLocally()
     } catch (err) {
       console.error(`bootstrapCamp: minting the genesis authority entry failed (non-fatal): ${err?.message ?? err}`)
@@ -1397,7 +1399,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     let authorityState = null
     if (doc) {
       try {
-        authorityState = currentAuthorityState(Automerge, doc)
+        authorityState = (() => {
+          const root = readCampRoot(db)
+          return currentAuthorityState(Automerge, doc, { root, isEntryTrusted: createVerifiedEntryTrust(Automerge, doc, root) })
+        })()
       } catch (err) {
         console.error(`listDevices: computing authority state failed (non-fatal, admin rows fall back to pairing_status): ${err?.message ?? err}`)
       }

@@ -90,7 +90,7 @@ export function createMdnsDiscovery({ campId, ...options } = {}) {
 // (syncStarter.js) switches to this rotating variant. Pure: no document write, derives entirely
 // from `rotatingDiscoveryDigest` (electron/automerge/authorityRevocationDigest.js's revocation
 // digest, HMACed against the camp's minted discovery secret).
-// `opts` is threaded straight through to rotatingDiscoveryDigest/currentRevokedDeviceIds — T335
+// `opts` ({ root, isEntryTrusted }; the camp root is required) is threaded straight through to rotatingDiscoveryDigest/currentRevokedDeviceIds — T335
 // gate finding (Security/Red Hat HIGH, round 2): a caller MUST pass `{ isEntryTrusted }` built
 // from the real document (authorityReplay.js's createVerifiedEntryTrust) or an unsigned/forged
 // revoke entry moves the tag. There is deliberately no default here that would let a caller

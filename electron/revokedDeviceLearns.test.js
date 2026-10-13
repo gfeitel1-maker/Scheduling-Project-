@@ -9,6 +9,7 @@
 // Same harness as joinThenSync.test.js: the joined device runs the real main-process handlers and
 // the real persistent-node starter; the Host is a real sync node. Real libp2p, real SQLite;
 // discovery is an in-process tag bus re-announcing every 100ms (so a hot retry loop would show).
+import { hostGenesisSignature, writeAuthorityEntry } from './automerge/genesisTestKit.js'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -119,9 +120,7 @@ beforeEach(async () => {
   for (const w of buildRosterWrites(hostDb, { deviceId: 'host-device', peerId: host.peerId })) hostDoc = applyWrite(hostDoc, w)
   // The camp's authority genesis (main.js bootstrapCamp mints it): the joined device needs it to check a removal for itself.
   const genesisId = randomUUID()
-  for (const [field, value] of [['kind', 'genesis'], ['target_device_id', 'host-device'], ['target_peer_id', host.peerId]]) {
-    hostDoc = applyWrite(hostDoc, { entity: 'camp_authority_log', entity_id: genesisId, field, value })
-  }
+  hostDoc = writeAuthorityEntry(hostDoc, genesisId, { kind: 'genesis', target_device_id: 'host-device', target_peer_id: host.peerId, signature: hostGenesisSignature(hostDb, { id: genesisId, target_device_id: 'host-device', target_peer_id: host.peerId }) })
   await host.applyLocal(hostDoc)
 
   // The joined device's persistent node: the REAL starter, with only discovery swapped for the bus
@@ -199,11 +198,7 @@ async function removeOnHost(node) {
   host.revokePeer(node.peerId)
   const id = randomUUID()
   const fields = { kind: 'revoke', target_device_id: joinerId, signer_device_id: 'host-device' }
-  let doc = host.getDoc()
-  for (const [field, value] of Object.entries({ ...fields, signature: signAuthorityEntry(hostDb, { id, ...fields }) })) {
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field, value })
-  }
-  await host.applyLocal(doc)
+  await host.applyLocal(writeAuthorityEntry(host.getDoc(), id, { ...fields, signature: signAuthorityEntry(hostDb, { id, ...fields }) }))
 }
 
 describe('a removed device learns it was removed', () => {

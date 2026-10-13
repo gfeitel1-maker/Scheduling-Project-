@@ -5,6 +5,7 @@
 // mutualAuth + isPeerRevoked + Yamux + Automerge run UNCHANGED over it. These tests drive the real
 // startSyncNode (real evaluateAuthenticate, real SQLite) with the punch transport as the ONLY path
 // between the two nodes — the dial address is /udp/, which the tcp transport cannot match.
+import { makeTestCamp, writeAuthorityEntry } from '../../automerge/genesisTestKit.js'
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -176,17 +177,16 @@ describe('punchTransport — libp2p transport over a node-datachannel pipe', () 
     await authenticateBothWays(a, b)
     await waitFor(() => a.isPeerAuthenticated(b.peerId.toString()))
 
-    function pushEntry(doc, fields, signed) {
-      const id = `entry-${Math.random()}`
-      let d = doc
-      for (const [field, value] of Object.entries(fields)) d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
-      if (signed) {
-        const signature = signAuthorityEntry(dbA, { id, kind: fields.kind, target_device_id: fields.target_device_id, signer_device_id: fields.signer_device_id })
-        d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature })
-      }
-      return d
+    const camp = makeTestCamp('camp-1')
+    dbA.prepare('UPDATE camps SET signing_public_key = ?').run(camp.publicKey)
+    function pushEntry(doc, fields, signed, fixedId) {
+      const id = fixedId ?? `entry-${Math.random()}`
+      const all = { target_peer_id: '', ...fields }
+      if (signed) all.signature = signAuthorityEntry(dbA, { id, kind: all.kind, target_device_id: all.target_device_id, target_peer_id: all.kind === 'grant' ? all.target_peer_id : undefined, signer_device_id: all.signer_device_id })
+      else all.signature ??= 'unsigned'
+      return writeAuthorityEntry(doc, id, all)
     }
-    await a.applyLocal(pushEntry(a.getDoc(), { kind: 'genesis', target_device_id: 'device-a', target_peer_id: a.peerId.toString() }, false))
+    await a.applyLocal(pushEntry(a.getDoc(), camp.genesisFields({ id: 'genesis-1', deviceId: 'device-a', peerId: a.peerId.toString() }), false, 'genesis-1'))
     await a.applyLocal(pushEntry(a.getDoc(), { kind: 'grant', target_device_id: 'device-b', target_peer_id: b.peerId.toString(), signer_device_id: 'device-a' }, true))
     expect(a.isPeerAuthenticated(b.peerId.toString())).toBe(true)
 

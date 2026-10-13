@@ -2,11 +2,13 @@
 // before-green tests for the rotating discovery tag: HMAC(campDhtSecret, revocationDigest).
 import * as Automerge from '@automerge/automerge'
 import { describe, expect, it } from 'vitest'
-import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
+import { createEmptyDoc } from '../../automerge/campDocument.js'
+import { writeAuthorityEntry } from '../../automerge/genesisTestKit.js'
 import { mintRendezvousNamespace } from './rendezvousNamespace.js'
 import { rotatingDiscoveryDigest } from './rotatingDiscoveryTag.js'
 
 const CAMP_ID = 'camp-1'
+const TEST_ROOT = { campId: CAMP_ID, publicKey: null }
 
 let nextId = 0
 function uid() {
@@ -14,12 +16,7 @@ function uid() {
 }
 
 function pushEntry(doc, entry) {
-  const id = uid()
-  let d = doc
-  for (const [field, value] of Object.entries(entry)) {
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
-  }
-  return d
+  return writeAuthorityEntry(doc, uid(), { target_peer_id: '', signature: 'unsigned', ...entry })
 }
 
 function mintedDoc() {
@@ -31,14 +28,14 @@ function mintedDoc() {
 describe('rotatingDiscoveryDigest', () => {
   it('throws when no discovery secret has been minted for the camp', () => {
     const doc = createEmptyDoc()
-    expect(() => rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { founderDeviceId: 'FOUNDER' })).toThrow()
+    expect(() => rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })).toThrow()
   })
 
   it('is deterministic for the same document state', () => {
     let doc = mintedDoc()
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
-    const tag1 = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { founderDeviceId: 'FOUNDER' })
-    const tag2 = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { founderDeviceId: 'FOUNDER' })
+    const tag1 = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
+    const tag2 = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(tag1).toEqual(tag2)
     expect(tag1.length).toBe(32)
   })
@@ -48,10 +45,10 @@ describe('rotatingDiscoveryDigest', () => {
     let doc = mintedDoc()
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'C', signer_device_id: 'FOUNDER' })
-    const before = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { founderDeviceId: 'FOUNDER' })
+    const before = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'A' })
-    const after = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { founderDeviceId: 'FOUNDER' })
+    const after = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(after).not.toEqual(before)
   })
 
@@ -67,18 +64,18 @@ describe('rotatingDiscoveryDigest', () => {
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'A' })
 
-    const trustedTag = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { founderDeviceId: 'FOUNDER' })
-    const frozenTag = rotatingDiscoveryDigest(Automerge, frozenAtD, CAMP_ID, { founderDeviceId: 'FOUNDER' })
+    const trustedTag = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
+    const frozenTag = rotatingDiscoveryDigest(Automerge, frozenAtD, CAMP_ID, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(frozenTag).not.toEqual(trustedTag)
   })
 
   it('only a trusted (signed) revoke entry moves the tag', () => {
     let doc = mintedDoc()
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'C', signer_device_id: 'FOUNDER' })
-    const before = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { founderDeviceId: 'FOUNDER' })
+    const before = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'FOUNDER', signature: 'forged' })
     const isEntryTrusted = (entry) => entry.signature !== 'forged'
-    const after = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { founderDeviceId: 'FOUNDER', isEntryTrusted })
+    const after = rotatingDiscoveryDigest(Automerge, doc, CAMP_ID, { root: TEST_ROOT, founderDeviceId: 'FOUNDER', isEntryTrusted })
     expect(after).toEqual(before)
   })
 })

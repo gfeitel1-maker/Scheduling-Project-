@@ -8,7 +8,8 @@ import { randomUUID } from 'node:crypto'
 
 import { setupTwoJoinedDevices, waitFor } from '../../../test/integration/harnessAutomerge.js'
 import { startSyncNode } from './syncNode.js'
-import { applyWrite, readRecord } from '../../automerge/campDocument.js'
+import { applyWrite, applyWrites, readRecord } from '../../automerge/campDocument.js'
+import { hostGenesisSignature } from '../../automerge/genesisTestKit.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { isRemovedFromCamp } from './selfRemoval.js'
@@ -22,13 +23,11 @@ afterEach(async () => {
 const settleMs = (ms) => new Promise((r) => setTimeout(r, ms))
 const writesFor = (entity, id, fields) => Object.entries(fields).map(([field, value]) => ({ entity, entity_id: id, field, value }))
 async function writeEntry(host, id, fields) {
-  let doc = host.node.getDoc()
-  for (const w of writesFor('camp_authority_log', id, fields)) doc = applyWrite(doc, w)
-  await host.node.applyLocal(doc)
+  await host.node.applyLocal(applyWrites(host.node.getDoc(), writesFor('camp_authority_log', id, fields)))
 }
 const signed = (kind, signerDb, signerId, targetId, extra = {}) => {
   const id = randomUUID()
-  return { id, fields: { kind, target_device_id: targetId, signer_device_id: signerId, ...extra, signature: signAuthorityEntry(signerDb, { id, kind, target_device_id: targetId, signer_device_id: signerId }) } }
+  return { id, fields: { kind, target_device_id: targetId, signer_device_id: signerId, ...extra, signature: signAuthorityEntry(signerDb, { id, kind, target_device_id: targetId, target_peer_id: extra.target_peer_id, signer_device_id: signerId }) } }
 }
 async function hostEvictsClientA(rig) {
   const { host, clientA } = rig
@@ -47,7 +46,7 @@ async function rigWithClientAMarkedRemoved() {
   rigs.push(rig)
   const { host, clientA } = rig
   const genesisId = randomUUID()
-  await writeEntry(host, genesisId, { kind: 'genesis', target_device_id: host.deviceId, target_peer_id: host.node.peerId })
+  await writeEntry(host, genesisId, { kind: 'genesis', target_device_id: host.deviceId, target_peer_id: host.node.peerId, signature: hostGenesisSignature(host.db, { id: genesisId, target_device_id: host.deviceId, target_peer_id: host.node.peerId }) })
   await waitFor(() => Object.keys(clientA.node.getDoc().camp_authority_log ?? {}).length > 0, 8000)
   host.node.revokePeer(clientA.node.peerId)
   const revoke = signed('revoke', host.db, host.deviceId, clientA.deviceId)

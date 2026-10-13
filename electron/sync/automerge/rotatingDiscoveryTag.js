@@ -16,8 +16,10 @@
 import { createHmac } from 'node:crypto'
 import { readRendezvousNamespace } from './rendezvousNamespace.js'
 import { revocationDigest } from '../../automerge/authorityRevocationDigest.js'
+import { requireRoot } from '../../automerge/authorityReplay.js'
 
 export function rotatingDiscoveryDigest(automerge, doc, campId, opts = {}) {
+  requireRoot(opts.root)
   const existing = readRendezvousNamespace(doc, campId)
   if (!existing) {
     throw new Error(

@@ -33,6 +33,7 @@ import { createHostHandoff } from '../../auth/hostHandoff.js'
 import { createHandoffWire } from './hostHandoffWire.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { runRendezvousRotation } from './rendezvousRotation.js'
+import { readCampRoot } from '../../automerge/genesisSignature.js'
 
 // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md): pure, directly-testable
 // predicate deciding whether a PEER's schema version (learned from its own `authenticate` handshake
@@ -595,7 +596,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     // A revocation refusal carries the real changes that wrote the revoke entries, so the refused device can derive the
     // removal from its own document. Only to a peer on this build's schema (the exact-match rule ordinary sync applies) that the roster binds to the device id it claims.
     const evidence = REVOCATION_REFUSAL_REASONS.has(result.reason) && msg.schemaVersion === getHandshakeSchemaVersion() && mayReceiveRevocationEvidence(db, String(fromPeerId), msg.device_id)
-      ? collectRevocationEvidence(getCurrentDoc(db), msg.device_id, msg.heads)
+      ? collectRevocationEvidence(getCurrentDoc(db), msg.device_id, msg.heads, readCampRoot(db))
       : null
     return { ok: false, reason: result.reason, ...(evidence ? { evidence: { ...evidence, schemaVersion: getHandshakeSchemaVersion() } } : {}) }
   }
@@ -915,7 +916,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     const rejectEvidence = (reason) => console.error(`syncNode: revocation evidence from ${peerId} not adopted: ${String(reason).slice(0, 200)}`)
     if (evidence?.schemaVersion !== getHandshakeSchemaVersion()) return rejectEvidence(`schema-version ${String(evidence?.schemaVersion).slice(0, 40)} != ${getHandshakeSchemaVersion()}`)
     const currentDoc = getCurrentDoc(db)
-    const bytes = validateRefusalEvidence(currentDoc, deviceId, evidence, rejectEvidence)
+    const bytes = validateRefusalEvidence(currentDoc, deviceId, evidence, readCampRoot(db), rejectEvidence)
     if (!bytes) return
     const before = A.getHeads(currentDoc)
     const [nextDoc] = A.applyChanges(currentDoc, bytes)
