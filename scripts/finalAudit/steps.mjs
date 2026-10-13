@@ -260,6 +260,16 @@ export async function run(h) {
   // Only the schedule grid: anything left of the BLOCK column header (the activities palette, which
   // also names the elective) is not a cell. Innermost matches only, so a cell is counted once.
   const cellsNaming = (word) => ev(`const vis=[...document.querySelectorAll('*')].filter(__vis); const hdr=vis.find(e=>e.children.length===0&&(e.innerText||'').trim()==='BLOCK'); if(!hdr) return []; const x0=hdr.getBoundingClientRect().right; const labels=vis.filter(e=>{const r=e.getBoundingClientRect(); return r.right<=x0+2&&r.left>=hdr.getBoundingClientRect().left-2&&/^\\d{1,2}:\\d{2}/.test((e.innerText||'').trim())&&![...e.children].some(c=>/^\\d{1,2}:\\d{2}/.test((c.innerText||'').trim()))}).map(e=>e.getBoundingClientRect().top).sort((a,b)=>a-b); const heads=[...document.querySelectorAll('[role=rowheader]')].filter(__vis).map(e=>e.getBoundingClientRect().top).sort((a,b)=>a-b); const gaps=labels.slice(1).map((t,i)=>t-labels[i]).filter(g=>g>40); const pitch=heads.length>1?heads[1]-heads[0]:(gaps.length?Math.min(...gaps):0); const hits=vis.filter(e=>{const r=e.getBoundingClientRect(); return r.left>=x0&&(e.innerText||'').trim()===${JSON.stringify(word)}}); const cells=hits.map(e=>{let c=e; while(c.parentElement&&c.parentElement.innerText.trim()===e.innerText.trim()) c=c.parentElement; return c}); return [...new Set(cells)].map(c=>pitch?Math.max(1,Math.round((c.getBoundingClientRect().height+pitch*0.25)/pitch)):0)`)
+  // Every day, not just the one on screen: since T378 a double period can land on any day (#1004).
+  const dayPills = () => ev(`return [...document.querySelectorAll('.day-pill')].filter(__vis).length`)
+  const onEachDay = async (read) => {
+    const n = await dayPills(); if (!n) return [await read()]
+    const out = []
+    for (let k = 0; k < n; k++) { await ev(`[...document.querySelectorAll('.day-pill')].filter(__vis)[${k}].click(); return true`); await sleep(600); out.push(await read()) }
+    await ev(`[...document.querySelectorAll('.day-pill')].filter(__vis)[0].click(); return true`); await sleep(400)
+    return out
+  }
+  const cellsNamingAllDays = async (word) => (await onEachDay(() => cellsNaming(word))).flat()
 
   await step(9, 'Locations round-trip: Download worksheet, edit a capacity in the xlsx, Import from Excel, the location updates', async () => {
     featureIn(959, 'Locations sheet round-trip')
@@ -374,12 +384,12 @@ export async function run(h) {
     if (!fs.existsSync(R9)) throw new Error(`${R9} missing from this checkout (pull main)`)
     await importFile(R9, { replace: true }); await done()
     const manual = await restoreImported('Imported from r9-double-period-elective.txt')
-    const mCells = await cellsNaming('Pottery / Drama'); await h.shot('s11-manual')
+    const mCells = await cellsNamingAllDays('Pottery / Drama'); await h.shot('s11-manual')
     await nav('Generated Schedule')
     if (await ev(`return !!__btn('Generate a schedule', true)`)) await click('Generate a schedule', true)
     else await click('Rebuild', true)
     const gen = await waitFor(STATS, 120000, 'Generate stats')
-    const gCells = await cellsNaming('Pottery / Drama')
+    const gCells = await cellsNamingAllDays('Pottery / Drama')
     const ok = (c) => c.length > 0 && c.every((n) => n >= 2)
     const note = `Manual (restored ${manual.placed}/${manual.total}): Pottery cells spans=${JSON.stringify(mCells)}; Generated (${gen.placed}/${gen.total}, ${gen.still} still needed): spans=${JSON.stringify(gCells)}`
     if (!ok(mCells) || !ok(gCells)) throw new Error(note)
@@ -451,8 +461,16 @@ export async function run(h) {
     let note = `swap "${A.text}" (${A.key}) onto "${B.text}" (${B.key}): ${swapped ? 'swapped' : `NOT swapped (now "${a1}" / "${b1}")`}, Placed ${p0} -> ${p1}; Undo: ${restored ? 'both restored' : `NOT restored ("${a2}" / "${b2}")`}, Placed ${p2}`
     let ok = swapped && restored && p1 === p0 && p2 === p0
     // Refused case: a plain cell dropped on a multi-block cell.
-    let after = await ev(cellInfo + 'return cells')
-    let span = after.find(c => c.span > 1)
+    const findSpan = async () => {
+      const n = await dayPills()
+      for (let k = 0; k < Math.max(n, 1); k++) {
+        if (n) { await ev(`[...document.querySelectorAll('.day-pill')].filter(__vis)[${k}].click(); return true`); await sleep(600) }
+        const cells = await ev(cellInfo + 'return cells'); const sp = cells.find(c => c.span > 1)
+        if (sp) return [cells, sp]
+      }
+      return [await ev(cellInfo + 'return cells'), null]
+    }
+    let [after, span] = await findSpan()
     if (!span) {
       // campB's week has no multi-block cell: load the double-period elective sample (r9), whose Monday
       // holds a two-block elective, so the refused case is always exercised.
@@ -464,10 +482,7 @@ export async function run(h) {
       else await click('Rebuild', true)
       if (await ev(`return !!__btn('Rebuild it', true)`)) await click('Rebuild it', true)
       await waitFor(STATS, 120000, 'Generate stats (r9)')
-      await click('Monday', true, 10000).catch(() => {})
-      await sleep(800)
-      after = await ev(cellInfo + 'return cells')
-      span = after.find(c => c.span > 1)
+      ;[after, span] = await findSpan()
     }
     const src = span && after.find(c => c.plain && c.span === 1 && c.d === span.d && c.text !== span.text)
     if (!span || !src) throw new Error(`${note}; refused case: no multi-block cell even after loading r9`)
@@ -499,10 +514,21 @@ export async function run(h) {
     const names = Object.values(before).filter(Boolean)
     const counts = names.reduce((m, n) => ({ ...m, [n]: (m[n] || 0) + 1 }), {})
     const ranked = Object.keys(counts).sort((a, b) => counts[b] - counts[a])
-    const [outdoor, rain] = ranked
-    if (!outdoor || !rain) throw new Error(`need two different activities in the first day's grid (saw ${JSON.stringify(counts)})`)
-
+    // The outdoor one is the most-placed grid label that is an ACTIVITY (a cell can also show a fixed event or
+    // an elective bundle, which have no row on Activities).
     await nav('Activities')
+    await waitFor(`return document.querySelectorAll('[aria-label^="Edit "][aria-label$=" details"]').length > 0`, 20000, 'activity rows')
+    const activityNames = await ev(`return [...document.querySelectorAll('[aria-label^="Edit "][aria-label$=" details"]')].map(b=>b.getAttribute('aria-label').slice(5, -8))`)
+    const outdoor = ranked.find((n) => activityNames.includes(n))
+    if (!outdoor) throw new Error(`no activity among the first day's grid labels ${JSON.stringify(ranked)} (activities: ${JSON.stringify(activityNames)})`)
+
+    // The rain plan is a fresh indoor activity, absent from every block, so at least one cell has room to
+    // switch (an existing activity may already be at its groups-at-once limit in every block: "N full").
+    const rain = `Rain Room ${Date.now().toString(36)}`
+    await nav('Activities')
+    await waitFor(`const b=[...document.querySelectorAll('button')].filter(__vis).find(b=>/^\\+?\\s*Add activity$/i.test(b.innerText.trim())); if(!b) return false; b.click(); return true`, 15000, 'Add activity')
+    await waitFor(`const i=__inp('input[placeholder$="Swim"]'); if(!i) return false; __set(i, ${JSON.stringify(rain)}); i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})); return true`, 10000, 'new activity name')
+    await waitFor(`return !!document.querySelector('[aria-label=${JSON.stringify(`Edit ${rain} details`)}]')`, 15000, 'rain plan activity added')
     await waitFor(`return !!document.querySelector('[aria-label=${JSON.stringify(`Edit ${outdoor} details`)}]')`, 20000, 'activity row')
     await ev(`document.querySelector('[aria-label=${JSON.stringify(`Edit ${outdoor} details`)}]').click(); return true`)
     await waitFor(`return !!document.querySelector('select[aria-label="Rain plan"]')`, 10000, 'Rain plan field')
@@ -526,7 +552,7 @@ export async function run(h) {
     await click('Rainy day…', true, 10000)
     const dayLabel = await ev(`const b=document.querySelector('[aria-label="Pick a rainy day"] button'); const t=b.innerText.trim(); b.click(); return t`)
     await waitFor(`return /Rainy [^:]+: \\d+ switched/.test(__main())`, 20000, 'rainy day receipt')
-    const receipt = await ev(`return (__main().match(/Rainy [^:]+: [^\\n]*/)||[null])[0]`)
+    const receipt = await ev(`return (__main().match(/Rainy [A-Z][a-z]+day: [^\\n]*/)||[null])[0]`)
     const rainy = await cellMap()
     const switched = Object.keys(sunny).filter(k => sunny[k] === outdoor && rainy[k] === rain)
     await ev(`[...document.querySelectorAll('.day-pill')].filter(__vis)[1].click(); return true`)
@@ -614,6 +640,9 @@ export async function run(h) {
         await sleep(300); await Y.click('Continue', true, 10000)
         const seen = await waitFor(`return [...document.querySelectorAll('button')].filter(__vis).some(b=>b.innerText.trim()==='Approve')`, 90000, 'control').catch(() => false)
         if (!seen) throw new Error('not exercised: a same-camp join request never reached A within 90s, so discovery does not work on this machine/network (VPN?) and the silence between the two camps proves nothing')
+        // Deny the control's request: left pending, a later step would approve Y instead of its own peer.
+        await ev(`const b=[...document.querySelectorAll('button')].filter(__vis).find(b=>b.innerText.trim()==='Deny'); if(b) b.click(); return !!b`)
+        await waitFor(`return ![...document.querySelectorAll('button')].filter(__vis).some(b=>b.innerText.trim()==='Approve')`, 15000, "control's request denied")
       } finally { await Y.stop() }
       await click('Stop adding devices', true, 5000).catch(() => {})
       await nav('Locations'); await X.nav('Locations')
