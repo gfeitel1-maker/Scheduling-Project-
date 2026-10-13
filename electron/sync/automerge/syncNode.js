@@ -9,8 +9,7 @@
 // heads advanced, projectAll into SQLite and re-broadcast to every OTHER
 // connected peer (mirrors test-cr4-live.mjs's except-self broadcast, which is
 // what lets a 3+ peer LAN mesh converge without a full connection graph).
-import { isRemovedFromCamp, markRemovedFromCamp, healRemovedMark } from './selfRemoval.js'
-import { mayReceiveRevocationEvidence, collectRevocationEvidence, validateRefusalEvidence, ownHeadsForHandshake, isRevokedByOwnAuthority, REVOCATION_REFUSAL_REASONS } from './removalEvidence.js'
+import { isRemovalRefusal, isRemovedFromCamp, markRemovedFromCamp } from './selfRemoval.js'
 import * as A from '@automerge/automerge'
 import { createJoinTagAdvertiser } from './joinTagDiscovery.js'
 import { startTransport } from './transport.js'
@@ -86,7 +85,7 @@ export function isSyncCompatible(incomingVersion, localVersion) {
 // installed builds in one process: overriding this alone lets a test node ANNOUNCE a version other
 // than this checkout's real CURRENT_SCHEMA_VERSION, to construct a genuine peer-version mismatch
 // without needing a second codebase.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingNew, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, joinDiscoveryFor, onAuthRejected, onRemovalCleared, removedRetryMs, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, onPunchPeerAdmitted, onRelayReservationRefused, relaunch, onHandoffChanged, handoffRetryMs, handoffFaults, inboundConnectionThreshold } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingNew, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, joinDiscoveryFor, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, onPunchPeerAdmitted, onRelayReservationRefused, relaunch, onHandoffChanged, handoffRetryMs, handoffFaults, inboundConnectionThreshold } = {}) {
   const getLocalSchemaVersion = () =>
     typeof localSchemaVersion === 'function' ? localSchemaVersion() : localSchemaVersion
   const getHandshakeSchemaVersion = () =>
@@ -172,19 +171,9 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     }
   }
 
-  // A removed mark is only as true as this device's own authority state: once that stops saying revoked (a re-grant
-  // supersedes the revoke), the mark clears itself and the renderer is told. No re-pair.
-  function healFalseRemoval() {
-    try {
-      if (healRemovedMark(db, deviceId)) onRemovalCleared?.()
-    } catch (err) {
-      console.error(`syncNode: could not re-check this device's removed state after projection (non-fatal): ${err?.message ?? err}`)
-    }
-  }
   function projectAndNotify(merged, before, fromPeerId) {
     try {
       const contained = projectAll(db, merged)
-      healFalseRemoval()
       tearDownRevokedConnectedPeers()
       runRendezvousRotation(db, { deviceId, broadcast: syncAllAuthenticatedPeers })
       onProjected?.(merged)
@@ -591,13 +580,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
       // Authenticate back, so the admission is mutual without waiting on a re-discovery.
       mutualAuth?.reciprocate(String(fromPeerId))
     }
-    if (result.ok) return { ok: true }
-    // A revocation refusal carries the real changes that wrote the revoke entries, so the refused device can derive the
-    // removal from its own document. Only to a peer on this build's schema (the exact-match rule ordinary sync applies) that the roster binds to the device id it claims.
-    const evidence = REVOCATION_REFUSAL_REASONS.has(result.reason) && msg.schemaVersion === getHandshakeSchemaVersion() && mayReceiveRevocationEvidence(db, String(fromPeerId), msg.device_id)
-      ? collectRevocationEvidence(getCurrentDoc(db), msg.device_id, msg.heads)
-      : null
-    return { ok: false, reason: result.reason, ...(evidence ? { evidence: { ...evidence, schemaVersion: getHandshakeSchemaVersion() } } : {}) }
+    return result.ok ? { ok: true } : { ok: false, reason: result.reason }
   }
 
   // Stage 5d-2b (ADR §1's "first pairing" flow). `onPairingRequest` is injected by
@@ -906,41 +889,16 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   }).catch((err) => {
     console.error(`syncNode: redialTrustedPeers failed (non-fatal, discovery still proceeds): ${err?.message ?? err}`)
   })
-  // A peer's refusal is never a verdict by itself (selfRemoval.js): this device is removed only when ITS OWN authority
-  // state says so. A revocation refusal's signed evidence is verified and merged first (removalEvidence.js), then
-  // authority_cache is re-read; the removal is recorded durably before the caller hears about it.
-  // The refusal's changes are applied exactly as an ordinary sync message's are: into the held document, then projected,
-  // so authority_cache is derived by authorityReplay with each entry judged at its own causal position.
-  function adoptRefusalEvidence(peerId, evidence) {
-    if (evidence?.schemaVersion !== getHandshakeSchemaVersion()) return
-    const currentDoc = getCurrentDoc(db)
-    const bytes = validateRefusalEvidence(currentDoc, deviceId, evidence)
-    if (!bytes) return
-    const before = A.getHeads(currentDoc)
-    const [nextDoc] = A.applyChanges(currentDoc, bytes)
-    setCurrentDoc(db, nextDoc, { persist: true })
-    const reconciled = reconcileForProjection(nextDoc)
-    if (reconciled !== nextDoc) setCurrentDoc(db, reconciled, { persist: true })
-    projectAndNotify(reconciled, before, peerId)
-  }
-  async function handleAuthRejected(peerId, reply) {
-    try {
-      if (REVOCATION_REFUSAL_REASONS.has(reply?.reason) && reply.evidence !== undefined) {
-        try {
-          adoptRefusalEvidence(peerId, reply.evidence)
-        } catch (err) {
-          console.error(`syncNode: could not adopt revocation evidence from ${peerId}: ${err?.message ?? err}`)
-        }
+  // A refusal that says THIS device was removed is recorded durably (selfRemoval.js) before the
+  // caller hears about it, so it holds even when the caller's own handling fails. Any other refusal
+  // reason, and every transport error (those never reach onRejected), leaves the state alone.
+  function handleAuthRejected(peerId, reply) {
+    if (isRemovalRefusal(reply)) {
+      if (!markRemovedFromCamp(db, { peerId, reason: reply.reason })) {
+        console.error(`syncNode: peer ${peerId} says this device was removed from the camp, but recording that failed`)
       }
-      let removed = false
-      if (isRevokedByOwnAuthority(db, deviceId)) {
-        removed = markRemovedFromCamp(db, { peerId, reason: reply?.reason })
-        if (!removed) console.error(`syncNode: this device's own authority state says it was removed, but recording that failed`)
-      }
-      onAuthRejected?.(peerId, reply, { removed })
-    } catch (err) {
-      console.error(`syncNode: handling a refusal from ${peerId} failed: ${err?.message ?? err}`)
     }
+    onAuthRejected?.(peerId, reply)
   }
   // `onlyEntity` scopes the projection to one entity: projectAll delete-reconciles every table, which would drop
   // SQLite rows the document does not hold. A roster write must touch roster state only.
@@ -985,7 +943,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
 
   mutualAuth = wireMutualAuth(
     { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },
-    { deviceId, onRejected: handleAuthRejected, isSelfRemoved: () => isRemovedFromCamp(db), removedRetryMs, isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion, getAppliedTombstones, getRosterEntry: () => readOwnRosterEntry(getCurrentDoc(db), deviceId), getHeads: () => ownHeadsForHandshake(getCurrentDoc(db)) }
+    { deviceId, onRejected: handleAuthRejected, isSelfRemoved: () => isRemovedFromCamp(db), isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion, getAppliedTombstones, getRosterEntry: () => readOwnRosterEntry(getCurrentDoc(db), deviceId) }
   )
 
   return {

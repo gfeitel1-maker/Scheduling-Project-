@@ -6,25 +6,25 @@
 // connection, so B never re-authenticated) or was cut off by A aborting the stream straight after
 // writing it (B read EOF, an AUTH_ERROR indistinguishable from a network blip).
 //
-// THE RULE: a device records its own removal ONLY when ITS OWN trust state — the signed authority log it holds
-// (T331 revoke entries, re-derived into authority_cache) — says it is revoked. A peer's refusal of ANY kind
-// (device_not_authorized, device_not_found, device_revoked, device_revoked_by_authority) is never a verdict by
-// itself: a joining device that has no roster yet refuses the very host that is approving it, and a hostile peer can
-// claim anything. A refusal is only a reason to re-check own state, and a revocation refusal carries the real
-// Automerge changes that wrote the revoke entries, so a genuinely removed device — refused by every peer, unable to
-// sync — applies them like ordinary sync and derives the removal itself (removalEvidence.js). Wrong-camp, unrelated or
-// non-admin-signed changes are rejected whole and change nothing. Timeouts, dropped streams and offline peers never set this either.
-//
-// _Prior: any refusal with reason device_revoked / device_revoked_by_authority set this, on the premise that the peer
-// had first verified a valid camp token for this device. T376 removed tokens from admission, so any peer could say it._
+// ONLY AN AUTHORITATIVE REFUSAL COUNTS. A timeout, a dropped stream, a peer that is offline — none
+// of these say anything about whether this device is still in the camp, and none may set this.
+// The refusal reasons below are the ones evaluateAuthenticate (electron/auth/connectionAuth.js)
+// returns when the camp has revoked this device; they reach us only after the peer verified a
+// valid camp token for this device id, so they are not something an arbitrary stranger can send
+// to make the director think the device was removed — at worst a peer that can read the camp
+// token can claim it, and the remedy (Pair again) is the same either way.
 //
 // Stored as a deterministic-id row in device_health_events (host-local, no schema change): it is
 // exactly that table's kind of fact — something about this device the director must see, that
 // survives a restart, cleared when resolved. Local data is never touched.
 import { DEVICE_HEALTH, recordDeviceHealthEvent } from '../../ops/deviceHealthEvents.js'
-import { isRevokedByOwnAuthority } from './removalEvidence.js'
 
+export const REMOVED_FROM_CAMP_REASONS = new Set(['device_revoked', 'device_revoked_by_authority'])
 const ROW_ID = 'self:removed_from_camp'
+
+export function isRemovalRefusal(reply) {
+  return !!reply && reply.type === 'auth_failed' && REMOVED_FROM_CAMP_REASONS.has(reply.reason)
+}
 
 /** Records the removal. Returns true when the row is present afterwards (reported, not assumed). */
 export function markRemovedFromCamp(db, { peerId, reason } = {}) {
@@ -58,10 +58,4 @@ export function clearRemovedFromCamp(db) {
     console.error(`selfRemoval: could not clear the removed-from-camp state: ${err?.message ?? err}`)
     return false
   }
-}
-
-/** A removal that this device's own authority state no longer backs (a re-grant superseded the revoke) is over. True when it just cleared. */
-export function healRemovedMark(db, deviceId) {
-  if (!isRemovedFromCamp(db) || isRevokedByOwnAuthority(db, deviceId)) return false
-  return clearRemovedFromCamp(db)
 }

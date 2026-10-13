@@ -188,10 +188,6 @@ file size, sheet count, and rows before a workbook is walked.
 
 ## Known limitations
 
-### A stale device can be made to sign itself out by a revoked admin (v1, accepted)
-
-When a peer refuses a device, the refusal can carry the signed revoke entries that removed it, and the refused device applies them as ordinary Automerge changes. It signs itself out only if its own signed authority state then says it is revoked. A revoke counts if its signer was an admin at that revoke's own causal position. So an admin D who was later revoked, and still holds their keys, can write a backdated but causally valid revoke against a device that has not yet learned D was revoked, and deliver it in a refusal. Effect: that one device signs itself out. Nothing leaks and nothing escalates. Recovery: pair the device again as a new device. (A device whose own records later stop saying it is revoked, because the revoke was superseded or turned out invalid when it caught up, clears the removed state by itself with no re-pair: `healRemovedMark` in `electron/sync/automerge/selfRemoval.js`. That does not apply to this backdated revoke, which stays valid.) Accepted for v1 under delegated owner authority. Evidence: `docs/adr/2026-10-12-shared-signed-device-roster.md`, section "Refusal evidence".
-
 ### Rendezvous secrets rotate on revocation, but old records and stragglers linger (v1, accepted)
 
 When the revocation set changes, the elected admin device rotates the rendezvous namespace and the

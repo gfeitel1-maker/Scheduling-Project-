@@ -80,6 +80,7 @@ export const FLAG_COLORS = {
   // T105 §5 — a concurrent-edit notice, derived/render-time/locally-
   // dismissible, never persisted.
   CONTENT_RACE: 'var(--accent)',
+  RAIN_PLAN_FULL: 'var(--accent)',
 }
 
 // Severity is a distinct lookup from FLAG_COLORS (hue) on purpose — kept
@@ -92,6 +93,7 @@ export const FLAG_SEVERITY = {
   UNDERSERVED: 'caution',
   DISTRIBUTION: 'info',
   CONTENT_RACE: 'caution',
+  RAIN_PLAN_FULL: 'caution',
 }
 
 export const SEVERITY_BAR_COLOR = {

@@ -37,7 +37,6 @@ import { startSyncNode } from './sync/automerge/syncNode.js'
 import { setUserDataDirGetter, setDocCipher, resetForTests } from './sync/automerge/liveDoc.js'
 import { mintJoinSecret, joinDiscoveryTag } from './sync/joinCode.js'
 import { isRemovedFromCamp } from './sync/automerge/selfRemoval.js'
-import { signAuthorityEntry } from './automerge/authorityLogSignature.js'
 
 const CAMP_ID = 'camp-revoked-learns'
 const CAMP_TAG = 'camp-discovery-stand-in'
@@ -117,11 +116,6 @@ beforeEach(async () => {
   // pairs can admit it with no Host-issued token (docs/adr/2026-10-12-shared-signed-device-roster.md).
   let hostDoc = host.getDoc()
   for (const w of buildRosterWrites(hostDb, { deviceId: 'host-device', peerId: host.peerId })) hostDoc = applyWrite(hostDoc, w)
-  // The camp's authority genesis (main.js bootstrapCamp mints it): the joined device needs it to check a removal for itself.
-  const genesisId = randomUUID()
-  for (const [field, value] of [['kind', 'genesis'], ['target_device_id', 'host-device'], ['target_peer_id', host.peerId]]) {
-    hostDoc = applyWrite(hostDoc, { entity: 'camp_authority_log', entity_id: genesisId, field, value })
-  }
   await host.applyLocal(hostDoc)
 
   // The joined device's persistent node: the REAL starter, with only discovery swapped for the bus
@@ -192,18 +186,9 @@ const nameIn = (db, id) => db.prepare('SELECT name FROM activities WHERE id = ?'
 const hostAuthAttemptsFrom = (id) =>
   hostDb.prepare("SELECT COUNT(*) AS n FROM audit_events WHERE action = 'auth.authenticate' AND device_id = ?").get(id).n
 
-// revokeDevice: stamp the row, sign a T331 revoke entry into the Host's document, evict. The removed device gets the
-// signed entry in the refusal (removalEvidence.js) because it can no longer sync it.
-async function removeOnHost(node) {
+function removeOnHost(node) {
   hostDb.prepare("UPDATE devices SET revoked_at = ?, pairing_status = 'revoked' WHERE id = ?").run(new Date().toISOString(), joinerId)
   host.revokePeer(node.peerId)
-  const id = randomUUID()
-  const fields = { kind: 'revoke', target_device_id: joinerId, signer_device_id: 'host-device' }
-  let doc = host.getDoc()
-  for (const [field, value] of Object.entries({ ...fields, signature: signAuthorityEntry(hostDb, { id, ...fields }) })) {
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field, value })
-  }
-  await host.applyLocal(doc)
 }
 
 describe('a removed device learns it was removed', () => {
@@ -214,7 +199,7 @@ describe('a removed device learns it was removed', () => {
     expect(await waitFor(() => nameIn(hostDb, 'act-before'), 10_000)).toBe('Hiking')
     expect(isRemovedFromCamp(joiner.db)).toBe(false)
 
-    await removeOnHost(node)
+    removeOnHost(node)
 
     // B learns it on its next contact attempt.
     expect(await waitFor(() => isRemovedFromCamp(joiner.db), 15_000)).toBe(true)

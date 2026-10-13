@@ -55,7 +55,6 @@ function renderView(extra = {}) {
         timeBlocks={timeBlocks}
         selectedGroup="g1"
         onSelectGroup={noop}
-        weatherMode={false}
         actMap={actMap}
         fixedEventMap={new Map()}
         releaseCell={noop}
@@ -226,7 +225,6 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
           timeBlocks={timeBlocks}
           selectedGroup="g1"
           onSelectGroup={() => {}}
-          weatherMode={false}
           actMap={actMap}
           fixedEventMap={new Map()}
           releaseCell={() => {}}
@@ -258,7 +256,6 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
           timeBlocks={timeBlocks}
           selectedGroup="g1"
           onSelectGroup={() => {}}
-          weatherMode={false}
           actMap={actMap}
           fixedEventMap={new Map()}
           releaseCell={() => {}}

@@ -31,7 +31,7 @@ const actMap = new Map([['a1', { id: 'a1', name: 'Swim' }], ['a2', { id: 'a2', n
 const fixedEventMap = new Map([['f1', { id: 'f1', name: 'Lunch' }]])
 
 const ROUTES = {
-  generated: (props) => <ScheduleGroupView weatherMode={false} releaseCell={() => {}} {...props} />,
+  generated: (props) => <ScheduleGroupView releaseCell={() => {}} {...props} />,
   manual: (props) => <ManualBuildView {...props} />,
 }
 

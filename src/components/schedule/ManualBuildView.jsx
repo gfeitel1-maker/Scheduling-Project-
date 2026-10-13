@@ -107,7 +107,6 @@ export default function ManualBuildView({
           rowSpan={rowSpan}
           slot={{ ...slot, type: 'fixed_event', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }}
           fixedEvent={fixedEvent}
-          weatherMode={false}
           isDndEnabled={false}
           ariaColIndex={ariaColIndex}
           cellKey={cellKey}
@@ -144,7 +143,6 @@ export default function ManualBuildView({
           rowSpan={rowSpan}
           slot={{ ...slot, type: 'activity', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
           activity={act}
-          weatherMode={false}
           eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
           onPlace={onPlace}
           onCreateNew={onCreateNew}

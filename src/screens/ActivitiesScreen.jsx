@@ -295,6 +295,11 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
 
   async function save() {
     if (!name.trim()) return
+    const rainPlan = weatherAlt ? activities.find(a => a.id === weatherAlt) : null
+    if (weatherAlt && (weatherAlt === activity?.id || !rainPlan || rainPlan.is_outdoor)) {
+      setSaveError('A rain plan has to be indoors. Pick an indoor activity, or choose None.')
+      return
+    }
     setSaving(true)
     setSaveError(null)
     // C5: a location_id left dangling (set, but the place it pointed at is
@@ -325,10 +330,16 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
     setSaving(false)
   }
 
-  // T266 — the weather-alternative picker is a free-choice menu: a pinned event
+  // T266 — the rain-plan picker is a free-choice menu: a pinned event
   // is not something another activity falls back TO. The `activities` prop stays
   // whole (the caller needs it for id->name resolution); only this list narrows.
-  const otherActivities = filterFreeChoiceActivities(activities).filter(a => a.id !== activity?.id)
+  const otherActivities = filterFreeChoiceActivities(activities).filter(a => a.id !== activity?.id && !a.is_outdoor)
+
+  // A stored rain plan the picker no longer offers stays visible (disabled) rather than reading as None.
+  const storedRainPlan = weatherAlt ? activities.find(a => a.id === weatherAlt) : null
+  const staleRainPlan = weatherAlt && !otherActivities.some(a => a.id === weatherAlt)
+    ? { name: storedRainPlan?.name ?? 'Removed activity', why: !storedRainPlan ? 'removed' : storedRainPlan.is_outdoor ? 'outdoor' : 'not available' }
+    : null
 
   return (
     <div style={{ ...S.overlay, alignItems: 'flex-start', overflowY: 'auto' }}>
@@ -454,9 +465,11 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
             </div>
           )}
 
-          <Field label="Weather alternative (shown when weather mode is on)">
-            <select value={weatherAlt} onChange={e => setWeatherAlt(e.target.value)} style={S.input}>
+          <Field label="Rain plan">
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>Used on a rainy day instead of this outdoor activity.</div>
+            <select aria-label="Rain plan" value={weatherAlt} onChange={e => setWeatherAlt(e.target.value)} style={S.input}>
               <option value="">— None —</option>
+              {staleRainPlan && <option value={weatherAlt} disabled>{`${staleRainPlan.name} (${staleRainPlan.why}, choose another)`}</option>}
               {otherActivities.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </Field>

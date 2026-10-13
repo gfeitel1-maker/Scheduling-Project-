@@ -6,6 +6,7 @@ import { createActivity } from './createActivityHelper'
 import { occupantFields, readOccupant, occupantWriteKind, SLOT_OCCUPANT_FIELDS } from './slotOccupant.js'
 import { resolveElectiveOfferingLocations } from '../../engine/electiveOccupancy.js'
 import { blockDisplayName } from '../../utils/timeBlockLabel.js'
+import { planRainyDay, rainyReceiptText } from '../../utils/rainyDay'
 
 // T91: collect the covered tail rows of a span head being replaced, via a
 // single walk that covers BOTH span representations identically (owner
@@ -1718,8 +1719,92 @@ export function useSlotMutations({
     })
   }
 
+  // "Rainy day…": plans from the NEWEST slots, saves the version first (beforeWrite), re-plans from the
+  // slots as they are after that await, then writes the result as ONE undo entry.
+  // `switches` swap the occupant to the rain plan; `full` cells keep their activity and gain a stored
+  // RAIN_PLAN_FULL flag (cleared by any later write to the cell, and by this entry's undo).
+  // Returns { text, undoable } for the receipt, or null when nothing was applied (an error is shown).
+  async function applyRainyDay(day, beforeWrite) {
+    if (!existingTemplates[route]) return null
+    const planNow = () => planRainyDay({ slots: slotsRef.current, activities, locations, timeBlocks, electiveSetActivities, dayId: day.id })
+    let plan = planNow()
+    if (plan.switches.length === 0 && plan.full.length === 0) return { text: rainyReceiptText(day.label, plan), undoable: false }
+    try { await beforeWrite() } catch { return null }
+    plan = planNow()
+    const text = rainyReceiptText(day.label, plan)
+    if (plan.switches.length === 0 && plan.full.length === 0) return { text, undoable: false }
+
+    const fresh = slotsRef.current
+    const rowOf = (s) => fresh.find(r => r.id === s.id) ?? s
+    const forward = [
+      ...plan.switches.map(({ slot, toActivityId }) => ({ row: rowOf(slot), fields: { ...occupantFields('activity_id', toActivityId), flags: {} } })),
+      ...plan.full.map(slot => ({ row: rowOf(slot), fields: { flags: { ...(rowOf(slot).flags ?? {}), RAIN_PLAN_FULL: true } } })),
+    ]
+    const backward = forward.map(({ row }) => ({ row, fields: { ...readOccupant(row), flags: row.flags ?? {} } }))
+    const keyOf = (row) => cellKey(row.group_id, row.day_id, row.time_block_id)
+    const keys = [...new Set(forward.map(f => keyOf(f.row)))].sort()
+    const kindsFor = (patches) => Object.fromEntries(patches.map(({ row, fields }) => [keyOf(row), occupantWriteKind(fields.activity_id !== undefined ? fields : row)]))
+    const fallback = `Your schedule from before is saved as "Before rainy ${day.label}" in Versions.`
+    const writeAll = (patches) => Promise.allSettled(patches.map(({ row, fields }) => repo.writeSlotFields(row.id, fields)))
+    const applyToState = (patches) => setSlots(prev => {
+      const byId = new Map(patches.map(p => [p.row.id, p.fields]))
+      const next = prev.map(s => (byId.has(s.id) ? { ...s, ...byId.get(s.id) } : s))
+      recalcStats(next)
+      recalcFindings(next)
+      slotsRef.current = next
+      return next
+    })
+
+    // A partial failure must not leave half a rainy day: put every cell of the batch back (a failed write
+    // may have landed some of its fields), and if even that fails, reload what is really stored.
+    const run = async (patches, inverse, failMessage) => {
+      let failure = null
+      let rolledBack = true
+      const { dropped } = await runMutation({
+        keys,
+        claimId: crypto.randomUUID(),
+        dispatch: async () => {
+          const results = await writeAll(patches)
+          const rejected = results.find(r => r.status === 'rejected')
+          if (!rejected) return
+          failure = rejected.reason
+          const undone = await writeAll(inverse)
+          if (undone.some(r => r.status === 'rejected')) {
+            rolledBack = false
+            try {
+              const reloaded = await repo.reloadSlots(templateId)
+              setSlots(reloaded)
+              slotsRef.current = reloaded
+              recalcStats(reloaded)
+              recalcFindings(reloaded)
+            } catch { /* the error below already tells the director where the sunny schedule is */ }
+          }
+        },
+        getError: () => failure,
+        onError: (err) => setActionError(`${describeWriteFailure(err, failMessage)} ${rolledBack ? 'Nothing was changed.' : `Some cells may have changed. ${fallback}`}`),
+        onSuccess: () => applyToState(patches),
+        ownWriteKinds: kindsFor(patches),
+      })
+      if (dropped) {
+        setActionError('Another change to these cells got in first, so the rainy day was not applied. Try again.')
+        return false
+      }
+      return !failure
+    }
+
+    setActionError(null)
+    if (!(await run(forward, backward, 'The rainy day could not be applied.'))) return null
+    pushUndo({
+      description: text,
+      undo: () => run(backward, forward, 'That undo could not be saved.'),
+      redo: () => run(forward, backward, 'That redo could not be saved.'),
+    })
+    return { text, undoable: true }
+  }
+
   return {
     replaceSlot,
+    applyRainyDay,
     dismissFlag,
     lockActivity,
     releaseCell,
