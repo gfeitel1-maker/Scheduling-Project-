@@ -127,8 +127,8 @@ describe('ActivitiesScreen quick-add', () => {
     await waitFor(() => expect(screen.queryByText('0 activities')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Activity'))
-    await waitFor(() => expect(screen.queryByPlaceholderText('Activity name')).not.toBeNull())
-    fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Archery' } })
+    await waitFor(() => expect(screen.queryByPlaceholderText('e.g. Swim')).not.toBeNull())
+    fireEvent.change(screen.getByPlaceholderText('e.g. Swim'), { target: { value: 'Archery' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add Activity' }))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
@@ -169,8 +169,8 @@ describe('ActivitiesScreen quick-add', () => {
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Activity'))
-    await waitFor(() => expect(screen.queryByPlaceholderText('Activity name')).not.toBeNull())
-    fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'archery' } })
+    await waitFor(() => expect(screen.queryByPlaceholderText('e.g. Swim')).not.toBeNull())
+    fireEvent.change(screen.getByPlaceholderText('e.g. Swim'), { target: { value: 'archery' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add Activity' }))
 
     await waitFor(() =>
@@ -192,8 +192,8 @@ describe('ActivitiesScreen quick-add', () => {
     await waitFor(() => expect(screen.queryByText('0 activities')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Activity'))
-    await waitFor(() => expect(screen.queryByPlaceholderText('Activity name')).not.toBeNull())
-    fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Archery' } })
+    await waitFor(() => expect(screen.queryByPlaceholderText('e.g. Swim')).not.toBeNull())
+    fireEvent.change(screen.getByPlaceholderText('e.g. Swim'), { target: { value: 'Archery' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add Activity' }))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id'))
@@ -705,7 +705,7 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Archery' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Swim'), { target: { value: 'Archery' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add Activity' }))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', null))
@@ -738,7 +738,7 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Swim' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Swim'), { target: { value: 'Swim' } })
     fireEvent.change(screen.getByPlaceholderText("Search your camp's locations…"), { target: { value: 'Pool' } })
     fireEvent.mouseDown(screen.getByText('Pool'))
 
@@ -766,7 +766,7 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Kayaking' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Swim'), { target: { value: 'Kayaking' } })
     fireEvent.change(screen.getByPlaceholderText("Search your camp's locations…"), { target: { value: 'Lake' } })
     fireEvent.mouseDown(screen.getByText('Create "Lake" as a new location'))
 
@@ -787,7 +787,7 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Swim' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. Swim'), { target: { value: 'Swim' } })
     fireEvent.change(screen.getByPlaceholderText("Search your camp's locations…"), { target: { value: 'Pool' } })
     fireEvent.mouseDown(screen.getByText('Pool'))
     await waitFor(() => expect(screen.queryByLabelText('Clear')).not.toBeNull())
@@ -1285,7 +1285,7 @@ describe('ActivitiesScreen — row-click to edit', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
     fireEvent.click(screen.getByRole('button', { name: 'Edit Archery details' }))
-    await waitFor(() => expect(screen.queryByPlaceholderText('Activity name')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByPlaceholderText('e.g. Swim')).not.toBeNull())
   })
 
   it('Enter on a focused row opens the edit modal', async () => {

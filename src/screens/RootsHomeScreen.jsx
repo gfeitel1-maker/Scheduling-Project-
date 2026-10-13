@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
+import { localClient } from '../localClient'
+import { GRACE_WINDOW_MS } from '../hooks/useGraceWindowUndo'
 import { S, useEnterTransition, prefersReducedMotion, useNarrowViewport, useMeasuredRowCap } from '../styles/shared'
 import { CircleCheckIcon } from '../components/icons'
 import { useCohorts } from '../hooks/useCohorts'
@@ -246,7 +248,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
   // 'understood' rows, so the reconciliation half was structurally empty until
   // this store existed; the hook's { model, decisionsById } carries the real
   // attention/changed rows.
-  const { model: openModel, decisionsById: openDecisionsById, dismiss, addForAllGroups } = useOpenReconciliationDecisions()
+  const { model: openModel, decisionsById: openDecisionsById, dismiss, addForAllGroups, refresh: refreshOpenDecisions } = useOpenReconciliationDecisions()
   const [dismissError, setDismissError] = useState(null)
   async function dismissOpenQuestion(id) {
     setDismissError(null)
@@ -258,12 +260,38 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
   }
   // One add at a time: a second click on a question already being answered would report a false failure.
   const [addingId, setAddingId] = useState(null)
+  // The short-lived Undo after an Add: for the next few minutes, the same window as an import's undo
+  // (GRACE_WINDOW_MS). It undoes exactly the rows the Add created; deleting the event is the lasting route.
+  const [justAdded, setJustAdded] = useState(null) // { name, importRunId }
+  const [undoingAdd, setUndoingAdd] = useState(false)
+  useEffect(() => {
+    if (!justAdded) return undefined
+    const t = setTimeout(() => setJustAdded(null), GRACE_WINDOW_MS)
+    return () => clearTimeout(t)
+  }, [justAdded])
+  async function undoAdd() {
+    if (!justAdded || undoingAdd) return
+    setUndoingAdd(true)
+    setDismissError(null)
+    try {
+      await localClient.ingestUndo({ importRunId: justAdded.importRunId, client_write_id: crypto.randomUUID() })
+      setJustAdded(null)
+      reload?.()
+      refreshOpenDecisions?.()
+    } catch (err) {
+      setDismissError(describeWriteFailure(err, 'Could not undo adding this event. It is still on the schedule.'))
+    } finally {
+      setUndoingAdd(false)
+    }
+  }
   async function addOpenEventForAllGroups(id) {
     if (addingId) return
     setAddingId(id)
     setDismissError(null)
+    const name = attentionRows.find((r) => r.id === id)?.name ?? 'The event'
     try {
-      await addForAllGroups(id)
+      const result = await addForAllGroups(id)
+      if (result?.importRunId) setJustAdded({ name, importRunId: result.importRunId })
       reload?.()
     } catch (err) {
       setDismissError(describeWriteFailure(err, 'Could not add this event. Nothing was changed; the question is still listed.'))
@@ -415,6 +443,15 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
           {couldNotCheck && (
             <div data-testid="attention-unread-notice" style={styles.unreadNotice}>
               Some data couldn’t be read — this list may be incomplete.
+            </div>
+          )}
+          {justAdded && (
+            <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, fontSize: 13 }}>
+              <span>Added {justAdded.name} for every group. You can undo this for the next few minutes.</span>
+              <button type="button" className="press-97" onClick={undoAdd} disabled={undoingAdd}
+                style={undoingAdd ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}>
+                {undoingAdd ? 'Undoing…' : 'Undo'}
+              </button>
             </div>
           )}
           {dismissError && <div style={S.errorBanner}>{dismissError}</div>}

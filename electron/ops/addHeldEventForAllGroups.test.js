@@ -5,9 +5,12 @@ import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
-import { commitIngest, undoImportRun } from './ingest.js'
+import { commitIngest, undoImportRun, lastImportUndo } from './ingest.js'
 import { listOpenReconciliationDecisions } from './openReconciliationDecisions.js'
 import { addHeldEventForAllGroups } from './addHeldEventForAllGroups.js'
+import { normalizeScheduleInputs, SCHEDULE_INPUT_ENTITIES } from './scheduleInputNormalization.js'
+import { resolvePriorityForGeneration } from '../../src/ingest/resolvePriorityForGeneration.js'
+import buildSchedule from '../../src/engine/buildSchedule.js'
 
 afterAll(() => cleanupTemplatedDbs())
 let db, tmpFile, campId
@@ -96,5 +99,61 @@ describe('addHeldEventForAllGroups', () => {
     })
     addHeldEventForAllGroups(db, { campId, decisionId: 'fixed_events:flag', author_user_id: 'u1', device_id: deviceId })
     expect(listOpenReconciliationDecisions(db, campId).map((d) => d.id)).toEqual(['fixed_events:swim'])
+  })
+})
+
+describe('an added event is a real fixed event (keeper ruling 2026-10-13)', () => {
+  it('gets its backing pinned_event activity, which undo removes with it', () => {
+    importHoldingFlagBack()
+    const outcome = addHeldEventForAllGroups(db, { campId, decisionId: 'fixed_events:flag', author_user_id: 'u1', device_id: deviceId })
+    const links = db.prepare("SELECT DISTINCT activity_id FROM fixed_events WHERE camp_id = ? AND name = 'Flag'").all(campId)
+    expect(links).toHaveLength(1)
+    const act = db.prepare('SELECT name, catalog_role FROM activities WHERE id = ?').get(links[0].activity_id)
+    expect(act).toEqual({ name: 'Flag', catalog_role: 'pinned_event' })
+    undoImportRun(db, { importRunId: outcome.importRunId, author_user_id: 'u1', device_id: deviceId, client_write_id: 'undo-2' })
+    expect(db.prepare("SELECT COUNT(*) c FROM activities WHERE camp_id = ? AND name = 'Flag'").get(campId).c).toBe(0)
+  })
+
+  it('Generate puts it in every group cell at its block and days, and asks for nothing more', () => {
+    importHoldingFlagBack()
+    addHeldEventForAllGroups(db, { campId, decisionId: 'fixed_events:flag', author_user_id: 'u1', device_id: deviceId })
+    const rowsByEntity = {}
+    for (const entity of SCHEDULE_INPUT_ENTITIES) rowsByEntity[entity] = db.prepare(`SELECT * FROM ${entity}`).all()
+    const { cohorts: _c, ...flat } = normalizeScheduleInputs(rowsByEntity, campId)
+    const input = { ...flat, activities: resolvePriorityForGeneration(flat.activities), campId, replacedDayIds: [] }
+    const { slots, findings } = buildSchedule(input)
+
+    expect(input.groups).toHaveLength(3)
+    expect(input.days).toHaveLength(2)
+    const block = input.timeBlocks.find((b) => b.name === '09:00-10:00')
+    const flagEventIds = new Set(input.fixedEvents.filter((f) => f.name === 'Flag').map((f) => f.id))
+    for (const g of input.groups) for (const d of input.days) {
+      const slot = slots.find((s) => s.groupId === g.id && s.dayId === d.id && s.blockId === block.id)
+      expect(slot && flagEventIds.has(slot.fixedEventId), `${g.name} ${d.day_of_week ?? d.name}`).toBe(true)
+    }
+    const flagAct = input.activities.find((a) => a.name === 'Flag')
+    expect(flagAct.catalog_role).toBe('pinned_event')
+    expect(flagAct.min_per_week ?? 0).toBe(0)
+    expect((findings ?? []).filter((f) => JSON.stringify(f).includes('Flag'))).toEqual([])
+  })
+})
+
+describe('the Add has its own undo, and leaves the last import\'s undo alone (keeper ruling 2026-10-13)', () => {
+  it('keeps Roots\' "Undo last import" on the file import, and each undo removes only its own rows', () => {
+    const imported = commitIngest(db, {
+      camp_id: campId, cohort_id: null, author_user_id: 'u1', device_id: deviceId, mode: 'add', captureInverse: true,
+      approved: { groups: ['Bunk 1', 'Bunk 2'], days_of_operation: ['Monday', 'Tuesday'], time_blocks: ['09:00-10:00'], activities: [] },
+      fixedEvents: [], openDecisions: [heldFlag],
+    })
+    const added = addHeldEventForAllGroups(db, { campId, decisionId: 'fixed_events:flag', author_user_id: 'u1', device_id: deviceId })
+    expect(lastImportUndo(db)?.importRunId).toBe(imported.importRunId)
+
+    undoImportRun(db, { importRunId: added.importRunId, author_user_id: 'u1', device_id: deviceId, client_write_id: 'undo-add' })
+    expect(db.prepare("SELECT COUNT(*) c FROM fixed_events WHERE name = 'Flag'").get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM groups WHERE camp_id = ?').get(campId).c).toBe(2)
+    expect(lastImportUndo(db)?.importRunId).toBe(imported.importRunId)
+
+    undoImportRun(db, { importRunId: imported.importRunId, author_user_id: 'u1', device_id: deviceId, client_write_id: 'undo-import' })
+    expect(db.prepare('SELECT COUNT(*) c FROM groups WHERE camp_id = ? AND id NOT IN (SELECT entity_id FROM operations WHERE field = \'__deleted__\')').get(campId).c).toBe(0)
   })
 })

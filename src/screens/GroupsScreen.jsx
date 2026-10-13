@@ -556,7 +556,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
             <thead>
               <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
-                <th style={S.th}>Age Division</th>
+                <th style={S.th}>Age division</th>
                 <th style={S.th}>Availability</th>
                 {weekId && <th style={{ ...S.th, textAlign: 'center' }}>{currentWeek?.name ?? 'Week'}</th>}
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
@@ -604,7 +604,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                   last row of the groups table (Excel-like inline add). */}
               <InlineAddRow
                 fields={[
-                  { key: 'name', type: 'text', placeholder: 'Bunk 1', required: true },
+                  { key: 'name', type: 'text', placeholder: 'e.g. Bunk 1', required: true },
                   { key: 'tier_id', type: 'select', default: '', options: [
                     { value: '', label: '— No age division —' },
                     ...tiers.map(t => ({ value: t.id, label: t.name })),
@@ -626,7 +626,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         step={importStep}
         title={importStep === 'done' ? 'Import Complete' : 'Import Preview'}
         width={560}
-        columns={[{ key: 'name', label: 'Name' }, { key: 'tier', label: 'Age Division' }, { key: 'availability', label: 'Availability' }, { key: 'status', label: 'Status' }]}
+        columns={[{ key: 'name', label: 'Name' }, { key: 'tier', label: 'Age division' }, { key: 'availability', label: 'Availability' }, { key: 'status', label: 'Status' }]}
         rows={importRows}
         readyCount={readyRows.length}
         warnCount={warnRows.length}

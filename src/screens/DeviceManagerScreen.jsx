@@ -333,7 +333,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
           <table style={styles.table}>
             <thead>
               <tr>
-                <th style={S.th}>Device Name</th>
+                <th style={S.th}>Device name</th>
                 <th style={S.th}>ID</th>
                 <th style={S.th}>Actions</th>
               </tr>
@@ -385,11 +385,11 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
           <table style={styles.table}>
             <thead>
               <tr>
-                <th style={S.th}>Device Name</th>
+                <th style={S.th}>Device name</th>
                 <th style={S.th}>ID</th>
                 <th style={S.th}>Status</th>
                 {erasure.hasErasure && <th style={S.th}>Purge status</th>}
-                <th style={S.th}>Authorized At</th>
+                <th style={S.th}>Authorized at</th>
                 <th style={S.th}>Actions</th>
               </tr>
             </thead>

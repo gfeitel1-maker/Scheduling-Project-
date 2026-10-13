@@ -30,7 +30,7 @@ const CAMP_ID = 'camp-1'
 
 // Fill the always-present InlineAddRow (name + type select) and commit via +Add.
 function addViaInlineRow({ name, type }) {
-  fireEvent.change(screen.getByPlaceholderText('Color War'), { target: { value: name } })
+  fireEvent.change(screen.getByPlaceholderText('e.g. Color War'), { target: { value: name } })
   // The type select defaults to "Event"; switch it when adding a Special Day.
   fireEvent.change(screen.getByDisplayValue('Event'), { target: { value: type } })
   fireEvent.click(screen.getByText('+ Add'))
@@ -89,7 +89,7 @@ describe('SpecialEventsScreen — empty state', () => {
 
     await waitFor(() => expect(screen.queryByText('No special events yet')).not.toBeNull())
     // The blank inline-add row is present even at zero items.
-    expect(screen.getByPlaceholderText('Color War')).toBeTruthy()
+    expect(screen.getByPlaceholderText('e.g. Color War')).toBeTruthy()
     expect(screen.getByText('+ Add')).toBeTruthy()
   })
 })
