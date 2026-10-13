@@ -302,7 +302,7 @@ When it rains, switch one day's outdoor activities to their rain plans in one st
 
 **To undo it,** click **Undo** in the note, or the toolbar's undo button, right away. Later, open **Versions** and restore **Before rainy** and the day.
 
-<!-- shot: rainy-day -->
+![Rainy day… open on the schedule toolbar with the week's days to pick from, and the note after a rainy day saying how many switched to rain plans, with Undo](img/rainy-day.png)
 
 ---
 
@@ -460,6 +460,8 @@ If you see **Backup saved — camp document not included**, the database was bac
 2. Choose a backup file from the `backups` folder. Pick the `.db` file; Shoresh finds the camp document saved beside it.
 3. Read the confirmation. It names the backup's date and says it replaces this camp's data. Check the date, then click **Restore**. (**Cancel** leaves everything as it was.) Shoresh first saves a copy of your current data, then restores.
 4. Wait for **Restored from backup.**
+
+![Restore from backup confirmation, naming the backup date and saying it replaces this camp's data](img/sidebar/restore-confirmation.png)
 
 Restoring rebuilds *this computer* from the backup, then syncs. If other computers in the camp hold newer changes, those changes sync back to this computer. A restore does not roll back the other computers.
 

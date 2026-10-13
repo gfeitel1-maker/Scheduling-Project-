@@ -537,7 +537,8 @@ export async function run(h) {
 
     // The rain plan is a fresh indoor activity, absent from every block, so at least one cell has room to
     // switch (an existing activity may already be at its groups-at-once limit in every block: "N full").
-    const rain = `Rain Room ${Date.now().toString(36)}`
+    // In guide mode the picture shows a name a director would use; the audit keeps a unique one.
+    const rain = h.guide ? 'Indoor Games' : `Rain Room ${Date.now().toString(36)}`
     await nav('Activities')
     await waitFor(`const b=[...document.querySelectorAll('button')].filter(__vis).find(b=>/^\\+?\\s*Add activity$/i.test(b.innerText.trim())); if(!b) return false; b.click(); return true`, 15000, 'Add activity')
     await waitFor(`const i=__inp('input[placeholder$="Swim"]'); if(!i) return false; __set(i, ${JSON.stringify(rain)}); i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})); return true`, 10000, 'new activity name')
@@ -567,6 +568,15 @@ export async function run(h) {
     await waitFor(`return /Rainy [^:]+: \\d+ switched/.test(__main())`, 20000, 'rainy day receipt')
     const receipt = await ev(`return (__main().match(/Rainy [A-Z][a-z]+day: [^\\n]*/)||[null])[0]`)
     const rainy = await cellMap()
+    if (h.guide) {
+      // The guide's picture: the picker open over the note a rainy day leaves. Closed again before the checks go on.
+      await click('Rainy day…', true, 10000)
+      await waitFor(`return !!document.querySelector('[aria-label="Pick a rainy day"]')`, 5000, 'rainy day picker')
+      await guide('rainy-day', 'Rainy day…')
+      await click('Rainy day…', true, 5000).catch(() => {})
+      await ev(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); return true`)
+      await sleep(400)
+    }
     const switched = Object.keys(sunny).filter(k => sunny[k] === outdoor && rainy[k] === rain)
     await ev(`[...document.querySelectorAll('.day-pill')].filter(__vis)[1].click(); return true`)
     await sleep(600)
