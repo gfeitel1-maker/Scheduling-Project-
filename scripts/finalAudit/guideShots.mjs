@@ -17,8 +17,10 @@ const REPO = path.resolve(HERE, '../..')
 const GUIDE = path.join(REPO, 'docs/guide/DIRECTOR_GUIDE.md')
 const IMG = path.join(REPO, 'docs/guide/img')
 // The audit steps that hold a guide shot: 1 (one-day file card), 4 (bring recurring events), 5 (keep or
-// replace, undo receipt), 6 (what Shoresh has learned), 9 (locations), 12 (turn off encryption).
-const STEPS = '1,4,5,6,9,12'
+// replace, undo receipt), 6 (what Shoresh has learned), 9 (locations), 12 (turn off encryption). Steps 2 and
+// 3 hold no shot but build the schedules, so the Replace choice shows "saved as a version first" as the
+// guide describes (and step 5's "Before replace" check has a schedule to save).
+const STEPS = '1,2,3,4,5,6,9,12'
 
 const names = [...fs.readFileSync(GUIDE, 'utf8').matchAll(/<!--\s*shot:\s*([\w./-]+)\s*-->/g)].map((m) => m[1])
 if (!names.length) { console.error(`no <!-- shot: name --> markers in ${path.relative(REPO, GUIDE)}`); process.exit(2) }

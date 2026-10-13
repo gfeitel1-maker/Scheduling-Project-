@@ -38,7 +38,7 @@ export async function run(h) {
     await nav('Roots'); await click('Import last year', false, 20000)
     await setFile(file)
     await waitFor(`return !!__btn('Review ') || !!__btn('Replace with ')`, 60000, 'Review N records')
-    if (await ev(`return !!__btn('○ Replace them', false)`)) await guide('import/keep-or-replace')
+    if (await ev(`return !!__btn('○ Replace them', false)`)) await guide('import/keep-or-replace', 'Replace them')
     // "Replace them" is offered only when something is already set up; on an empty camp Review is the only path.
     if (replace && await ev(`return !!__btn('○ Replace them', false)`)) { await click('○ Replace them', false, 10000); await sleep(500) }
     await waitFor(`const b=__btn('Replace with ')||__btn('Review '); if(!b||b.disabled) return false; b.click(); return true`, 15000, 'Replace with / Review button')
@@ -151,7 +151,6 @@ export async function run(h) {
     const found = await waitFor(`if (__click('What Shoresh has learned', true)) return 'sidebar'; if (!window.__settingsTried) { window.__settingsTried = 1; __click('Settings', true) } return false`, 10000, '"What Shoresh has learned"').catch(() => null)
     if (!found) throw new Error('"What Shoresh has learned" not found in the sidebar or under Settings')
     await waitFor(`return /learned/i.test(__main())`, 10000, 'learned screen')
-    await guide('learned/what-shoresh-has-learned')
     // Answer one question, then import the same file again: that question must not be asked again.
     // A synthetic camp raises questions on top of campB (a campB re-import asks none).
     const QFILE = path.join(h.REPO, 'docs/work/specs/samples/synthetic/s07-by-group-3-divisions.txt')
@@ -176,6 +175,13 @@ export async function run(h) {
     await waitFor(`return /Imported \\d+ records|Setup replaced/.test(__main())`, 120000, 'import done'); await click('Continue', true, 5000).catch(() => {})
     const q2 = await openReview()
     await click('Cancel', true, 5000).catch(() => {})
+    if (h.guide) {
+      // The guide shows the screen with a remembered answer on it, so shoot it after answering.
+      await nav('Roots')
+      await waitFor(`if (__click('What Shoresh has learned', true)) return true; if (!window.__settingsTried2) { window.__settingsTried2 = 1; __click('Settings', true) } return false`, 10000, '"What Shoresh has learned"')
+      await waitFor(`return /Forget answer/.test(__main())`, 10000, 'a remembered answer on the learned screen')
+      await guide('learned/what-shoresh-has-learned')
+    }
     const note = `questions ${q1} -> ${q2} after answering one ("${answered}")`
     if (!(q2 < q1)) throw new Error(note)
     return note
@@ -406,7 +412,7 @@ export async function run(h) {
     await openDevices()
     await click('Turn off encryption…', true, 15000)
     await waitFor(`const i=[...document.querySelectorAll('label input')].filter(__vis)[0]; if(!i) return false; __set(i,'DISABLE ENCRYPTION'); return true`, 10000, 'confirmation input')
-    await sleep(300); await guide('devices/turn-off-encryption'); await click('Turn off encryption', true, 10000)
+    await sleep(300); await guide('devices/turn-off-encryption', 'DISABLE ENCRYPTION'); await click('Turn off encryption', true, 10000)
     const said = await waitFor(`const m=__main().match(/Encryption is off[^\\n]*|Encryption is still on[^\\n]*/); return m && m[0]`, 120000, 'disable outcome')
     if (/still on/.test(said)) throw new Error(`refused: "${said}"`)
     const ms = await h.adopt()

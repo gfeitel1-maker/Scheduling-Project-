@@ -82,7 +82,7 @@ You can import the same file, or an updated copy of it, onto a camp that already
 - **Replace them** clears the items listed under it first. If you have a schedule on **Manual Build** or **Generated Schedule**, the choice says it is "saved as a version first". Shoresh saves it as a version named **Before replace** followed by the date and time, so you can still get that week back from your versions.
 - Records you deleted yourself stay deleted. See [Things you delete stay deleted](#things-you-delete-stay-deleted).
 
-<!-- shot: import/keep-or-replace -->
+![Import screen with 71 items already set up and the Keep them and Replace them choices, Replace saying the schedules are saved as a version first](img/import/keep-or-replace.png)
 
 ### One-day files and whole-camp days
 
@@ -90,7 +90,7 @@ You can import the same file, or an updated copy of it, onto a camp that already
 - **A day for the whole camp inside a weekly file.** Under **Trips and Group Days**, a day that covers every group is listed with two buttons, **Special day** and **Events**, and a dropdown for the week. Neither is chosen for you. Choose **Special day** to replace that whole day for every group. The other cells that day are hidden, not deleted, and come back if you unplace it. Leave it undecided and it comes in as an all-camp event and replaces nothing.
 - **A camp with no weeks yet.** Dropdowns offer **Week 1 (new)**. Shoresh creates Week 1 when you finish the import.
 
-<!-- shot: import/one-day-file-card -->
+![This looks like a single-day schedule card for Color War Day, with the new activities it adds and the week and day dropdowns](img/import/one-day-file-card.png)
 
 ### Answer the review questions
 
@@ -124,7 +124,7 @@ Undo removes what the import added: its records, the elective sets it made (and 
 
 Because undo is not a deletion, importing the same file again brings the removed records back.
 
-<!-- shot: reconcile/undo-receipt -->
+![Undo complete, removed 22 records the import created, with a Continue button](img/reconcile/undo-receipt.png)
 
 ### What Shoresh has learned
 
@@ -141,7 +141,7 @@ What you answer is shared with your other computers in the camp. A few older ans
 
 Nothing here changes a schedule you have already imported.
 
-<!-- shot: learned/what-shoresh-has-learned -->
+![What Shoresh has learned, with one Classification answer and its Change and Forget answer links](img/learned/what-shoresh-has-learned.png)
 
 ### Things you delete stay deleted
 
@@ -362,7 +362,7 @@ After you copy time blocks, and again when you place the day on a weekday, Shore
 
 Events that every group has on every day are copied over automatically and aren't asked about. If the day is placed on more than one weekday, nothing is offered. You'll see a note to add them by hand. If lunches differ by weekday, you'll see "Lunch waves differ by weekday — place this day to bring them" until you place it.
 
-<!-- shot: special-day/bring-recurring-events -->
+![A special day placed on Week 1 Friday, offering to also bring 5 recurring events from Friday with Bring and Skip](img/special-day/bring-recurring-events.png)
 
 ### Fill it in
 
@@ -466,7 +466,7 @@ Shoresh saves the latest changes, makes a safety copy, unlocks the information a
 
 If anything goes wrong you'll see "Encryption is still on." with the reason, and Shoresh restarts in a few seconds. Nothing is lost.
 
-<!-- shot: devices/turn-off-encryption -->
+![Encryption on this computer, with DISABLE ENCRYPTION typed in the confirmation box and the Turn off encryption button](img/devices/turn-off-encryption.png)
 
 ---
 
@@ -607,7 +607,7 @@ The **Locations** sheet has the columns **name**, **capacity** and **kind**.
 
 A row with an id Shoresh doesn't know is added as a new location. A row with no id changes a location only if exactly one has that name. If two share a name, it's added as new, so a capacity never lands on the wrong one.
 
-<!-- shot: worksheet/locations-sheet -->
+![Locations screen with one location and the Download Template and Import from Excel links at the bottom](img/worksheet/locations-sheet.png)
 
 Before the season ends, export your final schedule to keep a copy (steps above). Then continue to [End of season](#11-end-of-season-clear-elective-choices).
 
