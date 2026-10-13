@@ -224,9 +224,9 @@ describe('bad_type', () => {
     const detail = rejected(check((f) => { f.entities.groups.push({ ...f.entities.groups[0] }) ; recount(f) }), 'bad_type')
     expect(detail).toMatchObject({ entity: 'groups', problem: 'duplicate_id' })
   })
-  it('rejects two days on one weekday, and two cohorts with one name (the keys opening a file adopts rows by)', () => {
+  it('rejects two days on one weekday (the key opening a file adopts rows by); two cohorts sharing a name are fine, they are matched by id', () => {
     rejected(check((f) => { f.entities.days_of_operation[1].day_of_week = f.entities.days_of_operation[0].day_of_week }), 'bad_type')
-    rejected(check((f) => { f.entities.cohorts.push({ ...f.entities.cohorts[0], id: 'another-cohort' }); recount(f) }), 'bad_type')
+    expect(check((f) => { f.entities.cohorts.push({ ...f.entities.cohorts[0], id: 'another-cohort' }); recount(f) }).ok).toBe(true)
   })
   it('rejects JSON text fields that are not the JSON they must be', () => {
     rejected(check((f) => { f.entities.camp_seedlings[0].payload = 'not json' }), 'bad_type')

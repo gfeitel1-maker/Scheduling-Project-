@@ -23,3 +23,9 @@ archive_when: "a camp built in one profile is saved with Save whole camp and ope
 **Non-goals.** No encryption of the file, no merge into an existing camp, no migration of old files, no cross-version tolerance beyond refusal, no campers or elective assignment runs unless the owner reverses open question 1. The Restore copy and the guide's backup paragraphs belong to a separate worker; this ticket owns only the new guide subsection after "Restoring from a backup".
 
 **Constraints for the maker.** Test-first. Follow the ADR section 6 order. One test file at a time with `--no-file-parallelism`; no `npm ci`, build, verify or packaged runs locally; CI is the gate. Run `graphify affected "appendBulkReplaceOp()"` before touching shared write paths. Run `npm run check:governance` before every push.
+
+**Known limits (v1).**
+- Final-audit step 20 compares counts, events and locations between the saved and opened camp, not cell by cell.
+- A crafted hostile file may make the id rewrite quadratic in its size (unconfirmed; the size and row caps bound it).
+- An extra empty Generated template can remain on the new camp when the file has only a Manual one.
+- If the app crashes after the director picked a file but before the camp was made, a stale incomplete marker stays on the camp-less profile; a later plain "Start a new camp" then shows the Start over screen (recoverable: Start over, then carry on).

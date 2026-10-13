@@ -5,7 +5,7 @@
 // in B's Automerge document, and the identity that must not cross (users, keys, the camp id itself) is shown absent.
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../../db/testDbTemplate.js'
@@ -315,6 +315,15 @@ describe('refusals and failure', () => {
     expectEveryTableEqual(normalizedCampSnapshot(dbA, A), normalizedCampSnapshot(db, B))
   }, 180_000)
 
+  it('a document flush that fails after SQLite committed is a load_incomplete, not an ok, and the marker stays', () => {
+    const { file } = buildA()
+    const writers = { appendOp, appendBulkReplaceOp, afterEntities: () => setUserDataDirGetter(() => { throw new Error('document store unavailable (injected)') }) }
+    const { db, result } = openInto(file, { writers })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM groups').get().n).toBeGreaterThan(0)
+    expect(result).toMatchObject({ ok: false, reason: 'load_incomplete' })
+    expect(readLoadIncomplete(db)).not.toBeNull()
+  }, 120_000)
+
   it('a failure while writing the learned tables also leaves the marker set and the camp untouched', () => {
     const { file } = buildA()
     const { db, result } = openInto(file, { writers: { appendOp, appendBulkReplaceOp, afterEntities: () => { throw new Error('learned write failed (injected)') } } })
@@ -323,4 +332,31 @@ describe('refusals and failure', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM source_aliases').get().n).toBe(0)
     expect(db.prepare('SELECT COUNT(*) AS n FROM groups').get().n).toBe(0)
   }, 120_000)
+})
+
+describe('cohorts are matched by id, never by name', () => {
+  const withCohorts = (mutate) => {
+    const { exported } = buildA()
+    const file = JSON.parse(serializeCampFile(exported))
+    mutate(file.entities.cohorts)
+    file.counts.cohorts = file.entities.cohorts.length
+    return file
+  }
+  const names = (db) => db.prepare('SELECT name FROM cohorts ORDER BY name, id').all().map((r) => r.name)
+
+  it('two cohorts both named Main (the original and a new one) open as two cohorts', () => {
+    const file = withCohorts((rows) => rows.push({ ...rows[0], id: randomUUID() }))
+    const { db, result } = openInto(file)
+    expect(result.detail).toBeUndefined()
+    expect(result).toMatchObject({ ok: true })
+    expect(names(db)).toEqual(['Main', 'Main'])
+  })
+
+  it('a renamed original main plus a new cohort named Main open as both', () => {
+    const file = withCohorts((rows) => { rows.push({ ...rows[0], id: randomUUID() }); rows[0].name = 'Juniors' })
+    const { db, result } = openInto(file)
+    expect(result).toMatchObject({ ok: true })
+    expect(names(db)).toEqual(['Juniors', 'Main'])
+    expect(db.prepare("SELECT name FROM cohorts WHERE id LIKE 'cohort:%:main'").get().name).toBe('Juniors')
+  })
 })

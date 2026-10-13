@@ -14,7 +14,7 @@
 // IDS. Random UUIDs are kept verbatim. An id that embeds the camp id (directly, or through a parent id) is
 // re-derived for the new camp by DECODING it (never a substring replace of the camp id: the elective ids are
 // length-prefixed). The old-to-new map is built for every entity in apply order before anything is written; a fresh
-// camp's own rows (weekday rows, the Main cohort, a default week and its template pair) are ADOPTED by natural key
+// camp's own rows (weekday rows by day of week, the Main cohort by its derived id, a default week and its template pair) are ADOPTED
 // instead of duplicated. Every reference field, every id inside a JSON list, the ids inside saved versions and the
 // ids inside remembered answers go through the same map.
 //
@@ -32,6 +32,7 @@ import {
   UNIQUE_FIELD_ENTITIES,
   detectUniqueFieldCollision,
 } from '../operations.js'
+import { unsharedWriteCount } from '../documentWriteFailures.js'
 import { recordAuditEvent } from '../../audit/auditLog.js'
 import { PROJECTIONS } from '../projections.js'
 import {
@@ -154,7 +155,6 @@ function readExisting(db) {
   return {
     days: new Map(db.prepare('SELECT id, day_of_week FROM days_of_operation WHERE day_of_week IS NOT NULL').all().map((r) => [r.day_of_week, r.id])),
     dayIds: new Set(db.prepare('SELECT id FROM days_of_operation').all().map((r) => r.id)),
-    cohorts: new Map(db.prepare('SELECT id, name FROM cohorts').all().map((r) => [r.name, r.id])),
     cohortIds: new Set(db.prepare('SELECT id FROM cohorts').all().map((r) => r.id)),
     weeks: sortedWeeks.map((r) => r.id),
     templates: new Map(db.prepare('SELECT id, week_id, kind FROM schedule_templates').all().map((r) => [`${r.week_id}|${r.kind}`, r.id])),
@@ -191,7 +191,6 @@ function planIds(entities, existing, newCampId) {
     for (const row of entities[entity]) {
       let next = null
       if (entity === 'days_of_operation' && row.day_of_week != null) next = existing.days.get(row.day_of_week) ?? null
-      else if (entity === 'cohorts') next = existing.cohorts.get(row.name) ?? null
       else if (entity === 'schedule_weeks') next = weekAdoption.get(row.id) ?? null
       else if (entity === 'schedule_templates' && row.week_id != null) {
         const week = maps.schedule_weeks.get(row.week_id)
@@ -291,6 +290,7 @@ export function loadCampFile(db, { file, campId, author_user_id, device_id, writ
   try {
     const counts = {}
     const learnedCounts = {}
+    const unsharedBefore = unsharedWriteCount(db)
     runAtomic(db, () => {
       db.pragma('defer_foreign_keys = ON')
       const write = (entity, id, field, value) => {
@@ -345,6 +345,12 @@ export function loadCampFile(db, { file, campId, author_user_id, device_id, writ
       writeLearnedTables({ db, file, campId, author_user_id, rewriter, maps, learnedCounts })
     })
 
+    // runAtomic flushes the queued document writes AFTER the SQLite commit and contains their failures (it records
+    // them and returns normally). A failed flush means the document is missing part of the camp, so this is not a
+    // finished load: leave the marker set.
+    if (unsharedWriteCount(db) > unsharedBefore) {
+      return reject('load_incomplete', { message: 'part of the camp could not be written to the shared document' })
+    }
     try {
       recordAuditEvent(db, {
         campId, actorUserId: author_user_id, deviceId: device_id, action: 'camp.loaded', targetType: 'camp', targetId: campId,

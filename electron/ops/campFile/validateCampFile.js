@@ -229,8 +229,8 @@ export function validateParsedCampFile(file, { caps: capOverrides } = {}) {
     idSets[entity] = seen
   }
 
-  // The natural keys opening a file adopts a fresh camp's own rows by: unique in the file or the adoption is ambiguous.
-  for (const [entity, key] of [['days_of_operation', 'day_of_week'], ['cohorts', 'name']]) {
+  // The natural key opening a file adopts a fresh camp's weekday rows by: unique in the file or the adoption is ambiguous.
+  for (const [entity, key] of [['days_of_operation', 'day_of_week']]) {
     const seen = new Set()
     for (const row of file.entities[entity] ?? []) {
       const k = row[key]
