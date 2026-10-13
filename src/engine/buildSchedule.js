@@ -920,6 +920,8 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   // minimum that was not already. Scans openSlots in order, no rand(): the same
   // input gives the same week.
   const MIN_REPAIR_DEPTH = 3
+  // T378: work for one span-lifting second attempt, kept apart from the pass's shared budget.
+  const SPAN_LIFT_WORK = 5000
   const MIN_REPAIR_BUDGET = 1500 // attempts per short (group, activity) or empty cell
   // Attempts across the whole week: an infeasible week (many cells nothing can fill) must
   // give up in bounded time rather than spend the per-item budget on every hopeless cell.
@@ -951,8 +953,39 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   const movable = k => assigned.has(k) && !spanTails.has(k) && !preplacedKeys.has(k)
     && (activityById.get(assigned.get(k))?.span_blocks || 1) === 1
 
-  // One more session of `act` for `groupId`, never using a cell in `locked`.
-  function raise(act, groupId, depth, locked) {
+  // T378: the cell holding a span's head, for a key anywhere in that span (its head or a tail).
+  function spanHeadKey(k) {
+    if (!spanTails.has(k)) return k
+    const [g, d, b] = k.split('|')
+    for (let i = blockOrder.get(b) - 1; i >= 0; i--) {
+      const hk = `${g}|${d}|${timeBlocksSorted[i].id}`
+      if (assigned.get(hk) !== assigned.get(k)) return null
+      if (!spanTails.has(hk)) return hk
+    }
+    return null
+  }
+  // A whole placed span the repair may lift as one session (T378): never a pre-placed one.
+  function movableSpanHead(k) {
+    if (!assigned.has(k)) return null
+    const hk = spanHeadKey(k)
+    if (!hk || preplacedKeys.has(hk)) return null
+    return (activityById.get(assigned.get(hk))?.span_blocks || 1) > 1 ? hk : null
+  }
+  // The cells a span placed at head key `hk` covers.
+  function spanKeys(hk) {
+    const [g, d, b] = hk.split('|')
+    const act = activityById.get(assigned.get(hk))
+    const out = []
+    for (let i = 0; i < (act?.span_blocks || 1); i++) {
+      const blk = timeBlocksSorted[blockOrder.get(b) + i]
+      if (blk) out.push(`${g}|${d}|${blk.id}`)
+    }
+    return out
+  }
+
+  // One more session of `act` for `groupId`, never using a cell in `locked`. With `liftSpans`
+  // (T378, a second attempt only), a span in the way is lifted whole and placed again elsewhere.
+  function raise(act, groupId, depth, locked, liftSpans = false) {
     const span = act.span_blocks || 1
     for (const head of openSlotsByGroup.get(groupId) ?? []) {
       if (minRepairBudget-- <= 0 || repairWorkLeft-- <= 0) return false
@@ -965,9 +998,31 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
         keys.push(`${groupId}|${head.dayId}|${blk.id}`)
       }
       if (keys.length !== span || keys.some(k => locked.has(k) || !openSlotByKey.has(k))) continue
-      if (keys.some(k => assigned.has(k) && (!movable(k) || assigned.get(k) === act.id))) continue
+      const spanHeads = new Set()
+      let blocked = false
+      for (const k of keys) {
+        if (!assigned.has(k) || movable(k)) {
+          if (assigned.get(k) === act.id) blocked = true
+          continue
+        }
+        const hk = liftSpans ? movableSpanHead(k) : null
+        if (!hk || assigned.get(hk) === act.id || spanKeys(hk).some(x => locked.has(x))) { blocked = true; break }
+        spanHeads.add(hk)
+      }
+      if (blocked) continue
       const mark = journal.length
       const lifted = []
+      // Cells a lifted span covered outside this session's own: they must not stay empty. A span above
+      // its minimum may be lifted for good (its surplus session gives way, as a single's does in
+      // tryFill); one at its minimum is placed again below.
+      const vacated = []
+      for (const hk of spanHeads) {
+        const l = activityById.get(assigned.get(hk))
+        for (const x of spanKeys(hk)) if (!keys.includes(x)) vacated.push(x)
+        const s = openSlotByKey.get(hk)
+        jUnplace(l, s.groupId, s.dayId, s.blockId)
+        lifted.push(l)
+      }
       for (const k of keys) {
         if (!assigned.has(k)) continue
         const l = activityById.get(assigned.get(k))
@@ -994,12 +1049,20 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
         let ok = true
         for (const l of lifted) {
           if (getCount(groupId, l.id) >= getMin(l.id)) continue
-          if (depth === 0 || !raise(l, groupId, depth - 1, nextLocked)) { ok = false; break }
+          if (depth === 0 || !raise(l, groupId, depth - 1, nextLocked, liftSpans)) { ok = false; break }
+        }
+        for (const x of vacated) {
+          if (!ok) break
+          if (assigned.has(x)) continue
+          const v = openSlotByKey.get(x)
+          const fill = v ? fits(v)[0] : null
+          if (fill) jPlace(fill, v.groupId, v.dayId, v.blockId)
+          else ok = false
         }
         for (const peer of moved) {
           if (!ok) break
           if (getCount(peer.groupId, act.id) >= getMin(act.id)) continue
-          if (!raise(act, peer.groupId, depth - 1, nextLocked)) ok = false
+          if (!raise(act, peer.groupId, depth - 1, nextLocked, liftSpans)) ok = false
         }
         // The cell a moved session vacated must not stay empty.
         for (const peer of moved) {
@@ -1085,7 +1148,17 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
         while (getCount(group.id, act.id) < getMin(act.id)) {
           minRepairBudget = MIN_REPAIR_BUDGET
           journal.length = 0
-          if (!raise(act, group.id, MIN_REPAIR_DEPTH, new Set())) break
+          if (raise(act, group.id, MIN_REPAIR_DEPTH, new Set())) continue
+          // T378: only when that fails, let the chain lift a span that took the cells this needs.
+          // It spends a budget of its own, so the pass's shared work budget, and with it every
+          // later (group, activity) the first attempt would have raised, is exactly as before.
+          minRepairBudget = MIN_REPAIR_BUDGET
+          journal.length = 0
+          const sharedWorkLeft = repairWorkLeft
+          repairWorkLeft = SPAN_LIFT_WORK
+          const raised = raise(act, group.id, MIN_REPAIR_DEPTH, new Set(), true)
+          repairWorkLeft = sharedWorkLeft
+          if (!raised) break
         }
       }
     }
