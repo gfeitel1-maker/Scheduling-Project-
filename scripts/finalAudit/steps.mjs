@@ -639,6 +639,55 @@ export async function run(h) {
     featureIn(prs[0].number, what)
   }
 
+  await step(19, 'A removed device learns it: pair B, Revoke B on A, relaunch B on its own data; B shows it was removed within 90s, A stays signed in', async () => {
+    featureIn(1013, 'A removed device learns its removal (#1013)')
+    const devicesScreen = async () => {
+      await openDevices()
+      await waitFor(`return /Add a device|Stop adding devices/.test(__main())`, 20000, 'Devices')
+    }
+    const B = await h.launchPeer('R', h.PORT + 70)
+    try {
+      // Pair B exactly as step 13 does: camp code on A, join on B, Approve on A, sign in on B.
+      await devicesScreen()
+      if (!await ev(`return /Stop adding devices/.test(__main())`)) await click('Add a device', true, 10000)
+      const code = await waitFor(`const m=__main().match(/\\b([A-Z0-9]{4,6}-[A-Z0-9]{4,6})\\b/); return m && m[1]`, 30000, 'camp code')
+      await B.waitFor(`return document.body.innerText.includes('Join with a camp code')`, 120000, 'R: mode-select')
+      await B.click('Join with a camp code', false)
+      await B.waitFor(`const i=__inp('input[placeholder$="K4P7-2MRQ"]'); if(!i) return false; __set(i, ${JSON.stringify(code)}); return true`, 15000, 'R: code field')
+      await sleep(300); await B.click('Continue', true, 10000)
+      await waitFor(`return [...document.querySelectorAll('button')].filter(__vis).some(b=>b.innerText.trim()==='Approve'&&!b.disabled)`, 90000, "R's pairing request on A")
+      await ev(`[...document.querySelectorAll('button')].filter(__vis).find(b=>b.innerText.trim()==='Approve'&&!b.disabled).click(); return true`)
+      await B.waitFor(`return !!__inp('#join-name')`, 90000, 'R: sign-in after approval')
+      await B.ev(`__set(__inp('#join-name'), ${JSON.stringify(h.ADMIN)}); __set(__inp('#join-pin'), ${JSON.stringify(h.PIN)}); return true`)
+      await sleep(300); await B.click('Sign in', true, 10000)
+      await B.waitFor(`return __click('Continue', true) || document.body.innerText.includes('Log out')`, 120000, 'R: camp arrived')
+      await B.waitFor(`return document.body.innerText.includes('Log out')`, 60000, 'R: signed in')
+      // Revoke B on A. The only Revoke button is B's row: the host's own row never has one.
+      await devicesScreen()
+      await waitFor(`const b=[...document.querySelectorAll('button')].filter(__vis).find(b=>b.innerText.trim()==='Revoke'&&!b.disabled); if(!b) return false; b.click(); return true`, 30000, 'Revoke for R on A')
+      await waitFor(`return /Revoked|No longer allowed/.test(__main())`, 30000, 'A lists R as revoked')
+      // Relaunch B on its OWN data so it authenticates afresh, then wait for it to learn.
+      const ud = B.ud
+      await B.stop()
+      const B2 = await h.launchPeer('R2', h.PORT + 70, { reuse: ud })
+      try {
+        await B2.waitFor(`return /Log out|Sign in/.test(document.body.innerText)`, 120000, 'R2: up')
+        if (await B2.ev(`return !!__inp('#login-pin') || !!__inp('input[type=password]')`)) {
+          await B2.ev(`const n=__inp('#login-name')||__inp('input[type=text]'); if(n) __set(n, ${JSON.stringify(h.ADMIN)}); __set(__inp('#login-pin')||__inp('input[type=password]'), ${JSON.stringify(h.PIN)}); return true`)
+          await sleep(300); await B2.click('Sign in', true, 10000).catch(() => {})
+        }
+        const t0 = Date.now()
+        const seen = await B2.waitFor(`const t=document.body.innerText; return (t.includes('removed from this camp') && 'sidebar flag "removed from this camp"') || (t.includes("This device's access was removed") && 'sign-in screen "This device\\'s access was removed"')`, 90000, 'R2 shows it was removed')
+        const learnedS = ((Date.now() - t0) / 1000).toFixed(1)
+        await B2.shot('removed')
+        // A is unaffected: still signed in, not shown the removed state.
+        const aOk = await ev(`const t=document.body.innerText; return t.includes('Log out') && !t.includes("This device's access was removed") && !t.includes('removed from this camp')`)
+        if (!aOk) throw new Error(`R learned its removal (${seen}, ${learnedS}s) but A is no longer fine`)
+        return `R removed on A; after relaunch R showed the ${seen} within ${learnedS}s; A stayed signed in`
+      } finally { await B2.stop() }
+    } finally { await B.stop().catch(() => {}) }
+  })
+
   await step(15, 'Two camps on one network: both hosts stay signed in, neither admits the other, no data crosses', async () => {
     // Security batch / keeper 2026-10-13, after #991 (a peer's refusal read as this device's removal). A second,
     // unrelated camp on the same LAN is the everyday case at a shared site: both hosts advertise, discover each
