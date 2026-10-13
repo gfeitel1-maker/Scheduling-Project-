@@ -215,7 +215,7 @@ export async function run(h) {
     if (!signedIn) { await h.signInIfAsked(); await waitFor(`return document.body.innerText.includes('Log out')`, 30000, 'signed in') }
     await nav('Roots')
     const snap2 = await ev(`return __main().match(/WHAT HAS TAKEN ROOT[^]*?Fixed Events\\n\\d+/)?.[0]`)
-    const note = `exited ${(exitMs / 1000).toFixed(1)}s after SIGTERM; ${signedIn ? 'came back signed in' : 'asked to sign in again'}; Roots ${snap === snap2 ? 'unchanged' : 'CHANGED'}`
+    const note = `exited ${(exitMs / 1000).toFixed(1)}s after ${h.quitVia ?? 'SIGTERM'}; ${signedIn ? 'came back signed in' : 'asked to sign in again'}; Roots ${snap === snap2 ? 'unchanged' : 'CHANGED'}`
     if (exitMs > 10000 || !signedIn || snap !== snap2) throw new Error(note)
     return note
   })
