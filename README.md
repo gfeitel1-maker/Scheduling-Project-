@@ -48,15 +48,12 @@ syncs directly between them.
 
 ### Getting started
 
-There is no published release yet; see **Status** below.
+Download v1.0.0 from the [release page](https://github.com/gfeitel1-maker/Scheduling-Project-/releases/tag/v1.0.0):
 
-- **Windows:** the **Release proof** workflow
-  (`.github/workflows/release-proof.yml`), run when a release tag is pushed or
-  on demand, builds the unsigned Windows installer, **Shoresh Setup
-  <version>.exe**, and attaches it to the run as a download.
-- **macOS:** the same workflow builds and launch-checks the app on Apple
-  Silicon, but there is no Mac download; build it from this repository (next
-  section) or get a build from whoever maintains your fork.
+- **macOS:** **Shoresh-1.0.0-macOS.zip**. Unzip it and drag **Shoresh** to Applications. It is an Intel build that also runs on Apple Silicon Macs (through Rosetta).
+- **Windows:** **Shoresh Setup 1.0.0.exe**, a 64-bit installer that needs no admin rights.
+
+You can also build either from this repository (next section).
 
 The app is not code-signed, so the operating system asks you to confirm the
 first time you open it:
@@ -176,9 +173,7 @@ model: [SECURITY.md](SECURITY.md).
 
 ## Status
 
-Pre-release. v1 is being built and audited for one camp, and there is no
-published release yet (the unsigned Windows installer is built by CI as a
-workflow download; see **Getting started**). Open work is tracked as tickets under
+v1.0.0 is released (see **Getting started**). There are no further updates planned for v1; each camp forks and maintains its own copy. Open work is tracked as tickets under
 [docs/work](docs/work/README.md), governed by
 [docs/governance/GOVERNANCE_INDEX.md](docs/governance/GOVERNANCE_INDEX.md).
 
