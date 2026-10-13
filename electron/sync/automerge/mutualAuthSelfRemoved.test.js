@@ -58,4 +58,25 @@ describe('mutualAuth once this device was removed from the camp', () => {
     await tick(40)
     expect(handle.authenticateWith).toHaveBeenCalledTimes(1)
   })
+
+  it('retries a revocation refusal that did not leave this device removed, on a bounded schedule', async () => {
+    const handle = fakeHandle({ type: 'auth_failed', reason: 'device_revoked_by_authority' })
+    wireMutualAuth(handle, { deviceId: 'device-b', isPeerTrusted: () => true, removedRetryMs: 10 })
+    handle.fireDiscovery('peer-a')
+    await tick(300)
+    expect(handle.authenticateWith).toHaveBeenCalledTimes(6)
+  })
+
+  it('does not schedule a retry once the refusal left this device removed, nor for other refusal reasons', async () => {
+    const removed = fakeHandle({ type: 'auth_failed', reason: 'device_revoked_by_authority' })
+    wireMutualAuth(removed, { deviceId: 'device-b', isPeerTrusted: () => true, isSelfRemoved: () => true, removedRetryMs: 10 })
+    removed.fireDiscovery('peer-a')
+    await tick(100)
+    expect(removed.authenticateWith).toHaveBeenCalledTimes(1)
+    const other = fakeHandle({ type: 'auth_failed', reason: 'device_not_authorized' })
+    wireMutualAuth(other, { deviceId: 'device-b', isPeerTrusted: () => true, removedRetryMs: 10 })
+    other.fireDiscovery('peer-a')
+    await tick(100)
+    expect(other.authenticateWith).toHaveBeenCalledTimes(1)
+  })
 })

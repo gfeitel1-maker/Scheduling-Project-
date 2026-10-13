@@ -18,12 +18,14 @@ vi.mock('../../auth/connectionAuth.js', async (importOriginal) => {
   return { ...real, evaluateAuthenticate: (...args) => (lie.reason && args[0] === lie.db ? { ok: false, code: 4403, reason: lie.reason } : real.evaluateAuthenticate(...args)) }
 })
 
-import { setupTwoJoinedDevices, AmHost, makeTmpDir, cleanupDirs, waitFor } from '../../../test/integration/harnessAutomerge.js'
+import { setupTwoJoinedDevices, AmHost, makeTmpDir, cleanupDirs, waitFor, configureDualWrite } from '../../../test/integration/harnessAutomerge.js'
 import { startSyncNode } from './syncNode.js'
-import { applyWrite } from '../../automerge/campDocument.js'
+import { applyWrite, applyWrites } from '../../automerge/campDocument.js'
+import { mintRevokeEntry } from '../../automerge/authorityLog.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { isRemovedFromCamp } from './selfRemoval.js'
+import { resetForTests as resetLiveDoc } from './liveDoc.js'
 
 let rigs = []
 let dirs = []
@@ -33,6 +35,7 @@ afterEach(async () => {
   lie.db = null
   for (const r of rigs) await Promise.all([r.host.stop(), r.clientA.stop(), r.clientB?.stop()].filter(Boolean))
   rigs = []
+  resetLiveDoc()
   cleanupDirs(dirs)
   dirs = []
 })
@@ -177,6 +180,63 @@ describe('(d) a genuinely revoked device learns it from the refusal', () => {
     expect(rejections.at(-1).reply.evidence.changes.length).toBeGreaterThan(0)
     expect(rejections.at(-1).info).toEqual({ removed: true })
     expect(clientA.db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(clientA.deviceId).status).toBe('revoked')
+  }, 60000)
+})
+
+describe('(h) production write shape: one change per field, each carrying provenance and authorship', () => {
+  it('a genuine revoke written as appendOp writes it (separate human-sourced, authored changes) is still verified and merged', async () => {
+    const { rig, rejections } = await rigWithWatchingClientA()
+    await genesisOnEveryone(rig)
+    const { host, clientA } = rig
+    host.node.revokePeer(clientA.node.peerId)
+    const { id, ...fields } = signedRevoke(host.db, host.deviceId, clientA.deviceId)
+    for (const w of writesFor('camp_authority_log', id, fields)) {
+      await host.node.applyLocal(applyWrite(host.node.getDoc(), { ...w, source: 'human', author_user_id: 'user-admin-1' }))
+    }
+    host.db.prepare("UPDATE devices SET revoked_at = ?, pairing_status = 'revoked' WHERE id = ?").run(new Date().toISOString(), clientA.deviceId)
+
+    await hostEvictsClientA(rig)
+    await waitFor(() => isRemovedFromCamp(clientA.db), 15000)
+    expect(rejections.at(-1).info).toEqual({ removed: true })
+  }, 60000)
+})
+
+describe('(h2) a marker or write for anything else riding in the signature change', () => {
+  it('is not evidence: the device stays signed in', async () => {
+    const { rig, rejections } = await rigWithWatchingClientA()
+    await genesisOnEveryone(rig)
+    const { host, clientA } = rig
+    host.node.revokePeer(clientA.node.peerId)
+    const { id, signature, ...fields } = signedRevoke(host.db, host.deviceId, clientA.deviceId)
+    for (const w of writesFor('camp_authority_log', id, fields)) {
+      await host.node.applyLocal(applyWrite(host.node.getDoc(), { ...w, source: 'human', author_user_id: 'user-admin-1' }))
+    }
+    const smuggle = { entity: 'activities', entity_id: randomUUID(), field: 'name', value: 'Smuggled', source: 'human', author_user_id: 'user-admin-1' }
+    await host.node.applyLocal(applyWrites(host.node.getDoc(), [{ entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature, source: 'human', author_user_id: 'user-admin-1' }, smuggle]))
+    host.db.prepare("UPDATE devices SET revoked_at = ?, pairing_status = 'revoked' WHERE id = ?").run(new Date().toISOString(), clientA.deviceId)
+
+    await hostEvictsClientA(rig)
+    await waitFor(() => rejections.length > 0, 15000)
+    expect(isRemovedFromCamp(clientA.db)).toBe(false)
+    expect(rejections.at(-1).info).toEqual({ removed: false })
+  }, 60000)
+})
+
+describe('(i) the revoke minted by the real mintRevokeEntry (appendOp path)', () => {
+  it('reaches the refused device as evidence and is learned', async () => {
+    const { rig, rejections } = await rigWithWatchingClientA()
+    await genesisOnEveryone(rig)
+    const { host, clientA } = rig
+    host.node.revokePeer(clientA.node.peerId)
+    const dir = makeTmpDir(); dirs.push(dir)
+    configureDualWrite(dir)
+    const entryId = mintRevokeEntry(host.db, { targetDeviceId: clientA.deviceId, signerDeviceId: host.deviceId })
+    await waitFor(() => host.node.getDoc().camp_authority_log?.[`${entryId}\0signature`] !== undefined, 8000)
+    host.db.prepare("UPDATE devices SET revoked_at = ?, pairing_status = 'revoked' WHERE id = ?").run(new Date().toISOString(), clientA.deviceId)
+
+    await hostEvictsClientA(rig)
+    await waitFor(() => isRemovedFromCamp(clientA.db), 15000)
+    expect(rejections.at(-1).info).toEqual({ removed: true })
   }, 60000)
 })
 

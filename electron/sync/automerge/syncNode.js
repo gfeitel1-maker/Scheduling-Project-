@@ -912,9 +912,10 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   // The refusal's changes are applied exactly as an ordinary sync message's are: into the held document, then projected,
   // so authority_cache is derived by authorityReplay with each entry judged at its own causal position.
   function adoptRefusalEvidence(peerId, evidence) {
-    if (evidence?.schemaVersion !== getHandshakeSchemaVersion()) return
+    const rejectEvidence = (reason) => console.error(`syncNode: revocation evidence from ${peerId} not adopted: ${String(reason).slice(0, 200)}`)
+    if (evidence?.schemaVersion !== getHandshakeSchemaVersion()) return rejectEvidence(`schema-version ${String(evidence?.schemaVersion).slice(0, 40)} != ${getHandshakeSchemaVersion()}`)
     const currentDoc = getCurrentDoc(db)
-    const bytes = validateRefusalEvidence(currentDoc, deviceId, evidence)
+    const bytes = validateRefusalEvidence(currentDoc, deviceId, evidence, rejectEvidence)
     if (!bytes) return
     const before = A.getHeads(currentDoc)
     const [nextDoc] = A.applyChanges(currentDoc, bytes)
@@ -933,6 +934,9 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
         }
       }
       let removed = false
+      if (!isRevokedByOwnAuthority(db, deviceId) && REVOCATION_REFUSAL_REASONS.has(reply?.reason) && reply.evidence !== undefined) {
+        console.error(`syncNode: ${peerId} refused this device as revoked but this device's own authority state does not say so`)
+      }
       if (isRevokedByOwnAuthority(db, deviceId)) {
         removed = markRemovedFromCamp(db, { peerId, reason: reply?.reason })
         if (!removed) console.error(`syncNode: this device's own authority state says it was removed, but recording that failed`)
