@@ -1,4 +1,5 @@
-# Proves the PACKAGED app on the release platforms. Deliberately separate from gate.yml and never run
+# Proves the PACKAGED app on the release platforms, and builds the unsigned Windows installer (uploaded as an
+# artifact). Deliberately separate from gate.yml and never run
 # on pull requests or branch pushes (CI minutes): only on demand or when a release tag is pushed.
 # `npm run electron:build` runs scripts/verifyPackagedApp.js --launch as its postelectron:build step,
 # which checks that the cipher driver opens a db and node-datachannel constructs a PeerConnection under
@@ -20,8 +21,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The Windows installer (electron-builder's nsis target, unsigned). It builds release/win-unpacked
+          # first, which verifyPackagedApp checks, then wraps it as "Shoresh Setup <version>.exe".
           - os: windows-latest
-            builder_args: --win dir
+            builder_args: --win nsis
           - os: macos-14
             builder_args: --mac dir --arm64
     runs-on: ${{ matrix.os }}
@@ -36,4 +39,29 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Build and verify the packaged app
-        run: npm run electron:build -- ${{ matrix.builder_args }}
+        # --publish never: on CI electron-builder otherwise tries to publish a GitHub release (and fails with no
+        # token). The installer is uploaded as an artifact below instead.
+        run: npm run electron:build -- ${{ matrix.builder_args }} --publish never
+      # Unsigned by ruling. electron-builder logs "signing with signtool.exe" even with no certificate, so the
+      # actual signature state is checked and printed rather than assumed.
+      - name: Confirm the Windows installer and app are unsigned
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem release -Filter *.exe) + @(Get-Item 'release/win-unpacked/Shoresh.exe')
+          $signed = $false
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature $f.FullName
+            Write-Output ("{0}: {1} ({2} bytes)" -f $f.Name, $sig.Status, $f.Length)
+            if ($sig.Status -eq 'Valid' -or $sig.SignerCertificate) { $signed = $true }
+          }
+          if ($signed) { throw 'A Windows binary is signed, but v1 ships unsigned.' }
+      # The installer as a downloadable artifact (Windows only; the macOS job proves the bundle, not a release).
+      - name: Upload the Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: shoresh-windows-installer
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 30
