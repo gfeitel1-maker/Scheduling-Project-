@@ -44,8 +44,10 @@ export function disablePaths(userDataDir) {
 // Whole-file replace that a kill cannot leave torn: the reader sees the old file or the complete new one.
 // fsync before the rename and on the folder after it: a process kill needs neither, a power loss needs both
 // (otherwise the renamed-in name can reach disk before the bytes do).
+// 'r+', not 'r': on Windows FlushFileBuffers needs a handle with write access, and fsync on a read-only handle fails
+// with EPERM. 'r+' neither creates nor truncates, so the bytes are untouched.
 export function syncFile(file, fsImpl = fs) {
-  const fd = fsImpl.openSync(file, 'r')
+  const fd = fsImpl.openSync(file, 'r+')
   try { fsImpl.fsyncSync(fd) } finally { fsImpl.closeSync(fd) }
 }
 export function syncDir(dir, fsImpl = fs) {
