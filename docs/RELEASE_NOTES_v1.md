@@ -77,9 +77,9 @@ See the [README](../README.md) for installing or building Shoresh. On first run,
 the first computer (you can create the camp by importing last year's schedule), **Join with a camp code** on each
 computer after that, or **Open a saved camp** to start from a file made with Save whole camp.
 
-There is no published installer yet. A Windows installer (NSIS) is coming from CI: the **Release proof** workflow
-builds and launch-checks the packaged app on Windows and on Apple Silicon macOS when a release tag is pushed. Until
-then, build from source (see the README).
+On Windows, the project's **Release proof** build (run when a release tag is pushed) produces the unsigned
+installer, **Shoresh Setup <version>.exe**. On a Mac, build the app from source (see the README); the same build
+checks the Mac app but does not publish it.
 
 The app is not code-signed, so confirm the first time you open it:
 - **macOS:** Control-click (right-click) Shoresh, choose **Open**, then **Open** again. If that is blocked, open

@@ -48,12 +48,15 @@ syncs directly between them.
 
 ### Getting started
 
-There is no published installer yet; see **Status** below. Until there is, a
-camp builds the app from this repository (next section) or gets a build from
-whoever maintains its fork. A Windows installer (NSIS) is coming from CI: the
-**Release proof** workflow (`.github/workflows/release-proof.yml`) builds and
-launch-checks the packaged app on Windows and on Apple Silicon macOS when a
-release tag is pushed or on demand.
+There is no published release yet; see **Status** below.
+
+- **Windows:** the **Release proof** workflow
+  (`.github/workflows/release-proof.yml`), run when a release tag is pushed or
+  on demand, builds the unsigned Windows installer, **Shoresh Setup
+  <version>.exe**, and attaches it to the run as a download.
+- **macOS:** the same workflow builds and launch-checks the app on Apple
+  Silicon, but there is no Mac download; build it from this repository (next
+  section) or get a build from whoever maintains your fork.
 
 The app is not code-signed, so the operating system asks you to confirm the
 first time you open it:
@@ -174,7 +177,8 @@ model: [SECURITY.md](SECURITY.md).
 ## Status
 
 Pre-release. v1 is being built and audited for one camp, and there is no
-published release or installer yet. Open work is tracked as tickets under
+published release yet (the unsigned Windows installer is built by CI as a
+workflow download; see **Getting started**). Open work is tracked as tickets under
 [docs/work](docs/work/README.md), governed by
 [docs/governance/GOVERNANCE_INDEX.md](docs/governance/GOVERNANCE_INDEX.md).
 
