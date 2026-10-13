@@ -11,11 +11,11 @@ export default function WeekContextBar({
   const currentWeek = weeks.find(w => w.id === weekId)
   const weekName = currentWeek?.name ?? 'this week'
 
-  // Plain words for what the week toggles do (director test 2026-10-12: "Week 1 · Default" read as
-  // jargon). Nothing switched off: everything runs every week. Some off: which week they are off in.
-  const summaryText = exclusionCount === 0
-    ? `All ${entityLabel} run every week`
-    : `${exclusionCount} of ${totalCount} ${entityLabel} off in ${weekName}`
+  // Only say something when some are switched off for this week; when none are, the bar shows just
+  // the week (owner 2026-10-13: the "all … run every week" line is removed).
+  const summaryText = exclusionCount > 0
+    ? `${exclusionCount} of ${totalCount} ${entityLabel} off in ${weekName}`
+    : null
 
   return (
     <div style={{
@@ -37,7 +37,7 @@ export default function WeekContextBar({
         weekId={weekId}
         onSelect={onSelectWeek}
       />
-      <span style={{
+      {summaryText && <span style={{
         fontSize: 12,
         color: exclusionCount > 0
           ? 'color-mix(in srgb, var(--accent) 70%, var(--text))'
@@ -45,7 +45,7 @@ export default function WeekContextBar({
         fontFamily: 'var(--font-mono)',
       }}>
         {summaryText}
-      </span>
+      </span>}
     </div>
   )
 }

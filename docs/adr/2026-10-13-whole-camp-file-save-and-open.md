@@ -163,7 +163,7 @@ There is no existing every-table comparison helper; the ticket adds one (in test
 
 Hostile-input tests: one per rejection reason in section 5, plus a prototype-pollution file, a file at cap+1 byte, a file with a dangling reference, a file carrying a `users` entity, and a mid-load failure injected after N rows (asserts "load incomplete" flag and that Start over leaves a clean profile).
 
-### 7. Final-audit step 19 outline (step 18 is the guide-screens step)
+### 7. Final-audit step 20 outline (18 is the guide-screens step, 19 the removed-device step)
 
 In `scripts/finalAudit/steps.mjs`, following step 15 (bootstrapping a camp on a peer) and `launchPeer()` (`scripts/finalAudit/driver.mjs`, fresh userData): build the audit camp through the real UI, click **Save whole camp**, record Generated and Manual placement counts, event count and the Locations list; launch a peer on a **new userData**, choose **Start from a saved camp file**, set a PIN, open the file; assert that Generate and Manual counts, events and Locations match, that both schedules open without a "load incomplete" state, that a regenerated schedule still places (derived ids resolve), and that no PIN or device from the first camp exists in the second. Evidence: screenshots of the dialog warning text, the start-screen card and both schedules, per `feedback_show_me_the_running_ui`.
 
