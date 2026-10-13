@@ -431,6 +431,8 @@ The special day stays saved and the regular schedule comes back on that day.
 
 Backups go to `~/Library/Application Support/shoresh/backups/` on your Mac. Shoresh keeps the newest 10. Each backup includes the camp document as well as the database.
 
+**Backups restore on this computer only.** A backup is locked with this computer's own key, so it cannot be opened on another computer. To protect against losing this laptop, pair a second device (every paired computer holds a full copy of the camp), or use **Save whole camp** and keep the file somewhere private.
+
 If you see **Backup saved — camp document not included**, the database was backed up but the camp document could not be copied. Click **Backup now** again; if the message keeps appearing, do not rely on that backup alone.
 
 ### Restoring from a backup

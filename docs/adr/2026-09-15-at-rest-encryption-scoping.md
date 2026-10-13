@@ -115,3 +115,15 @@ hard-fail, so it is recorded as an explicit exception rather than discovered lat
 that keep it humane: the key is minted and sealed automatically (no passphrase to forget), it
 survives app reinstalls (it is in the OS keychain, not app files), and the loss cases are exactly
 the "three keys, one event" recovery story above.
+
+## Amendment 2026-10-13: backups restore on this computer only (owner ruling)
+
+A backup made by **Backup now** is a byte copy of the encrypted database and the encrypted camp document, both under
+this device's keychain-sealed key, so it can be restored only on the computer that made it. On a new or replacement
+computer it cannot be read. Options considered: a backup key wrapped by the admin PIN (rejected: a PIN's small space
+is open to offline guessing), a recovery key shown once at camp creation (rejected: reintroduces "lose it = lose the
+camp"), a decrypted portable backup (rejected: contradicts "no plaintext local backup"). **Ruling (owner,
+2026-10-13, "Second device + camp file"):** keep backups device-bound and say so plainly at restore and in the
+Director's Guide; protection against losing the computer is a second paired device, or a **Save whole camp** file the
+director keeps somewhere private, which **Open a saved camp** turns into a fresh camp on any computer. See
+`docs/current/KEY_RECOVERY_STORY.md`.
