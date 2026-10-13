@@ -21,6 +21,7 @@
 //
 import { createConnectivityEmitter, classifyError, EVENTS } from './connectivityEvents.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
+import { REVOCATION_REFUSAL_REASONS } from './removalEvidence.js'
 
 // T376 (docs/adr/2026-10-12-shared-signed-device-roster.md): the `authenticate` frame carries no session token any more, so
 // there is no "nothing to authenticate with yet" state and no token-awaiting retry: a trusted peer is dialed at once and the
@@ -55,6 +56,9 @@ import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 // delayed to its next announce after the cache entry expires, not locked out.
 const NEGATIVE_CACHE_TTL_MS = 5_000
 const REMOVED_RETRY_MS = 60_000
+// A revocation refusal that did not (yet) leave this device removed is retried on a timer: discovery may announce the
+// peer only once, and the refusal is the only way the revocation reaches a cut-off device.
+const LEARN_RETRY_LIMIT = 5
 // Caps the cache itself from being a memory-growth vector under a peer-id-churning
 // flood — oldest entry evicted once this is exceeded.
 const NEGATIVE_CACHE_MAX_SIZE = 500
@@ -150,6 +154,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onReje
   // always the Map's first key.
   const deniedRecently = new Map()
   const removedAttemptAt = new Map()
+  const learnRetries = new Map()
   // Peers whose last authenticate from this device succeeded (bounded like deniedRecently). See forget().
   const admittedBy = new Set()
 
@@ -398,6 +403,11 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onReje
         if (owns()) {
           attempted.delete(peerId)
           ownerOf.delete(peerId)
+        }
+        const learnAttempts = learnRetries.get(peerId) ?? 0
+        if (REVOCATION_REFUSAL_REASONS.has(reply?.reason) && !isSelfRemoved() && learnAttempts < LEARN_RETRY_LIMIT) {
+          learnRetries.set(peerId, learnAttempts + 1)
+          setTimeout(() => { tryAuthenticate(peerId).catch(() => {}) }, removedRetryMs).unref?.()
         }
         if (!stalled) emitter.emit(EVENTS.AUTH_REJECTED, { peerId, retried, attemptId })
       } else {

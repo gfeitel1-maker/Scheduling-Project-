@@ -16,7 +16,7 @@
 // (the safe direction); changes that are not part of the revoke entries' own causal past are rejected whole.
 import * as A from '@automerge/automerge'
 import { AUTHORITY_LOG_ENTITY, createVerifiedEntryTrust, currentRevokedDeviceIds, entryChangeHashIndex, isCompleteEntry } from '../../automerge/authorityReplay.js'
-import { sharesGenesis, listRecordIds, readRecord, splitRecordKey } from '../../automerge/campDocument.js'
+import { sharesGenesis, listRecordIds, readRecord, splitRecordKey, PROVENANCE_COLLECTION, AUTHOR_COLLECTION } from '../../automerge/campDocument.js'
 
 export const MAX_HEADS = 16
 export const MAX_EVIDENCE_CHANGES = 2000
@@ -73,7 +73,7 @@ export function collectRevocationEvidence(doc, deviceId, peerHeads) {
     if (meta.length !== bytes.length || meta.length > MAX_EVIDENCE_CHANGES * 8) return null
     const metaByHash = new Map(meta.map((m) => [m.hash, m]))
     const needed = ancestorClosure(targets, metaByHash)
-    absorbEntryFieldWrites(meta, bytes, needed, A.getObjectId(doc, AUTHORITY_LOG_ENTITY), revokeIds)
+    absorbEntryFieldWrites(meta, bytes, needed, A.getObjectId(doc, AUTHORITY_LOG_ENTITY), revokeIds, markerObjectIds(doc))
     if (!needed.size || needed.size > MAX_EVIDENCE_CHANGES) return null
     const changes = []
     let total = 0
@@ -89,25 +89,43 @@ export function collectRevocationEvidence(doc, deviceId, peerHeads) {
   }
 }
 
-// True when every op in `bytes` writes a field of one of `entryIds` (or edits the text object that write created).
-function writesOnlyEntryFields(bytes, logObjId, entryIds) {
+// True when every op in `bytes` writes a field of one of `entryIds` (or edits the text object that write created), or
+// the provenance / authorship marker the document write path records beside that same field: every real field write
+// is accompanied by one, so a signature change carries them. Markers are keyed `<entity>\0<id>\0<field>`, so one can
+// only be about an entry in `entryIds`.
+function writesOnlyEntryFields(bytes, logObjId, entryIds, markerObjIds) {
   const decoded = A.decodeChange(bytes)
   const created = new Set()
   for (const [i, op] of decoded.ops.entries()) {
-    const ownField = op.obj === logObjId && typeof op.key === 'string' && entryIds.has(splitRecordKey(op.key)?.entityId)
-    if (!ownField && !created.has(op.obj)) return false
+    const isKey = typeof op.key === 'string'
+    const ownField = op.obj === logObjId && isKey && entryIds.has(splitRecordKey(op.key)?.entityId)
+    const ownMarker = markerObjIds.has(op.obj) && isKey && isMarkerOfEntry(op.key, entryIds)
+    if (!ownField && !ownMarker && !created.has(op.obj)) return false
     if (op.action.startsWith('make')) created.add(`${decoded.startOp + i}@${decoded.actor}`)
   }
   return true
 }
 
+function isMarkerOfEntry(key, entryIds) {
+  const parts = key.split('\0')
+  return parts.length === 3 && parts[0] === AUTHORITY_LOG_ENTITY && entryIds.has(parts[1])
+}
+
+function markerObjectIds(doc) {
+  const ids = new Set()
+  for (const name of [PROVENANCE_COLLECTION, AUTHOR_COLLECTION]) {
+    try { ids.add(A.getObjectId(doc, name)) } catch { /* collection absent */ }
+  }
+  return ids
+}
+
 // Adds to `included` (hashes) every change in `metas` that only writes fields of `entryIds` and depends on nothing but
 // included changes or changes outside `metas`: a signature lands in a change after the one that completes its entry.
-function absorbEntryFieldWrites(metas, bytes, included, logObjId, entryIds) {
+function absorbEntryFieldWrites(metas, bytes, included, logObjId, entryIds, markerObjIds) {
   const inSet = new Set(metas.map((m) => m.hash))
   for (const [i, m] of metas.entries()) {
     if (included.has(m.hash) || !m.deps.every((d) => included.has(d) || !inSet.has(d))) continue
-    if (writesOnlyEntryFields(bytes[i], logObjId, entryIds)) included.add(m.hash)
+    if (writesOnlyEntryFields(bytes[i], logObjId, entryIds, markerObjIds)) included.add(m.hash)
   }
 }
 
@@ -119,32 +137,33 @@ function absorbEntryFieldWrites(metas, bytes, included, logObjId, entryIds) {
  * and nothing may ride along beyond the causal past of the revoke entries naming this device and those entries' own
  * field writes.
  */
-export function validateRefusalEvidence(doc, deviceId, evidence) {
-  if (!doc || !evidence || typeof evidence !== 'object' || !Array.isArray(evidence.changes)) return null
+export function validateRefusalEvidence(doc, deviceId, evidence, onReject) {
+  const reject = (reason) => { onReject?.(reason); return null }
+  if (!doc || !evidence || typeof evidence !== 'object' || !Array.isArray(evidence.changes)) return reject('evidence-not-a-change-list')
   const { changes } = evidence
-  if (changes.length === 0 || changes.length > MAX_EVIDENCE_CHANGES) return null
+  if (changes.length === 0 || changes.length > MAX_EVIDENCE_CHANGES) return reject('change-count-out-of-bounds')
   let total = 0
   const bytes = []
   for (const b64 of changes) {
-    if (typeof b64 !== 'string' || b64.length > MAX_EVIDENCE_BYTES * 2) return null
+    if (typeof b64 !== 'string' || b64.length > MAX_EVIDENCE_BYTES * 2) return reject('change-not-a-bounded-string')
     const raw = new Uint8Array(Buffer.from(b64, 'base64'))
     total += raw.length
-    if (raw.length === 0 || total > MAX_EVIDENCE_BYTES) return null
+    if (raw.length === 0 || total > MAX_EVIDENCE_BYTES) return reject('evidence-bytes-out-of-bounds')
     bytes.push(raw)
   }
   try {
     const held = A.getHeads(doc)
     const [next] = A.applyChanges(A.clone(doc), bytes)
-    if (A.getMissingDeps(next, []).length) return null
+    if (A.getMissingDeps(next, []).length) return reject('missing-dependencies')
     const added = A.getChangesMetaSince(next, held)
-    if (!added.length) return null
+    if (!added.length) return reject('no-new-changes')
     const addedByHash = new Map(added.map((m) => [m.hash, m]))
     for (const m of added) {
-      if (!m.deps.length) return null
-      for (const dep of m.deps) if (!addedByHash.has(dep) && !A.hasHeads(doc, [dep])) return null
+      if (!m.deps.length) return reject('change-with-no-dependencies')
+      for (const dep of m.deps) if (!addedByHash.has(dep) && !A.hasHeads(doc, [dep])) return reject('depends-on-history-never-held')
     }
-    if (!sharesGenesis(next)) return null
-    if (!currentRevokedDeviceIds(A, next, { isEntryTrusted: createVerifiedEntryTrust(A, next) }).includes(deviceId)) return null
+    if (!sharesGenesis(next)) return reject('foreign-camp')
+    if (!currentRevokedDeviceIds(A, next, { isEntryTrusted: createVerifiedEntryTrust(A, next) }).includes(deviceId)) return reject('derived-state-does-not-revoke-this-device')
     const entryChange = entryChangeHashIndex(A, next)
     const alreadyRevoked = new Set(currentRevokedDeviceIds(A, doc, { isEntryTrusted: createVerifiedEntryTrust(A, doc) }))
     const revokeIds = new Set()
@@ -153,18 +172,18 @@ export function validateRefusalEvidence(doc, deviceId, evidence) {
       if (isCompleteEntry(row) && row.kind === 'revoke' && row.target_device_id === deviceId && entryChange.has(id)) {
         // A signer this device already knows to be revoked may only have written this on a fork from before its own
         // removal: valid at its causal position, but the refusal is a delivery route ordinary sync would have closed.
-        if (alreadyRevoked.has(row.signer_device_id)) return null
+        if (alreadyRevoked.has(row.signer_device_id)) return reject('signer-already-revoked-here')
         revokeIds.add(id)
       }
     }
     const allowed = ancestorClosure([...revokeIds].map((id) => entryChange.get(id)).filter((h) => addedByHash.has(h)), addedByHash)
     const addedBytes = A.getChangesSince(next, held)
-    if (addedBytes.length !== added.length) return null
-    absorbEntryFieldWrites(added, addedBytes, allowed, A.getObjectId(next, AUTHORITY_LOG_ENTITY), revokeIds)
-    for (const m of added) if (!allowed.has(m.hash)) return null
+    if (addedBytes.length !== added.length) return reject('change-bytes-mismatch')
+    absorbEntryFieldWrites(added, addedBytes, allowed, A.getObjectId(next, AUTHORITY_LOG_ENTITY), revokeIds, markerObjectIds(next))
+    for (const m of added) if (!allowed.has(m.hash)) return reject('change-outside-revoke-causal-past')
     return bytes
-  } catch {
-    return null
+  } catch (err) {
+    return reject(`threw: ${err?.message ?? err}`)
   }
 }
 
