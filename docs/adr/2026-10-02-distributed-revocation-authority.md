@@ -1063,3 +1063,19 @@ What is *not* claimed: S cannot know about a quorum it has not yet received. If 
 ### Closure (T333 landed)
 
 The "Known limitation (v1)" section above is closed by this mechanism, with the residuals listed in this revision. `SECURITY.md` Known limitations records the same.
+
+## Amendment 2026-10-13: genesis anchored on the camp signing key
+
+**Defect.** The genesis entry was "axiomatic" and unsigned, and the replay took the founder from the first genesis in record-id order. Any paired device could write a genesis whose id sorts first and names itself, become founder and admin in every replay, then sign a revoke of the real founder that verified. Reproduced end to end before the fix (counselor `admin`, founder `revoked`).
+
+**Rule.** The founder is the genesis entry whose signature verifies against **this device's local `camps.signing_public_key`**, the same trust root as the signed device roster (T376, `deviceRosterSignature.js`). The key is written locally at bootstrap or join and is never read from the document. The signature covers `{id, camp_id, target_device_id, target_peer_id}` under its own domain-separation context (`shoresh-genesis-sig-v1`, `genesisSignature.js`), so it cannot be replayed under another id, camp or target, and cannot verify as a roster, credential or authority-entry signature. Bootstrap signs the genesis with the Host signing key. Replay counts only a genesis that verifies; every other genesis is ignored (the projector logs it with gate `genesis-not-camp-signed`). If several verify, the lowest id wins; only a holder of the camp key can mint one.
+
+**Why not pinning the first genesis seen.** A joiner receiving a document that already contains a forged genesis cannot tell the forgery from the real one by anything in the document. Only the camp key, which the joiner holds from the authenticated join reply, separates them.
+
+**Required root.** The camp root `{campId, publicKey}` is a required parameter of every entry point that reads genesis: `createVerifiedEntryTrust`, `createAuthorityReplayContext`, `currentRevokedDeviceIds`, `currentAuthorityState`, `isValidAdminAt`, `resolveAuthorityPeerIds`, `revocationDigest`, `rotatingDiscoveryDigest`, `rotatingServiceTag`, `electedRotator`, `checkRendezvousRotation`, `collectRevocationEvidence`, `validateRefusalEvidence`. A missing root throws; there is no fallback to trusting the document. Production callers read it with `readCampRoot(db)`. A device that has no `signing_public_key` yet passes `publicKey: null`: no founder resolves, so no admins and no authority rows (fail closed), and projection does not throw.
+
+**Same-seam fix.** The projector recorded an `applied_authority_log` row for any validly signed revoke without the "signer was an admin at the entry's causal position" test that `currentRevokedDeviceIds` applies. It now records a grant or revoke only when its signer was an admin at that position, and a genesis only when it is the camp-signed one.
+
+**Host handoff.** A handoff moves the private half of the camp key and leaves `camps.signing_public_key` and `camp_authority_log` untouched. The founder remains the original device (genesis names a device, not "the Host"), the admin set is unchanged on both devices, and the new Host's grants apply because it is an admin by grant. Pinned by `electron/auth/hostHandoff.founder.test.js`.
+
+**Consequences.** Fresh camps only: a camp whose genesis was written unsigned resolves no founder, and no backfill or shim is provided (pre-production, no live users). Whoever holds the camp private key (the Host) can mint a founder genesis; that is already the authority the key carries. Tests that build documents with a genesis sign it with a test camp key (`genesisTestKit.js`) instead of weakening the rule.

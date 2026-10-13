@@ -1,3 +1,4 @@
+import { makeTestCamp } from '../../automerge/genesisTestKit.js'
 import { readRecord, recordKey } from '../../automerge/campDocument.js'
 // @vitest-environment node
 //
@@ -241,8 +242,10 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     // OWN db via applyLocal, which runs projectAll -> upsertCampAuthorityLogEntity ->
     // tearDownRevokedConnectedPeers.
     const sign = (fields) => signAuthorityEntry(dbA, fields)
-    function pushEntry(doc, fields, signed) {
-      const id = `entry-${Math.random()}`
+    const camp = makeTestCamp('camp-1')
+    dbA.prepare('UPDATE camps SET signing_public_key = ?').run(camp.publicKey)
+    function pushEntry(doc, fields, signed, fixedId) {
+      const id = fixedId ?? `entry-${Math.random()}`
       let d = doc
       for (const [field, value] of Object.entries(fields)) {
         d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
@@ -255,7 +258,7 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     }
 
     let doc = a.getDoc()
-    doc = pushEntry(doc, { kind: 'genesis', target_device_id: 'device-a', target_peer_id: a.peerId.toString() }, false)
+    doc = pushEntry(doc, camp.genesisFields({ id: 'genesis-1', deviceId: 'device-a', peerId: a.peerId.toString() }), false, 'genesis-1')
     await a.applyLocal(doc)
     doc = pushEntry(a.getDoc(), { kind: 'grant', target_device_id: 'device-b', target_peer_id: b.peerId.toString(), signer_device_id: 'device-a' }, true)
     await a.applyLocal(doc)
@@ -287,8 +290,10 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     setupAuthorizedDevicePair(dbA, dbB, a, b)
     await authenticateBothWays(a, b)
 
-    function pushEntry(doc, fields, signed) {
-      const id = `entry-${Math.random()}`
+    const camp = makeTestCamp('camp-1')
+    dbA.prepare('UPDATE camps SET signing_public_key = ?').run(camp.publicKey)
+    function pushEntry(doc, fields, signed, fixedId) {
+      const id = fixedId ?? `entry-${Math.random()}`
       let d = doc
       for (const [field, value] of Object.entries(fields)) d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
       if (signed) {
@@ -297,7 +302,7 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
       }
       return d
     }
-    await a.applyLocal(pushEntry(a.getDoc(), { kind: 'genesis', target_device_id: 'device-a', target_peer_id: a.peerId.toString() }, false))
+    await a.applyLocal(pushEntry(a.getDoc(), camp.genesisFields({ id: 'genesis-1', deviceId: 'device-a', peerId: a.peerId.toString() }), false, 'genesis-1'))
     await a.applyLocal(pushEntry(a.getDoc(), { kind: 'grant', target_device_id: 'device-b', target_peer_id: b.peerId.toString(), signer_device_id: 'device-a' }, true))
     expect(readRendezvousNamespace(a.getDoc(), 'camp-1').epoch).toBe(1)
     const oldKey = readRendezvousAddressKey(a.getDoc(), 'camp-1')

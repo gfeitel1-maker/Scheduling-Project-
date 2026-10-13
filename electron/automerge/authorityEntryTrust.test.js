@@ -16,6 +16,7 @@ import { ensureDeviceIdentity } from '../auth/deviceIdentity.js'
 import { setUserDataDirGetter, resetForTests, getCurrentDoc } from '../sync/automerge/liveDoc.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './authorityLog.js'
 import { applyWrite } from './campDocument.js'
+import { readCampRoot } from './genesisSignature.js'
 import { createVerifiedEntryTrust, currentRevokedDeviceIds } from './authorityReplay.js'
 
 let db
@@ -50,11 +51,11 @@ describe('createVerifiedEntryTrust', () => {
   it('trusts a genuinely signed grant entry', async () => {
     const Automerge = await import('@automerge/automerge')
     const { peerId: founderPeerId } = await ensureDeviceIdentity(db)
-    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId })
+    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId, campId: 'camp-1' })
     mintGrantEntry(db, { targetDeviceId: 'signer-1', targetPeerId: 'peer-signer-1', signerDeviceId: 'founder-1' })
     const doc = getCurrentDoc(db)
-    const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc)
-    const revoked = currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'founder-1', isEntryTrusted })
+    const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc, readCampRoot(db))
+    const revoked = currentRevokedDeviceIds(Automerge, doc, { root: readCampRoot(db), founderDeviceId: 'founder-1', isEntryTrusted })
     expect(revoked).toEqual([]) // signer-1 is a trusted, currently-granted admin — not revoked
   })
 
@@ -62,7 +63,7 @@ describe('createVerifiedEntryTrust', () => {
     const Automerge = await import('@automerge/automerge')
     await ensureDeviceIdentity(db)
     const founderPeerId = 'founder-peer-1'
-    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId })
+    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId, campId: 'camp-1' })
     let doc = getCurrentDoc(db)
     // An attacker-controlled synced peer injects a bare, unsigned revoke entry directly into the
     // document fields (bypassing authorityLog.js's signing path entirely) — exactly what a
@@ -70,7 +71,7 @@ describe('createVerifiedEntryTrust', () => {
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'forged-1', field: 'kind', value: 'revoke' })
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'forged-1', field: 'target_device_id', value: 'founder-1' })
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'forged-1', field: 'signer_device_id', value: 'founder-1' })
-    const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc)
+    const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc, readCampRoot(db))
     const forgedEntry = { id: 'forged-1', kind: 'revoke', target_device_id: 'founder-1', signer_device_id: 'founder-1' }
     expect(isEntryTrusted(forgedEntry)).toBe(false)
   })
@@ -78,25 +79,25 @@ describe('createVerifiedEntryTrust', () => {
   it('the shared helper, threaded into currentRevokedDeviceIds, rejects the same forged revoke that projector.js already rejects', async () => {
     const Automerge = await import('@automerge/automerge')
     const { peerId: founderPeerId } = await ensureDeviceIdentity(db)
-    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId })
+    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId, campId: 'camp-1' })
     let doc = getCurrentDoc(db)
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'forged-2', field: 'kind', value: 'revoke' })
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'forged-2', field: 'target_device_id', value: 'founder-1' })
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'forged-2', field: 'signer_device_id', value: 'founder-1' })
-    const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc)
-    const revoked = currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'founder-1', isEntryTrusted })
+    const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc, readCampRoot(db))
+    const revoked = currentRevokedDeviceIds(Automerge, doc, { root: readCampRoot(db), founderDeviceId: 'founder-1', isEntryTrusted })
     expect(revoked).toEqual([]) // the forged revoke never counted
   })
 
   it('a genuinely signed revoke (via mintRevokeEntry) DOES move currentRevokedDeviceIds through the shared helper', async () => {
     const Automerge = await import('@automerge/automerge')
     const { peerId: founderPeerId } = await ensureDeviceIdentity(db)
-    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId })
+    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId, campId: 'camp-1' })
     mintGrantEntry(db, { targetDeviceId: 'signer-1', targetPeerId: 'peer-signer-1', signerDeviceId: 'founder-1' })
     mintRevokeEntry(db, { targetDeviceId: 'signer-1', signerDeviceId: 'founder-1' })
     const doc = getCurrentDoc(db)
-    const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc)
-    const revoked = currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'founder-1', isEntryTrusted })
+    const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc, readCampRoot(db))
+    const revoked = currentRevokedDeviceIds(Automerge, doc, { root: readCampRoot(db), founderDeviceId: 'founder-1', isEntryTrusted })
     expect(revoked).toEqual(['signer-1'])
   })
 })

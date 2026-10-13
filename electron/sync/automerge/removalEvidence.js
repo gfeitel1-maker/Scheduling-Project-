@@ -15,7 +15,7 @@
 // Bounded in both directions: a device missing more history than MAX_EVIDENCE_BYTES learns nothing and stays signed in
 // (the safe direction); changes that are not part of the revoke entries' own causal past are rejected whole.
 import * as A from '@automerge/automerge'
-import { AUTHORITY_LOG_ENTITY, createVerifiedEntryTrust, currentRevokedDeviceIds, entryChangeHashIndex, isCompleteEntry } from '../../automerge/authorityReplay.js'
+import { AUTHORITY_LOG_ENTITY, createVerifiedEntryTrust, currentRevokedDeviceIds, entryChangeHashIndex, isCompleteEntry, requireRoot } from '../../automerge/authorityReplay.js'
 import { sharesGenesis, listRecordIds, readRecord, splitRecordKey, PROVENANCE_COLLECTION, AUTHOR_COLLECTION } from '../../automerge/campDocument.js'
 
 export const MAX_HEADS = 16
@@ -54,11 +54,12 @@ function ancestorClosure(startHashes, metaByHash) {
  * refused device lacks. `peerHeads` is whatever the refused device claimed to hold; heads this document does not know
  * are ignored. Returns null when there is nothing to send or it would exceed the bounds.
  */
-export function collectRevocationEvidence(doc, deviceId, peerHeads) {
+export function collectRevocationEvidence(doc, deviceId, peerHeads, root) {
+  requireRoot(root)
   if (!doc || typeof deviceId !== 'string' || !deviceId) return null
   try {
     const known = (Array.isArray(peerHeads) ? peerHeads.slice(0, MAX_HEADS) : []).filter((h) => typeof h === 'string' && HASH_RE.test(h) && A.hasHeads(doc, [h]))
-    const isTrusted = createVerifiedEntryTrust(A, doc)
+    const isTrusted = createVerifiedEntryTrust(A, doc, root)
     const entryChange = entryChangeHashIndex(A, doc)
     const targets = []
     const revokeIds = new Set()
@@ -137,7 +138,8 @@ function absorbEntryFieldWrites(metas, bytes, included, logObjId, entryIds, mark
  * and nothing may ride along beyond the causal past of the revoke entries naming this device and those entries' own
  * field writes.
  */
-export function validateRefusalEvidence(doc, deviceId, evidence, onReject) {
+export function validateRefusalEvidence(doc, deviceId, evidence, root, onReject) {
+  requireRoot(root)
   const reject = (reason) => { onReject?.(reason); return null }
   if (!doc || !evidence || typeof evidence !== 'object' || !Array.isArray(evidence.changes)) return reject('evidence-not-a-change-list')
   const { changes } = evidence
@@ -163,9 +165,9 @@ export function validateRefusalEvidence(doc, deviceId, evidence, onReject) {
       for (const dep of m.deps) if (!addedByHash.has(dep) && !A.hasHeads(doc, [dep])) return reject('depends-on-history-never-held')
     }
     if (!sharesGenesis(next)) return reject('foreign-camp')
-    if (!currentRevokedDeviceIds(A, next, { isEntryTrusted: createVerifiedEntryTrust(A, next) }).includes(deviceId)) return reject('derived-state-does-not-revoke-this-device')
+    if (!currentRevokedDeviceIds(A, next, { root, isEntryTrusted: createVerifiedEntryTrust(A, next, root) }).includes(deviceId)) return reject('derived-state-does-not-revoke-this-device')
     const entryChange = entryChangeHashIndex(A, next)
-    const alreadyRevoked = new Set(currentRevokedDeviceIds(A, doc, { isEntryTrusted: createVerifiedEntryTrust(A, doc) }))
+    const alreadyRevoked = new Set(currentRevokedDeviceIds(A, doc, { root, isEntryTrusted: createVerifiedEntryTrust(A, doc, root) }))
     const revokeIds = new Set()
     for (const id of listRecordIds(next, AUTHORITY_LOG_ENTITY)) {
       const row = readRecord(next, AUTHORITY_LOG_ENTITY, id)

@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { initSchema, openLocalDb } from '../db/localDb.js'
 import { ensureDeviceIdentity } from '../auth/deviceIdentity.js'
 import { createEmptyDoc, applyWrite, listRecordIds, readRecord } from './campDocument.js'
+import { makeTestCamp } from './genesisTestKit.js'
 import { signAuthorityEntry } from './authorityLogSignature.js'
 import { projectAll, rebuildFromDoc } from './projector.js'
 import { isRevokedByOwnAuthority } from '../sync/automerge/removalEvidence.js'
@@ -39,6 +40,8 @@ async function makeDevice() {
   return { db, peerId }
 }
 
+const camp = makeTestCamp('camp-1')
+
 let entrySeq = 0
 function uid() {
   return `entry-${entrySeq++}`
@@ -46,9 +49,10 @@ function uid() {
 
 function writeGenesis(doc, { founderDeviceId, founderPeerId }) {
   const id = uid()
-  let d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field: 'kind', value: 'genesis' })
-  d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_device_id', value: founderDeviceId })
-  d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_peer_id', value: founderPeerId })
+  let d = doc
+  for (const [field, value] of Object.entries(camp.genesisFields({ id, deviceId: founderDeviceId, peerId: founderPeerId }))) {
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
+  }
   return d
 }
 
@@ -77,7 +81,7 @@ function campDb() {
   const file = path.join(os.tmpdir(), `shoresh-authproj-camp-${Date.now()}-${Math.random()}.sqlite`)
   files.push(file)
   const db = openLocalDb(file)
-  db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
+  db.prepare('INSERT INTO camps (id, name, signing_public_key) VALUES (?, ?, ?)').run('camp-1', 'Camp One', camp.publicKey)
   return db
 }
 

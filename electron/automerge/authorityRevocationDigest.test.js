@@ -12,6 +12,8 @@ import { revocationDigest, encodeRevokedIds } from './authorityRevocationDigest.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+const TEST_ROOT = { campId: 'camp-test', publicKey: null }
+
 let nextId = 0
 function uid() {
   return `e${nextId++}`
@@ -44,8 +46,8 @@ describe('revocationDigest', () => {
 
     const mergedOrder1 = Automerge.merge(Automerge.clone(branch1), branch2)
     const mergedOrder2 = Automerge.merge(Automerge.clone(branch2), branch1)
-    const d1 = revocationDigest(Automerge, mergedOrder1, { founderDeviceId: 'FOUNDER' })
-    const d2 = revocationDigest(Automerge, mergedOrder2, { founderDeviceId: 'FOUNDER' })
+    const d1 = revocationDigest(Automerge, mergedOrder1, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
+    const d2 = revocationDigest(Automerge, mergedOrder2, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(d1).toEqual(d2)
     expect(typeof d1).toBe('string')
     expect(d1.length).toBe(64) // sha256 hex
@@ -56,10 +58,10 @@ describe('revocationDigest', () => {
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'B', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'C', signer_device_id: 'FOUNDER' })
-    const before = revocationDigest(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    const before = revocationDigest(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'A' })
-    const after = revocationDigest(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    const after = revocationDigest(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(after).not.toEqual(before)
   })
 
@@ -67,10 +69,10 @@ describe('revocationDigest', () => {
     let doc = initDoc()
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'C', signer_device_id: 'FOUNDER' })
-    const before = revocationDigest(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    const before = revocationDigest(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'FOUNDER', signature: 'forged' })
     const isEntryTrusted = (entry) => entry.signature !== 'forged'
-    const after = revocationDigest(Automerge, doc, { founderDeviceId: 'FOUNDER', isEntryTrusted })
+    const after = revocationDigest(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER', isEntryTrusted })
     expect(after).toEqual(before) // untrusted revoke never moved the digest
   })
 })

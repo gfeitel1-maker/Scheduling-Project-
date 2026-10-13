@@ -16,6 +16,7 @@ import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { identify } from '@libp2p/identify'
 import * as Automerge from '@automerge/automerge'
+import { makeTestCamp } from '../../automerge/genesisTestKit.js'
 import { createMdnsDiscovery, campDiscoveryTag, belongsToCamp, rotatingServiceTag } from './discovery.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
 import { mintRendezvousNamespace } from './rendezvousNamespace.js'
@@ -158,6 +159,7 @@ describe('createMdnsDiscovery — camp scoping wiring', () => {
 // createMdnsDiscovery's existing serviceTag override (no campId passed alongside it).
 describe('rotatingServiceTag — pure, derives from the signed revocation digest', () => {
   const CAMP_ID = 'camp-1'
+  const camp = makeTestCamp(CAMP_ID)
 
   function mintedDoc() {
     const { doc } = mintRendezvousNamespace(createEmptyDoc(), CAMP_ID)
@@ -165,27 +167,28 @@ describe('rotatingServiceTag — pure, derives from the signed revocation digest
   }
 
   it('matches campDiscoveryTag\'s shape (prefix + 16 hex + suffix)', () => {
-    const tag = rotatingServiceTag(Automerge, mintedDoc(), CAMP_ID)
+    const tag = rotatingServiceTag(Automerge, mintedDoc(), CAMP_ID, { root: camp.root })
     expect(tag).toMatch(/^_shoresh-[0-9a-f]{16}\._udp\.local$/)
   })
 
   it('a revocation changes the tag used for mDNS advertisement', () => {
     let doc = mintedDoc()
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'g', field: 'kind', value: 'genesis' })
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'g', field: 'target_device_id', value: 'FOUNDER' })
+    for (const [field, value] of Object.entries(camp.genesisFields({ id: 'g', deviceId: 'FOUNDER', peerId: 'pF' }))) {
+      doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'g', field, value })
+    }
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'e1', field: 'kind', value: 'grant' })
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'e1', field: 'target_device_id', value: 'C' })
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'e1', field: 'signer_device_id', value: 'FOUNDER' })
-    const before = rotatingServiceTag(Automerge, doc, CAMP_ID)
+    const before = rotatingServiceTag(Automerge, doc, CAMP_ID, { root: camp.root })
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'e2', field: 'kind', value: 'revoke' })
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'e2', field: 'target_device_id', value: 'C' })
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'e2', field: 'signer_device_id', value: 'FOUNDER' })
-    const after = rotatingServiceTag(Automerge, doc, CAMP_ID)
+    const after = rotatingServiceTag(Automerge, doc, CAMP_ID, { root: camp.root })
     expect(after).not.toBe(before)
   })
 
   it('createMdnsDiscovery accepts the rotating tag via its existing serviceTag override (no campId passed alongside it)', () => {
-    const tag = rotatingServiceTag(Automerge, mintedDoc(), CAMP_ID)
+    const tag = rotatingServiceTag(Automerge, mintedDoc(), CAMP_ID, { root: camp.root })
     expect(() => createMdnsDiscovery({ serviceTag: tag })).not.toThrow()
   })
 })

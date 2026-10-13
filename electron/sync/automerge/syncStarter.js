@@ -36,6 +36,7 @@ import { createMdnsDiscovery, rotatingServiceTag } from './discovery.js'
 import { mintRendezvousNamespace } from './rendezvousNamespace.js'
 import { runRendezvousRotation } from './rendezvousRotation.js'
 import { createVerifiedEntryTrust } from '../../automerge/authorityReplay.js'
+import { readCampRoot } from '../../automerge/genesisSignature.js'
 import { readRendezvousConfig, createRendezvousDiscovery, createQueuedDemand } from './rendezvousClient.js'
 import { nextSequence } from './rendezvousSequence.js'
 // NAMING WARNING (gate-fix round 3, Code Reviewer MEDIUM): do not rename either import below to
@@ -65,9 +66,9 @@ import { sanitizeOpForIpc } from '../../main.js'
 // discovery tag network-wide). `createVerifiedEntryTrust` (authorityReplay.js) is the SAME
 // signature-gate projector.js's own SQLite projection already relies on — one verification, not a
 // second, looser one for discovery.
-export function computeRotatingServiceTag(doc, campId) {
-  const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc)
-  return rotatingServiceTag(Automerge, doc, campId, { isEntryTrusted })
+export function computeRotatingServiceTag(doc, campId, root) {
+  const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc, root)
+  return rotatingServiceTag(Automerge, doc, campId, { root, isEntryTrusted })
 }
 
 // Mints the discovery secret if needed (T335), then runs the digest-keyed rendezvous rotation
@@ -355,7 +356,7 @@ export function createAutomergeSyncStarter({
       // `minted: false` and `doc` is left untouched here.
       doc = prepareDocForSync(db, doc, { campId, deviceId })
       const rendezvousConfig = readRendezvousConfig(process.env)
-      const peerDiscovery = [createMdnsDiscovery({ serviceTag: computeRotatingServiceTag(doc, campId) })]
+      const peerDiscovery = [createMdnsDiscovery({ serviceTag: computeRotatingServiceTag(doc, campId, readCampRoot(db)) })]
       // S4c: with the punch ladder on, the rendezvous is rung 3 - demand-driven (it publishes and polls
       // only while the coordinator has a peer rungs 1-2 could not reach) and it signs this device's
       // public reflexive addresses into its record. With the flag off this is the T288 fixed-interval

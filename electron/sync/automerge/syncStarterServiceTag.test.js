@@ -17,6 +17,7 @@ import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { setUserDataDirGetter, resetForTests, getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from '../../automerge/authorityLog.js'
 import { applyWrite } from '../../automerge/campDocument.js'
+import { readCampRoot } from '../../automerge/genesisSignature.js'
 import { mintRendezvousNamespace, readRendezvousNamespace } from './rendezvousNamespace.js'
 import { computeRotatingServiceTag, prepareDocForSync } from './syncStarter.js'
 
@@ -63,9 +64,9 @@ function mintDhtSecret(db) {
 describe('computeRotatingServiceTag — the production wiring, with the real verified-entry gate', () => {
   it('a bare, unsigned revoke entry injected directly into the document does NOT move the production tag', async () => {
     const { peerId: founderPeerId } = await ensureDeviceIdentity(db)
-    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId })
+    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId, campId: CAMP_ID })
     let doc = mintDhtSecret(db)
-    const before = computeRotatingServiceTag(doc, CAMP_ID)
+    const before = computeRotatingServiceTag(doc, CAMP_ID, readCampRoot(db))
 
     // Attacker-controlled synced peer injects a bare, unsigned revoke directly into the document
     // fields — never through authorityLog.js's signing path. This is exactly what a malicious
@@ -76,23 +77,23 @@ describe('computeRotatingServiceTag — the production wiring, with the real ver
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'forged-1', field: 'kind', value: 'revoke' })
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'forged-1', field: 'target_device_id', value: 'signer-1' })
     doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'forged-1', field: 'signer_device_id', value: 'founder-1' })
-    const after = computeRotatingServiceTag(doc, CAMP_ID)
+    const after = computeRotatingServiceTag(doc, CAMP_ID, readCampRoot(db))
 
     expect(after).toBe(before) // the forged, unsigned revoke never moved the production tag
   })
 
   it('a genuinely signed revoke (quorum-reaching) DOES move the production tag', async () => {
     const { peerId: founderPeerId } = await ensureDeviceIdentity(db)
-    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId })
+    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId, campId: CAMP_ID })
     mintGrantEntry(db, { targetDeviceId: 'signer-1', targetPeerId: 'peer-signer-1', signerDeviceId: 'founder-1' })
     let doc = mintDhtSecret(db)
-    const before = computeRotatingServiceTag(doc, CAMP_ID)
+    const before = computeRotatingServiceTag(doc, CAMP_ID, readCampRoot(db))
 
     // N=2 (founder-1, signer-1): quorumThreshold(2) = 1, so the founder's lone signed revoke
     // completes the removal.
     mintRevokeEntry(db, { targetDeviceId: 'signer-1', signerDeviceId: 'founder-1' })
     doc = getCurrentDoc(db)
-    const after = computeRotatingServiceTag(doc, CAMP_ID)
+    const after = computeRotatingServiceTag(doc, CAMP_ID, readCampRoot(db))
 
     expect(after).not.toBe(before)
   })
@@ -101,7 +102,7 @@ describe('computeRotatingServiceTag — the production wiring, with the real ver
 describe('prepareDocForSync — WAN-ladder F1 round 2: a revoke the device missed is rotated on doc load', () => {
   it('a revoke already in the persisted doc, never rotated for, is rotated when the elected device loads it', async () => {
     const { peerId: founderPeerId } = await ensureDeviceIdentity(db)
-    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId })
+    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId, campId: CAMP_ID })
     mintGrantEntry(db, { targetDeviceId: 'signer-1', targetPeerId: 'peer-signer-1', signerDeviceId: 'founder-1' })
     mintDhtSecret(db)
     mintRevokeEntry(db, { targetDeviceId: 'signer-1', signerDeviceId: 'founder-1' })

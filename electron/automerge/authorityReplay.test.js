@@ -13,6 +13,9 @@ import { describe, expect, it } from 'vitest'
 import { createEmptyDoc, applyWrite } from './campDocument.js'
 import { createAuthorityReplayContext, currentAuthorityState, currentRevokedDeviceIds, quorumThreshold } from './authorityReplay.js'
 
+// These tests exercise the causal/quorum math with an explicit founder; the root is required but unused then.
+const TEST_ROOT = { campId: 'camp-test', publicKey: null }
+
 let nextId = 0
 function uid() {
   return `e${nextId++}`
@@ -49,12 +52,12 @@ describe('battle test 1 — quorum reached removes; one short does not', () => {
     // admins now: FOUNDER, A, B, C (N=4). Target C; others FOUNDER, A, B.
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'FOUNDER' })
     {
-      const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+      const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
       expect(ctx.currentState().grantedSet.has('C')).toBe(true) // 1 vote, threshold 2 — not yet
     }
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'A' })
     {
-      const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+      const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
       expect(ctx.currentState().grantedSet.has('C')).toBe(false) // 2 of 3 — reached
     }
   })
@@ -73,12 +76,12 @@ describe('battle test 2 — a removed admin\'s new revoke is dropped, not applie
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'S', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'S', signer_device_id: 'T' })
     {
-      const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+      const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
       expect(ctx.currentState().grantedSet.has('S')).toBe(false) // S is now removed
     }
     // S (still holding its own key) now signs a revoke of D4, citing the state it had before.
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'D4', signer_device_id: 'S' })
-    const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(ctx.currentState().grantedSet.has('D4')).toBe(true) // S's revoke never counted
     expect(ctx.currentState().grantedSet.has('S')).toBe(false)
   })
@@ -103,8 +106,8 @@ describe('battle test 3 — concurrent mutual revocation converges symmetrically
     // completes by itself; the point of this test is CONVERGENCE (identical result regardless of
     // merge order), asserted below.
     // Convergence: both merge orders produce byte-identical derived state.
-    const s1 = createAuthorityReplayContext(Automerge, mergedOrder1, { founderDeviceId: 'FOUNDER' }).currentState()
-    const s2 = createAuthorityReplayContext(Automerge, mergedOrder2, { founderDeviceId: 'FOUNDER' }).currentState()
+    const s1 = createAuthorityReplayContext(Automerge, mergedOrder1, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' }).currentState()
+    const s2 = createAuthorityReplayContext(Automerge, mergedOrder2, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' }).currentState()
     expect([...s1.grantedSet].sort()).toEqual([...s2.grantedSet].sort())
   })
 
@@ -131,7 +134,7 @@ describe('battle test 3 — concurrent mutual revocation converges symmetrically
     const mergeOrder2 = Automerge.merge(Automerge.clone(branchAF), branchFA)
 
     for (const merged of [mergeOrder1, mergeOrder2]) {
-      const state = createAuthorityReplayContext(Automerge, merged, { founderDeviceId: 'FOUNDER' }).currentState()
+      const state = createAuthorityReplayContext(Automerge, merged, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' }).currentState()
       expect(state.grantedSet.has('FOUNDER')).toBe(false)
       expect(state.grantedSet.has('A')).toBe(false)
     }
@@ -157,7 +160,7 @@ describe('battle test 3 — concurrent mutual revocation converges symmetrically
     const mergedOrder1 = Automerge.merge(Automerge.clone(branch1), branch2)
     const mergedOrder2 = Automerge.merge(Automerge.clone(branch2), branch1)
     for (const merged of [mergedOrder1, mergedOrder2]) {
-      const ctx = createAuthorityReplayContext(Automerge, merged, { founderDeviceId: 'FOUNDER' })
+      const ctx = createAuthorityReplayContext(Automerge, merged, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
       const state = ctx.currentState()
       expect(state.grantedSet.has('A')).toBe(false)
       expect(state.grantedSet.has('B')).toBe(false)
@@ -174,7 +177,7 @@ describe('battle test 5 — the founder is removable by a quorum', () => {
     // N=3 (FOUNDER, A, B); target FOUNDER; others A, B; threshold 2.
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'FOUNDER', signer_device_id: 'A' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'FOUNDER', signer_device_id: 'B' })
-    const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(ctx.currentState().grantedSet.has('FOUNDER')).toBe(false)
   })
 })
@@ -184,7 +187,7 @@ describe('battle test 7 (N=2/N=3 degradation)', () => {
     let doc = initDoc()
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'A', signer_device_id: 'FOUNDER' })
-    const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(ctx.currentState().grantedSet.has('A')).toBe(false)
   })
 
@@ -194,11 +197,11 @@ describe('battle test 7 (N=2/N=3 degradation)', () => {
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'B', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'A', signer_device_id: 'FOUNDER' })
     {
-      const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+      const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
       expect(ctx.currentState().grantedSet.has('A')).toBe(true) // 1 of 2 — not enough
     }
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'A', signer_device_id: 'B' })
-    const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(ctx.currentState().grantedSet.has('A')).toBe(false) // both — now removed
   })
 
@@ -212,7 +215,7 @@ describe('battle test 7 (N=2/N=3 degradation)', () => {
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'A' })
     // B never signs at all — removal still completes with FOUNDER + A (2 of 3).
-    const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(ctx.currentState().grantedSet.has('C')).toBe(false)
   })
 })
@@ -222,7 +225,7 @@ describe('battle test — an ordinary (non-admin) device is removed by any one a
     let doc = initDoc()
     // 'device-1' never received a grant — it's an ordinary device, not in the admin set at all.
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'device-1', signer_device_id: 'FOUNDER' })
-    const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     // Removing an already-absent admin is a no-op on the admin set itself (nothing to remove),
     // but the entry must not spuriously grant admin or otherwise corrupt state.
     expect(ctx.currentState().grantedSet.has('device-1')).toBe(false)
@@ -240,7 +243,7 @@ describe('battle test 12 — a shrinking admin denominator never blocks an in-pr
     // N=5 (FOUNDER, TARGET, X1, X2, X3); threshold for TARGET = floor(4/2)+1 = 3.
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'TARGET', signer_device_id: 'FOUNDER' })
     {
-      const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+      const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
       expect(ctx.currentState().grantedSet.has('TARGET')).toBe(true) // 1 of 3 needed — not enough
     }
     // X3 (a non-voting, non-target admin) is itself removed. At this point TARGET is still
@@ -249,13 +252,13 @@ describe('battle test 12 — a shrinking admin denominator never blocks an in-pr
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'X3', signer_device_id: 'X1' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'X3', signer_device_id: 'TARGET' })
     {
-      const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+      const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
       expect(ctx.currentState().grantedSet.has('X3')).toBe(false)
       expect(ctx.currentState().grantedSet.has('TARGET')).toBe(true) // still only 1 vote on TARGET
     }
     // The ALREADY-CAST vote (FOUNDER, above) plus one more (X2) now meets the lowered threshold.
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'TARGET', signer_device_id: 'X2' })
-    const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(ctx.currentState().grantedSet.has('TARGET')).toBe(false)
   })
 })
@@ -266,7 +269,7 @@ describe('isEntryTrusted — authenticity filter', () => {
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'FORGED', signer_device_id: 'FOUNDER' })
     const isEntryTrusted = (entry) => entry.target_device_id !== 'FORGED'
-    const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER', isEntryTrusted })
+    const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER', isEntryTrusted })
     expect(ctx.currentState().grantedSet.has('A')).toBe(true)
     expect(ctx.currentState().grantedSet.has('FORGED')).toBe(false)
   })
@@ -274,7 +277,7 @@ describe('isEntryTrusted — authenticity filter', () => {
   it('defaults to always-true when omitted (no behavior change for existing callers)', () => {
     let doc = initDoc()
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
-    const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    const ctx = createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(ctx.currentState().grantedSet.has('A')).toBe(true)
   })
 })
@@ -283,7 +286,7 @@ describe('currentAuthorityState', () => {
   it('exposes admins and votes', () => {
     let doc = initDoc()
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
-    const { admins } = currentAuthorityState(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    const { admins } = currentAuthorityState(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(admins.has('A')).toBe(true)
     expect(admins.has('FOUNDER')).toBe(true)
   })
@@ -314,8 +317,8 @@ describe('round-4 correction — same-signer, same-target entries across concurr
     const mergeOrder1 = Automerge.merge(Automerge.clone(branchVote), branchCycle)
     const mergeOrder2 = Automerge.merge(Automerge.clone(branchCycle), branchVote)
 
-    const state1 = createAuthorityReplayContext(Automerge, mergeOrder1, { founderDeviceId: 'FOUNDER' }).currentState()
-    const state2 = createAuthorityReplayContext(Automerge, mergeOrder2, { founderDeviceId: 'FOUNDER' }).currentState()
+    const state1 = createAuthorityReplayContext(Automerge, mergeOrder1, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' }).currentState()
+    const state2 = createAuthorityReplayContext(Automerge, mergeOrder2, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' }).currentState()
 
     // Code Reviewer MEDIUM (round-5 correction): equality-across-orders alone would also pass a
     // regression that converges to the WRONG answer consistently. Pin the INDEPENDENTLY-derived
@@ -346,9 +349,9 @@ describe('round-4 correction — same-signer, same-target entries across concurr
     const orderB = Automerge.merge(Automerge.merge(Automerge.clone(b3), b1), b2)
     const orderC = Automerge.merge(Automerge.merge(Automerge.clone(b2), b3), b1)
 
-    const stateA = createAuthorityReplayContext(Automerge, orderA, { founderDeviceId: 'FOUNDER' }).currentState()
-    const stateB = createAuthorityReplayContext(Automerge, orderB, { founderDeviceId: 'FOUNDER' }).currentState()
-    const stateC = createAuthorityReplayContext(Automerge, orderC, { founderDeviceId: 'FOUNDER' }).currentState()
+    const stateA = createAuthorityReplayContext(Automerge, orderA, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' }).currentState()
+    const stateB = createAuthorityReplayContext(Automerge, orderB, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' }).currentState()
+    const stateC = createAuthorityReplayContext(Automerge, orderC, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' }).currentState()
 
     // Code Reviewer MEDIUM (round-5 correction): pin the independently-derived correct answer,
     // not just cross-order agreement. N=2 (FOUNDER, X), quorumThreshold(2) = 1. b1 and b3 are each
@@ -426,7 +429,7 @@ describe('round-4 CRITICAL — property-based convergence over random concurrent
   }
 
   function finalAdmins(doc) {
-    return [...createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' }).currentState().grantedSet].sort()
+    return [...createAuthorityReplayContext(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' }).currentState().grantedSet].sort()
   }
 
   // Merges a list of branches in the given permutation of indices, pairwise, left to right.
@@ -466,7 +469,7 @@ describe('round-4 CRITICAL — property-based convergence over random concurrent
     const branch2 = pushEntry(Automerge.clone(base), { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
     const branches = [branch0, branch1, branch2]
     for (const order of permutations(3)) {
-      const state = createAuthorityReplayContext(Automerge, mergeInOrder(branches, order), { founderDeviceId: 'FOUNDER' }).currentState()
+      const state = createAuthorityReplayContext(Automerge, mergeInOrder(branches, order), { root: TEST_ROOT, founderDeviceId: 'FOUNDER' }).currentState()
       expect(state.grantedSet.has('A'), `order ${JSON.stringify(order)}`).toBe(false)
       expect(state.grantedSet.has('B'), `order ${JSON.stringify(order)}`).toBe(true)
       expect(state.grantedSet.has('FOUNDER'), `order ${JSON.stringify(order)}`).toBe(true)
@@ -484,7 +487,7 @@ describe('round-4 CRITICAL — property-based convergence over random concurrent
     const branch1 = pushEntry(Automerge.clone(base), { kind: 'grant', target_device_id: 'B', signer_device_id: 'FOUNDER' })
     const branches = [branch0, branch1]
     for (const order of permutations(2)) {
-      const state = createAuthorityReplayContext(Automerge, mergeInOrder(branches, order), { founderDeviceId: 'FOUNDER' }).currentState()
+      const state = createAuthorityReplayContext(Automerge, mergeInOrder(branches, order), { root: TEST_ROOT, founderDeviceId: 'FOUNDER' }).currentState()
       expect(state.grantedSet.has('A'), `order ${JSON.stringify(order)}`).toBe(true)
     }
   })
@@ -525,7 +528,7 @@ describe('currentRevokedDeviceIds', () => {
   it('is empty before any revocation', () => {
     let doc = initDoc()
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
-    expect(currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'FOUNDER' })).toEqual([])
+    expect(currentRevokedDeviceIds(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })).toEqual([])
   })
 
   it('includes a device once its revocation reaches quorum, sorted', () => {
@@ -536,7 +539,7 @@ describe('currentRevokedDeviceIds', () => {
     // N=4 (FOUNDER, A, B, C); threshold for an admin target = 2.
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'A' })
-    expect(currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'FOUNDER' })).toEqual(['C'])
+    expect(currentRevokedDeviceIds(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })).toEqual(['C'])
   })
 
   it('is identical across two different merge orders of the same change set (determinism)', () => {
@@ -552,8 +555,8 @@ describe('currentRevokedDeviceIds', () => {
 
     const mergedOrder1 = Automerge.merge(Automerge.clone(branch1), branch2)
     const mergedOrder2 = Automerge.merge(Automerge.clone(branch2), branch1)
-    const ids1 = currentRevokedDeviceIds(Automerge, mergedOrder1, { founderDeviceId: 'FOUNDER' })
-    const ids2 = currentRevokedDeviceIds(Automerge, mergedOrder2, { founderDeviceId: 'FOUNDER' })
+    const ids1 = currentRevokedDeviceIds(Automerge, mergedOrder1, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
+    const ids2 = currentRevokedDeviceIds(Automerge, mergedOrder2, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(ids1).toEqual(ids2)
   })
 
@@ -567,8 +570,8 @@ describe('currentRevokedDeviceIds', () => {
     // Trusted devices keep going: C is revoked, quorum-reached.
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'A' })
-    const trusted = currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'FOUNDER' })
-    const frozen = currentRevokedDeviceIds(Automerge, frozenAtD, { founderDeviceId: 'FOUNDER' })
+    const trusted = currentRevokedDeviceIds(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
+    const frozen = currentRevokedDeviceIds(Automerge, frozenAtD, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })
     expect(trusted).toEqual(['C'])
     expect(frozen).toEqual([]) // D never saw the revocation of C
     expect(frozen).not.toEqual(trusted)
@@ -585,7 +588,7 @@ describe('currentRevokedDeviceIds', () => {
     // verification) — only the FOUNDER's revoke (no signature marker needed, trusted) counts, so
     // C stays below quorum (1 of 2 required) and is NOT revoked.
     const isEntryTrusted = (entry) => entry.signature !== 'forged'
-    const ids = currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'FOUNDER', isEntryTrusted })
+    const ids = currentRevokedDeviceIds(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER', isEntryTrusted })
     expect(ids).toEqual([])
   })
 })
@@ -597,7 +600,7 @@ describe('currentRevokedDeviceIds: a revoke counts only if its signer was an adm
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'D', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'H', signer_device_id: 'D' })
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'X', signer_device_id: 'D' })
-    expect(currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'FOUNDER' })).toEqual(['D'])
+    expect(currentRevokedDeviceIds(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })).toEqual(['D'])
   })
 
   it('the same revoke by an admin who was still an admin at that position counts', () => {
@@ -605,6 +608,6 @@ describe('currentRevokedDeviceIds: a revoke counts only if its signer was an adm
     doc = pushEntry(doc, { kind: 'grant', target_device_id: 'D', signer_device_id: 'FOUNDER' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'H', signer_device_id: 'D' })
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'D', signer_device_id: 'FOUNDER' })
-    expect(currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'FOUNDER' })).toEqual(['D', 'H'])
+    expect(currentRevokedDeviceIds(Automerge, doc, { root: TEST_ROOT, founderDeviceId: 'FOUNDER' })).toEqual(['D', 'H'])
   })
 })

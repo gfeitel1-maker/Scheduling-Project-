@@ -22,13 +22,16 @@ const { mintRendezvousNamespace } = await import('./rendezvousNamespace.js')
 const { mintRendezvousAddressKey } = await import('./rendezvousAddressKey.js')
 const { checkRendezvousRotation } = await import('./rendezvousRotation.js')
 
+const { makeTestCamp } = await import('../../automerge/genesisTestKit.js')
+
 const CAMP = 'camp-1'
+const testCamp = makeTestCamp(CAMP)
 let db, file, peerId
 
 beforeEach(async () => {
   file = path.join(os.tmpdir(), `rzv-cost-${Date.now()}-${Math.random()}.sqlite`)
   db = openLocalDb(file)
-  db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(CAMP, 'Camp')
+  db.prepare('INSERT INTO camps (id, name, signing_public_key) VALUES (?, ?, ?)').run(CAMP, 'Camp', testCamp.publicKey)
   ;({ peerId } = await ensureDeviceIdentity(db))
 })
 afterEach(() => {
@@ -36,8 +39,8 @@ afterEach(() => {
   for (const s of ['', '-wal', '-shm']) if (fs.existsSync(file + s)) fs.unlinkSync(file + s)
 })
 
-function entry(doc, fields, signed = true) {
-  const id = `entry-${Math.random()}`
+function entry(doc, fields, signed = true, fixedId) {
+  const id = fixedId ?? `entry-${Math.random()}`
   for (const [field, value] of Object.entries(fields)) doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field, value })
   if (signed) {
     const signature = signAuthorityEntry(db, { id, kind: fields.kind, target_device_id: fields.target_device_id, signer_device_id: fields.signer_device_id })
@@ -49,7 +52,7 @@ function entry(doc, fields, signed = true) {
 describe('rotation check cost on an import-sized camp', () => {
   it('applies only authority changes, however long the rest of the history is', () => {
     let doc = createEmptyDoc()
-    doc = entry(doc, { kind: 'genesis', target_device_id: 'dev-f', target_peer_id: peerId.toString() }, false)
+    doc = entry(doc, testCamp.genesisFields({ id: 'genesis-1', deviceId: 'dev-f', peerId: peerId.toString() }), false, 'genesis-1')
     for (let i = 0; i < 3000; i++) {
       doc = applyWrites(doc, [{ entity: 'activities', entity_id: `act-${i % 300}`, field: 'name', value: `n${i}` }])
       if (i === 1000) doc = entry(doc, { kind: 'grant', target_device_id: 'dev-a', target_peer_id: peerId.toString(), signer_device_id: 'dev-f' })
@@ -59,7 +62,7 @@ describe('rotation check cost on an import-sized camp', () => {
     doc = mintRendezvousAddressKey(doc, CAMP).doc
 
     calls.applyChanges = 0
-    const result = checkRendezvousRotation(doc, { campId: CAMP, deviceId: 'dev-f' })
+    const result = checkRendezvousRotation(doc, { root: testCamp.root, campId: CAMP, deviceId: 'dev-f' })
     expect(result.reason).toBe('rotated')
     // The history is read through views at prefix heads, never replayed into a scratch document.
     expect(calls.applyChanges).toBe(0)

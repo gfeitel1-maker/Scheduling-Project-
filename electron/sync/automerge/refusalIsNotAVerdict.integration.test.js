@@ -22,6 +22,7 @@ import { setupTwoJoinedDevices, AmHost, makeTmpDir, cleanupDirs, waitFor, config
 import { startSyncNode } from './syncNode.js'
 import { applyWrite, applyWrites } from '../../automerge/campDocument.js'
 import { mintRevokeEntry } from '../../automerge/authorityLog.js'
+import { hostGenesisSignature } from '../../automerge/genesisTestKit.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { isRemovedFromCamp } from './selfRemoval.js'
@@ -62,7 +63,8 @@ async function writeAuthorityEntry(host, id, fields) {
 }
 async function genesisOnEveryone(rig) {
   const { host, clientA } = rig
-  await writeAuthorityEntry(host, randomUUID(), { kind: 'genesis', target_device_id: host.deviceId, target_peer_id: host.node.peerId })
+  const genesisId = randomUUID()
+  await writeAuthorityEntry(host, genesisId, { kind: 'genesis', target_device_id: host.deviceId, target_peer_id: host.node.peerId, signature: hostGenesisSignature(host.db, { id: genesisId, target_device_id: host.deviceId, target_peer_id: host.node.peerId }) })
   await waitFor(() => clientA.db.prepare('SELECT 1 FROM applied_authority_log').get() || clientA.db.prepare("SELECT 1 FROM roster_cache").get(), 3000).catch(() => {})
   await waitFor(() => Object.keys(clientA.node.getDoc().camp_authority_log ?? {}).length > 0, 8000)
 }

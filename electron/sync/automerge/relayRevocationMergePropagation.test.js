@@ -19,6 +19,7 @@
 // Reuses the real-signed-entry fixture shape already established by syncNode.test.js's "T331 gate
 // C" test (signAuthorityEntry + applyWrite-per-field, genesis/grant/revoke) rather than hand-
 // rolling a second way to produce a real merged revoke.
+import { hostGenesisSignature } from '../../automerge/genesisTestKit.js'
 import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -67,7 +68,9 @@ function freshDb(tag) {
 
 // Every node's db gets the camp's signing public key and a devices row for each device; admission itself reads the
 // roster (T376), which each test rosters once the nodes (and so their peer ids) exist.
+let hostKeyDb
 function setupAuthority(dbs, deviceIds) {
+  hostKeyDb = dbs[0]
   const hostKey = ensureHostSigningKey(dbs[0])
   for (const db of dbs) {
     db.prepare('UPDATE camps SET signing_public_key = ?').run(hostKey.public_key)
@@ -96,6 +99,7 @@ async function waitFor(predicate, { timeout = 25000, interval = 50 } = {}) {
 // syncNode.test.js's "T331 gate C" test already uses, reused here rather than invented fresh.
 function mintEntry(db, doc, fields, signed) {
   const id = `entry-${Math.random()}`
+  if (fields.kind === 'genesis') fields = { ...fields, signature: hostGenesisSignature(hostKeyDb, { id, target_device_id: fields.target_device_id, target_peer_id: fields.target_peer_id }) }
   let d = doc
   for (const [field, value] of Object.entries(fields)) {
     d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })

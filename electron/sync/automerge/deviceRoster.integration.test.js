@@ -8,6 +8,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { setupThreeJoinedDevices, AmClient, cleanupDirs, waitFor } from '../../../test/integration/harnessAutomerge.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { applyWrite, readRecord } from '../../automerge/campDocument.js'
+import { hostGenesisSignature } from '../../automerge/genesisTestKit.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 import { signRosterEntry } from '../../automerge/deviceRosterSignature.js'
 import { buildRosterWrites } from '../../automerge/deviceRoster.js'
@@ -53,7 +54,9 @@ async function writeEntries(device, entries) {
 }
 
 function authorityEntry(signerDb, id, fields) {
-  const signature = fields.kind === 'genesis' ? null : signAuthorityEntry(signerDb, { id, kind: fields.kind, target_device_id: fields.target_device_id, signer_device_id: fields.signer_device_id })
+  const signature = fields.kind === 'genesis'
+    ? hostGenesisSignature(signerDb, { id, target_device_id: fields.target_device_id, target_peer_id: fields.target_peer_id })
+    : signAuthorityEntry(signerDb, { id, kind: fields.kind, target_device_id: fields.target_device_id, signer_device_id: fields.signer_device_id })
   return Object.entries({ ...fields, ...(signature ? { signature } : {}) }).map(([field, value]) => ({ entity: 'camp_authority_log', entity_id: id, field, value }))
 }
 

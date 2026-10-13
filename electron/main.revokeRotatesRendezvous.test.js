@@ -56,7 +56,7 @@ async function seedFounderCamp() {
   db.prepare('UPDATE devices SET authorized_by_user_id = ? WHERE id = ?').run(founder.id, founderDeviceId)
   const { peerId: founderPeerId } = await ensureDeviceIdentity(db)
 
-  mintGenesisEntry(db, { founderDeviceId, founderPeerId })
+  mintGenesisEntry(db, { founderDeviceId, founderPeerId, campId })
   projectAuthority()
   return { campId, founder }
 }

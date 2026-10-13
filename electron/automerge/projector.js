@@ -32,6 +32,7 @@ import { verifyAuthFields } from '../auth/authSignature.js'
 import { verifyTombstone } from './tombstoneSignature.js'
 import { verifyRosterEntry } from './deviceRosterSignature.js'
 import * as Automerge from '@automerge/automerge'
+import { readCampRoot } from './genesisSignature.js'
 import { createAuthorityReplayContext, createVerifiedEntryTrust, currentRevokedDeviceIds, isCompleteEntry, AUTHORITY_LOG_ENTITY } from './authorityReplay.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { answerPayloadTombstoned, sweepTombstonedAnswerRecords } from '../ops/answerMemory.js'
@@ -404,9 +405,10 @@ function upsertTombstonesEntity(db, doc) {
 // from (see that function's own comment for the merge-order-independent peer-id resolution this
 // also absorbed).
 function upsertCampAuthorityLogEntity(db, doc) {
-  const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc)
+  const root = readCampRoot(db)
+  const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc, root)
 
-  const ctx = createAuthorityReplayContext(Automerge, doc, { isEntryTrusted })
+  const ctx = createAuthorityReplayContext(Automerge, doc, { root, isEntryTrusted })
   const { grantedSet } = ctx.currentState()
 
   const now = new Date().toISOString()
@@ -418,15 +420,21 @@ function upsertCampAuthorityLogEntity(db, doc) {
   // A target gets a status only from an entry that is signed AND whose signer was an admin at the entry's causal position
   // (currentRevokedDeviceIds' rule, shared with the refusal-evidence gate). An unsigned or non-admin entry naming a device must
   // write nothing for it: authority_cache 'revoked' is what lets a bare peer refusal mark this device removed.
-  const everyTargetDeviceId = new Set([...grantedSet, ...currentRevokedDeviceIds(Automerge, doc, { isEntryTrusted })])
+  const everyTargetDeviceId = new Set([...grantedSet, ...currentRevokedDeviceIds(Automerge, doc, { root, isEntryTrusted })])
   for (const id of listRecordIds(doc, AUTHORITY_LOG_ENTITY)) {
     const row = readRecord(doc, AUTHORITY_LOG_ENTITY, id)
     if (!isCompleteEntry(row)) continue
     const entry = { id, ...row }
-    const untrusted = entry.kind === 'genesis' ? entry.target_device_id !== ctx.founderDeviceId : !isEntryTrusted(entry)
-    if (untrusted) {
+    // Only a camp-signed genesis, and only a grant/revoke that is signed AND whose signer was an admin at the entry's own
+    // causal position (the same test currentRevokedDeviceIds applies), is recorded as applied.
+    const gate = entry.kind === 'genesis'
+      ? (id === ctx.founderGenesisId ? null : 'genesis-not-camp-signed')
+      : !isEntryTrusted(entry) ? 'signature-not-trusted'
+      : !ctx.isValidAdminAt(entry.signer_device_id, ctx.entryChangeHash.get(id)) ? 'signer-not-admin-at-entry'
+      : null
+    if (gate) {
       const safe = (v, n) => String(v).replace(/[^\w.:-]/g, '?').slice(0, n)
-      console.error(`projector: authority entry ${safe(id, 40)} (${safe(entry.kind, 20)}) ignored: ${entry.kind === 'genesis' ? 'not-the-founder-genesis' : 'signature-not-trusted'}`)
+      console.error(`projector: authority entry ${safe(id, 40)} (${safe(entry.kind, 20)}) ignored: ${gate}`)
       continue
     }
     insertLog.run(id, entry.kind, entry.target_device_id ?? null, entry.signer_device_id ?? null, now)

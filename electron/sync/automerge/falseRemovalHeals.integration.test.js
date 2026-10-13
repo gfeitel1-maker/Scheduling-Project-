@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { setupTwoJoinedDevices, waitFor } from '../../../test/integration/harnessAutomerge.js'
 import { startSyncNode } from './syncNode.js'
 import { applyWrite, readRecord } from '../../automerge/campDocument.js'
+import { hostGenesisSignature } from '../../automerge/genesisTestKit.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { isRemovedFromCamp } from './selfRemoval.js'
@@ -47,7 +48,7 @@ async function rigWithClientAMarkedRemoved() {
   rigs.push(rig)
   const { host, clientA } = rig
   const genesisId = randomUUID()
-  await writeEntry(host, genesisId, { kind: 'genesis', target_device_id: host.deviceId, target_peer_id: host.node.peerId })
+  await writeEntry(host, genesisId, { kind: 'genesis', target_device_id: host.deviceId, target_peer_id: host.node.peerId, signature: hostGenesisSignature(host.db, { id: genesisId, target_device_id: host.deviceId, target_peer_id: host.node.peerId }) })
   await waitFor(() => Object.keys(clientA.node.getDoc().camp_authority_log ?? {}).length > 0, 8000)
   host.node.revokePeer(clientA.node.peerId)
   const revoke = signed('revoke', host.db, host.deviceId, clientA.deviceId)

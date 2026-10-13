@@ -13,6 +13,7 @@ vi.mock('@automerge/automerge', async (importOriginal) => {
 
 const Automerge = await import('@automerge/automerge')
 const { createEmptyDoc, applyWrite, listRecordIds, readRecord } = await import('./campDocument.js')
+const { makeTestCamp } = await import('./genesisTestKit.js')
 const { createAuthorityReplayContext, createVerifiedEntryTrust, currentRevokedDeviceIds, entryChangeHashIndex, AUTHORITY_LOG_ENTITY, isCompleteEntry } = await import('./authorityReplay.js')
 
 function counting() {
@@ -25,9 +26,15 @@ function counting() {
   return { am, calls }
 }
 
+const camp = makeTestCamp('camp-cost')
+const root = camp.root
+function genesis(doc, id = 'g-founder') {
+  return entry(doc, camp.genesisFields({ id, deviceId: 'FOUNDER', peerId: 'pF' }), id)
+}
+
 let n = 0
-function entry(doc, fields) {
-  const id = `auth${n++}`
+function entry(doc, fields, fixedId) {
+  const id = fixedId ?? `auth${n++}`
   for (const [field, value] of Object.entries(fields)) doc = applyWrite(doc, { entity: AUTHORITY_LOG_ENTITY, entity_id: id, field, value })
   return doc
 }
@@ -36,7 +43,7 @@ function entry(doc, fields) {
 // spread through them (including a re-grant, which makes resolveAuthorityPeerIds compare).
 function importSizedDoc(noise = 3000) {
   let doc = createEmptyDoc()
-  doc = entry(doc, { kind: 'genesis', target_device_id: 'FOUNDER', target_peer_id: 'pF' })
+  doc = genesis(doc)
   for (let i = 0; i < noise; i++) {
     doc = applyWrite(doc, { entity: 'activities', entity_id: `c${i % 400}`, field: 'name', value: `v${i}` })
     if (i === noise / 3) doc = entry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER', target_peer_id: 'pA' })
@@ -65,9 +72,9 @@ describe('authority replay cost on an import-sized document', () => {
 
   it('a full rotation-style check never replays, decodes or re-reads the history', () => {
     const { am, calls } = counting()
-    const isEntryTrusted = createVerifiedEntryTrust(am, doc)
-    currentRevokedDeviceIds(am, doc, { isEntryTrusted })
-    createAuthorityReplayContext(am, doc, { isEntryTrusted: createVerifiedEntryTrust(am, doc) }).currentState()
+    const isEntryTrusted = createVerifiedEntryTrust(am, doc, root)
+    currentRevokedDeviceIds(am, doc, { root, isEntryTrusted })
+    createAuthorityReplayContext(am, doc, { root, isEntryTrusted: createVerifiedEntryTrust(am, doc, root) }).currentState()
     expect(calls.applyChanges).toBe(0)
     expect(calls.getAllChanges).toBe(0)
   })
@@ -90,7 +97,7 @@ describe('authority replay cost on an import-sized document', () => {
 
   it('an import-sized change is never decoded, and the index still matches', () => {
     let doc = createEmptyDoc()
-    doc = entry(doc, { kind: 'genesis', target_device_id: 'FOUNDER', target_peer_id: 'pF' })
+    doc = genesis(doc)
     doc = applyWrite(doc, { entity: 'activities', entity_id: 'big', field: 'name', value: 'x'.repeat(200_000) })
     doc = entry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER', target_peer_id: 'pA' })
     const oracle = perChangeIndex(doc)

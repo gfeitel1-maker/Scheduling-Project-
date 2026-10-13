@@ -8,6 +8,7 @@ import { ensureDeviceIdentity } from '../auth/deviceIdentity.js'
 import { setUserDataDirGetter, resetForTests, getCurrentDoc } from '../sync/automerge/liveDoc.js'
 import { readRecord, listRecordIds } from './campDocument.js'
 import { verifyAuthorityEntry } from './authorityLogSignature.js'
+import { verifyGenesisEntry } from './genesisSignature.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './authorityLog.js'
 
 let db
@@ -39,14 +40,14 @@ afterEach(() => {
 })
 
 describe('mintGenesisEntry', () => {
-  it('writes an unsigned genesis entry naming the founder device and peer id', () => {
-    const entryId = mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId: 'peer-founder' })
+  it('writes a camp-signed genesis entry naming the founder device and peer id', () => {
+    const entryId = mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId: 'peer-founder', campId: 'camp-1' })
     const doc = getCurrentDoc(db)
     const row = readRecord(doc, 'camp_authority_log', entryId)
     expect(row.kind).toBe('genesis')
     expect(row.target_device_id).toBe('founder-1')
     expect(row.target_peer_id).toBe('peer-founder')
-    expect(row.signature).toBeUndefined()
+    expect(verifyGenesisEntry(db.prepare('SELECT signing_public_key FROM camps').get().signing_public_key, { id: entryId, camp_id: 'camp-1', target_device_id: 'founder-1', target_peer_id: 'peer-founder' }, row.signature)).toBe(true)
   })
 })
 

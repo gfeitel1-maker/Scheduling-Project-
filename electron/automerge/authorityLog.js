@@ -6,24 +6,27 @@
 // device_identity_key, and appends each field as its own op, mirroring how any other multi-field
 // row gets written one field at a time (e.g. ScheduleScreen's writeFields()).
 //
-// Only two writer-chosen `kind`s exist: 'genesis' (axiomatic, unsigned, written once at camp
+// Only two writer-chosen `kind`s exist: 'genesis' (signed by the camp key, written once at camp
 // bootstrap) and the signed pair 'grant'/'revoke'. There is no writer-chosen 'revoke-vote' — see
 // campDocument.js's EXTRA_MODELED_ENTITIES comment for why that collapse is faithful to the ADR
 // (the replay, not the writer, decides whether a 'revoke' is an immediate removal or a vote).
 import { randomUUID } from 'node:crypto'
 import { appendOp } from '../ops/operations.js'
 import { signAuthorityEntry } from './authorityLogSignature.js'
+import { signGenesisEntry } from './genesisSignature.js'
 
 function writeField(db, { entryId, field, value, deviceId }) {
   appendOp(db, { entity: 'camp_authority_log', entity_id: entryId, field, value, device_id: deviceId })
 }
 
-/** The axiomatic genesis entry — no signature, written once at camp bootstrap. */
-export function mintGenesisEntry(db, { founderDeviceId, founderPeerId }) {
+/** The genesis entry, written once at camp bootstrap and signed with the Host's camp signing key. */
+export function mintGenesisEntry(db, { founderDeviceId, founderPeerId, campId }) {
   const entryId = randomUUID()
+  const signature = signGenesisEntry(db, { id: entryId, camp_id: campId, target_device_id: founderDeviceId, target_peer_id: founderPeerId })
   writeField(db, { entryId, field: 'kind', value: 'genesis', deviceId: founderDeviceId })
   writeField(db, { entryId, field: 'target_device_id', value: founderDeviceId, deviceId: founderDeviceId })
   writeField(db, { entryId, field: 'target_peer_id', value: founderPeerId, deviceId: founderDeviceId })
+  writeField(db, { entryId, field: 'signature', value: signature, deviceId: founderDeviceId })
   return entryId
 }
 

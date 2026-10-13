@@ -10,18 +10,21 @@ import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { revocationDigest } from '../../automerge/authorityRevocationDigest.js'
 import { createVerifiedEntryTrust } from '../../automerge/authorityReplay.js'
+import { makeTestCamp } from '../../automerge/genesisTestKit.js'
 import { mintRendezvousNamespace, readRendezvousNamespace, rotateRendezvousNamespace } from './rendezvousNamespace.js'
 import { mintRendezvousAddressKey, readRendezvousAddressKey } from './rendezvousAddressKey.js'
 import { checkRendezvousRotation, readRotatedFor, electedRotator, runRendezvousRotation } from './rendezvousRotation.js'
 import { setCurrentDoc, getCurrentDoc, resetForTests } from './liveDoc.js'
 
 const CAMP = 'camp-1'
+const testCamp = makeTestCamp(CAMP)
+const root = testCamp.root
 let db, file, peerId
 
 beforeEach(async () => {
   file = path.join(os.tmpdir(), `rzv-rotation-${Date.now()}-${Math.random()}.sqlite`)
   db = openLocalDb(file)
-  db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(CAMP, 'Camp')
+  db.prepare('INSERT INTO camps (id, name, signing_public_key) VALUES (?, ?, ?)').run(CAMP, 'Camp', testCamp.publicKey)
   ;({ peerId } = await ensureDeviceIdentity(db))
 })
 afterEach(() => {
@@ -30,8 +33,8 @@ afterEach(() => {
   for (const s of ['', '-wal', '-shm']) if (fs.existsSync(file + s)) fs.unlinkSync(file + s)
 })
 
-function entry(doc, fields, signed = true) {
-  const id = `entry-${Math.random()}`
+function entry(doc, fields, signed = true, fixedId) {
+  const id = fixedId ?? `entry-${Math.random()}`
   let d = doc
   for (const [field, value] of Object.entries(fields)) d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
   if (signed) {
@@ -45,7 +48,7 @@ const revoke = (doc, target, signer) => entry(doc, { kind: 'revoke', target_devi
 // Admins dev-f (founder), dev-a, dev-b. Elected rotator = lowest id = dev-a.
 function camp({ enabled = true } = {}) {
   let doc = createEmptyDoc()
-  doc = entry(doc, { kind: 'genesis', target_device_id: 'dev-f', target_peer_id: peerId.toString() }, false)
+  doc = entry(doc, testCamp.genesisFields({ id: 'genesis-1', deviceId: 'dev-f', peerId: peerId.toString() }), false, 'genesis-1')
   for (const id of ['dev-a', 'dev-b']) doc = entry(doc, { kind: 'grant', target_device_id: id, target_peer_id: peerId.toString(), signer_device_id: 'dev-f' })
   if (enabled) {
     doc = mintRendezvousNamespace(doc, CAMP).doc
@@ -53,33 +56,33 @@ function camp({ enabled = true } = {}) {
   }
   return doc
 }
-const digestOf = (doc) => revocationDigest(A, doc, { isEntryTrusted: createVerifiedEntryTrust(A, doc) })
+const digestOf = (doc) => revocationDigest(A, doc, { root, isEntryTrusted: createVerifiedEntryTrust(A, doc, root) })
 
 describe('digest-keyed, elected rendezvous rotation', () => {
   it('a camp that never enabled rendezvous is skipped, nothing minted', () => {
     const doc = revoke(camp({ enabled: false }), 'dev-x', 'dev-f')
-    const r = checkRendezvousRotation(doc, { campId: CAMP, deviceId: 'dev-a' })
+    const r = checkRendezvousRotation(doc, { root, campId: CAMP, deviceId: 'dev-a' })
     expect(r).toMatchObject({ rotated: false, reason: 'never-enabled' })
     expect(readRendezvousNamespace(r.doc, CAMP)).toBeNull()
   })
 
   it('no revocation: no rotation (no needless churn on startup)', () => {
-    expect(checkRendezvousRotation(camp(), { campId: CAMP, deviceId: 'dev-a' })).toMatchObject({ rotated: false, reason: 'current' })
+    expect(checkRendezvousRotation(camp(), { root, campId: CAMP, deviceId: 'dev-a' })).toMatchObject({ rotated: false, reason: 'current' })
   })
 
   it('the elected rotator is the lowest currently granted admin', () => {
-    expect(electedRotator(camp())).toBe('dev-a')
+    expect(electedRotator(camp(), root)).toBe('dev-a')
   })
 
   it('a non-elected admin does not rotate; the elected one does, once', () => {
     const doc = revoke(camp(), 'dev-x', 'dev-f')
-    expect(checkRendezvousRotation(doc, { campId: CAMP, deviceId: 'dev-f' })).toMatchObject({ rotated: false, reason: 'not-elected' })
-    const r = checkRendezvousRotation(doc, { campId: CAMP, deviceId: 'dev-a' })
+    expect(checkRendezvousRotation(doc, { root, campId: CAMP, deviceId: 'dev-f' })).toMatchObject({ rotated: false, reason: 'not-elected' })
+    const r = checkRendezvousRotation(doc, { root, campId: CAMP, deviceId: 'dev-a' })
     expect(r.rotated).toBe(true)
     expect(readRendezvousNamespace(r.doc, CAMP).epoch).toBe(readRendezvousNamespace(doc, CAMP).epoch + 1)
     expect(readRendezvousAddressKey(r.doc, CAMP)).not.toBe(readRendezvousAddressKey(doc, CAMP))
     expect(readRotatedFor(r.doc, CAMP)).toBe(digestOf(doc))
-    expect(checkRendezvousRotation(r.doc, { campId: CAMP, deviceId: 'dev-a' })).toMatchObject({ rotated: false, reason: 'current' })
+    expect(checkRendezvousRotation(r.doc, { root, campId: CAMP, deviceId: 'dev-a' })).toMatchObject({ rotated: false, reason: 'current' })
   })
 
   it('a quorum completed only by a MERGE rotates on the elected device only', () => {
@@ -87,27 +90,27 @@ describe('digest-keyed, elected rendezvous rotation', () => {
     // Removing admin dev-b needs 2 of the other 2 admins. Each vote lands on a different device.
     const voteF = revoke(A.clone(base), 'dev-b', 'dev-f')
     const voteA = revoke(A.clone(base), 'dev-b', 'dev-a')
-    expect(checkRendezvousRotation(voteF, { campId: CAMP, deviceId: 'dev-a' }).rotated).toBe(false)
-    expect(checkRendezvousRotation(voteA, { campId: CAMP, deviceId: 'dev-a' }).rotated).toBe(false)
+    expect(checkRendezvousRotation(voteF, { root, campId: CAMP, deviceId: 'dev-a' }).rotated).toBe(false)
+    expect(checkRendezvousRotation(voteA, { root, campId: CAMP, deviceId: 'dev-a' }).rotated).toBe(false)
 
     const merged = A.merge(voteF, voteA)
-    expect(checkRendezvousRotation(merged, { campId: CAMP, deviceId: 'dev-f' }).rotated).toBe(false)
-    const r = checkRendezvousRotation(merged, { campId: CAMP, deviceId: 'dev-a' })
+    expect(checkRendezvousRotation(merged, { root, campId: CAMP, deviceId: 'dev-f' }).rotated).toBe(false)
+    const r = checkRendezvousRotation(merged, { root, campId: CAMP, deviceId: 'dev-a' })
     expect(r.rotated).toBe(true)
     expect(readRotatedFor(r.doc, CAMP)).toBe(digestOf(merged))
   })
 
   it('concurrent revokes of X and Y: after the merge the final secret is minted for a digest covering BOTH', () => {
     const base = camp()
-    const sideX = checkRendezvousRotation(revoke(A.clone(base), 'dev-x', 'dev-f'), { campId: CAMP, deviceId: 'dev-a' })
-    const sideY = checkRendezvousRotation(revoke(A.clone(base), 'dev-y', 'dev-f'), { campId: CAMP, deviceId: 'dev-a' })
+    const sideX = checkRendezvousRotation(revoke(A.clone(base), 'dev-x', 'dev-f'), { root, campId: CAMP, deviceId: 'dev-a' })
+    const sideY = checkRendezvousRotation(revoke(A.clone(base), 'dev-y', 'dev-f'), { root, campId: CAMP, deviceId: 'dev-a' })
     expect(sideX.rotated && sideY.rotated).toBe(true)
 
     const merged = A.merge(sideX.doc, sideY.doc)
     const both = digestOf(merged)
     expect(both).not.toBe(readRotatedFor(sideX.doc, CAMP))
     expect(both).not.toBe(readRotatedFor(sideY.doc, CAMP))
-    const r = checkRendezvousRotation(merged, { campId: CAMP, deviceId: 'dev-a' })
+    const r = checkRendezvousRotation(merged, { root, campId: CAMP, deviceId: 'dev-a' })
     expect(r.rotated).toBe(true)
     expect(readRotatedFor(r.doc, CAMP)).toBe(both)
     const keyBefore = readRendezvousAddressKey(merged, CAMP)
@@ -140,10 +143,10 @@ describe('the rotation is one atomic tuple', () => {
 
       let busy = A.clone(base)
       for (let i = 0; i < 200; i++) busy = applyWrite(busy, { entity: 'activities', entity_id: `act-${i}`, field: 'name', value: `A${i}` })
-      busy = checkRendezvousRotation(busy, { campId: CAMP, deviceId: 'dev-a' }).doc
+      busy = checkRendezvousRotation(busy, { root, campId: CAMP, deviceId: 'dev-a' }).doc
       produced.add(pair(busy))
 
-      let quiet = checkRendezvousRotation(A.clone(base), { campId: CAMP, deviceId: 'dev-a' }).doc
+      let quiet = checkRendezvousRotation(A.clone(base), { root, campId: CAMP, deviceId: 'dev-a' }).doc
       produced.add(pair(quiet))
       quiet = rotateRendezvousNamespace(quiet, CAMP).doc
       produced.add(pair(quiet))

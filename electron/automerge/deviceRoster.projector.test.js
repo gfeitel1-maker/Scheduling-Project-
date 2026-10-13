@@ -13,6 +13,7 @@ import { DELETE_FIELD } from '../ops/operations.js'
 import { projectAll, MODELED_ORDER, upsertDeviceRosterEntity } from './projector.js'
 import { buildRosterWrites } from './deviceRoster.js'
 import { signRosterEntry } from './deviceRosterSignature.js'
+import { signGenesisEntry } from './genesisSignature.js'
 
 const files = []
 afterEach(() => {
@@ -144,7 +145,7 @@ describe('upsertDeviceRosterEntity', () => {
     }
     const p1 = mk('p1')
     const p2 = mk('p2')
-    const revokeFirst = write(write(createEmptyDoc(), [{ entity: 'camp_authority_log', entity_id: 'e1', field: 'kind', value: 'genesis' }, { entity: 'camp_authority_log', entity_id: 'e1', field: 'target_device_id', value: 'dev-a' }, { entity: 'camp_authority_log', entity_id: 'e1', field: 'target_peer_id', value: 'peerA' }]), writes)
+    const revokeFirst = write(write(createEmptyDoc(), Object.entries({ kind: 'genesis', target_device_id: 'dev-a', target_peer_id: 'peerA', signature: signGenesisEntry(host, { id: 'e1', camp_id: 'camp-1', target_device_id: 'dev-a', target_peer_id: 'peerA' }) }).map(([field, value]) => ({ entity: 'camp_authority_log', entity_id: 'e1', field, value }))), writes)
     projectAll(p1, revokeFirst)
     projectAll(p2, write(createEmptyDoc(), writes))
     expect(cache(p1)).toEqual(cache(p2))

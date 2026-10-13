@@ -20,6 +20,7 @@ vi.mock('../../auth/connectionAuth.js', async (importOriginal) => {
 import { setupTwoJoinedDevices, AmHost, makeTmpDir, cleanupDirs, waitFor } from '../../../test/integration/harnessAutomerge.js'
 import { startSyncNode } from './syncNode.js'
 import { applyWrite, readRecord } from '../../automerge/campDocument.js'
+import { hostGenesisSignature } from '../../automerge/genesisTestKit.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { isRemovedFromCamp } from './selfRemoval.js'
@@ -51,7 +52,8 @@ async function rig() {
   const r = await setupTwoJoinedDevices({ clientANode: (opts) => startSyncNode({ ...opts, onAuthRejected: (peerId, reply, info) => rejections.push({ reply, info }) }) })
   rigs.push(r)
   const { host, clientA, clientB } = r
-  await host.node.applyLocal(withEntry(host.node.getDoc(), randomUUID(), { kind: 'genesis', target_device_id: host.deviceId, target_peer_id: host.node.peerId }))
+  const genesisId = randomUUID()
+  await host.node.applyLocal(withEntry(host.node.getDoc(), genesisId, { kind: 'genesis', target_device_id: host.deviceId, target_peer_id: host.node.peerId, signature: hostGenesisSignature(host.db, { id: genesisId, target_device_id: host.deviceId, target_peer_id: host.node.peerId }) }))
   await waitFor(() => Object.keys(clientA.node.getDoc().camp_authority_log ?? {}).length > 0, 8000)
   const grantB = signed(host.db, host.deviceId, 'grant', clientB.deviceId, { target_peer_id: clientB.node.peerId })
   await host.node.applyLocal(withEntry(host.node.getDoc(), grantB.id, grantB.fields))

@@ -132,7 +132,7 @@ describe('T331 end-to-end — a director\'s real revokeDevice action drives Gate
     // The axiomatic genesis entry (what bootstrapCamp now mints for real — see electron/main.js) —
     // reproduced directly here: device-f, by virtue of being the device that created this camp, is
     // the founder.
-    mintGenesisEntry(dbF, { founderDeviceId: 'device-f', founderPeerId: f.peerId.toString() })
+    mintGenesisEntry(dbF, { founderDeviceId: 'device-f', founderPeerId: f.peerId.toString(), campId })
     projectEntity(dbF, f.getDoc(), 'camp_authority_log')
 
     db_insertDevicesRow(dbF, 'device-b')
@@ -196,7 +196,7 @@ describe('T376 — revoking a rostered device this admin has never met', () => {
     try {
       const campId = randomUUID()
       await seedCampAndAdmin(db, { campId, deviceId: 'device-f', name: 'Director', pin: '135790' })
-      mintGenesisEntry(db, { founderDeviceId: 'device-f', founderPeerId: f.peerId.toString() })
+      mintGenesisEntry(db, { founderDeviceId: 'device-f', founderPeerId: f.peerId.toString(), campId })
       projectEntity(db, f.getDoc(), 'camp_authority_log')
       db_rosterRow(db, 'device-c', 'peer-c-never-met')
       expect(db.prepare('SELECT id FROM devices WHERE id = ?').get('device-c')).toBeUndefined()
@@ -223,7 +223,7 @@ describe('T376 R3 — removing a device is available on any admin device, not on
       const campId = randomUUID()
       await seedCampAndAdmin(hostDb, { campId, deviceId: 'device-f', name: 'Director', pin: '135790' })
       const pub = hostDb.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key
-      mintGenesisEntry(hostDb, { founderDeviceId: 'device-f', founderPeerId: f.peerId.toString() })
+      mintGenesisEntry(hostDb, { founderDeviceId: 'device-f', founderPeerId: f.peerId.toString(), campId })
       const clientIdentity = await ensureDeviceIdentity(clientDb)
       mintGrantEntry(hostDb, { targetDeviceId: 'device-a', targetPeerId: clientIdentity.peerId, signerDeviceId: 'device-f' })
 
@@ -266,7 +266,7 @@ describe('T376 R3 — a computer never made an admin cannot remove a device flee
       const campId = randomUUID()
       await seedCampAndAdmin(hostDb, { campId, deviceId: 'device-f', name: 'Director', pin: '135790' })
       const pub = hostDb.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key
-      mintGenesisEntry(hostDb, { founderDeviceId: 'device-f', founderPeerId: f.peerId.toString() })
+      mintGenesisEntry(hostDb, { founderDeviceId: 'device-f', founderPeerId: f.peerId.toString(), campId })
       await ensureDeviceIdentity(clientDb)
 
       clientDb.prepare('INSERT INTO camps (id, name, signing_public_key) VALUES (?, ?, ?)').run(campId, 'E2E Camp', pub)
@@ -315,7 +315,7 @@ describe('T331 end-to-end — N=3 admin-target quorum, driven through the REAL r
     // Founder, per the ADR, is axiomatic at genesis.
     const { getCurrentDoc } = await import('./sync/automerge/liveDoc.js')
     const { peerId: founderPeerId } = await ensureDeviceIdentity(dbF)
-    mintGenesisEntry(dbF, { founderDeviceId: 'device-f', founderPeerId })
+    mintGenesisEntry(dbF, { founderDeviceId: 'device-f', founderPeerId, campId })
     projectEntity(dbF, getCurrentDoc(dbF), 'camp_authority_log')
 
     // device-a (the target) and device-b (the second admin) each hold their OWN real
