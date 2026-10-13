@@ -85,7 +85,7 @@ import { createPeerReachabilityTracker } from './sync/automerge/peerReachability
 import { projectEntity } from './automerge/projector.js'
 import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
 import * as Automerge from '@automerge/automerge'
-import { validateBackupPair, restoreFromBackup, RestoreRefusal } from './db/backupRestore.js'
+import { checkPickedBackup, restoreFromBackup } from './db/backupRestore.js'
 import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { disableAtRestEncryption, DISABLE_PHRASE } from './db/disableAtRestEncryption.js'
 import { recoverInterruptedDisable } from './db/disableRecovery.js'
@@ -4030,43 +4030,11 @@ if (isElectronEntryPoint()) {
     if (result.canceled || !result.filePaths.length) return { canceled: true }
     const sourcePath = path.resolve(result.filePaths[0])
 
-    // Path traversal guard.
     if (!path.isAbsolute(sourcePath)) return { error: 'invalid_path' }
-    let stat
-    try {
-      stat = fs.statSync(sourcePath)
-      if (!stat.isFile()) return { error: 'invalid_path' }
-    } catch {
-      return { error: 'file_not_found' }
-    }
-
-    // Schema version check on source.
-    let probe
-    try {
-      probe = new (await import('better-sqlite3')).default(sourcePath)
-      probe.pragma('journal_mode = WAL')
-      const version = getSchemaVersion(probe)
-      probe.close()
-      if (version > CURRENT_SCHEMA_VERSION) {
-        return {
-          error: 'schema_too_new',
-          message: `Backup requires a newer version of Shoresh (schema v${version}).`,
-        }
-      }
-    } catch {
-      try { probe?.close() } catch { /* ignore */ }
-      return { error: 'invalid_file', message: 'The selected file could not be read as a Shoresh database.' }
-    }
-
-    try {
-      validateBackupPair(sourcePath, { db, cipher: docCipher })
-    } catch (err) {
-      if (err instanceof RestoreRefusal) return { error: err.code, message: err.message }
-      throw err
-    }
-
+    const checked = checkPickedBackup(sourcePath, { db, cipher: docCipher, dbKey })
+    if (checked.error) return checked
     pickedRestorePath = sourcePath
-    return { backupDate: stat.mtime.toISOString() }
+    return checked
   })
 
   // Back up the current DB, then copy the picked file over it and reopen.

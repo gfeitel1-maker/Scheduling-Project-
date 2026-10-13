@@ -167,7 +167,7 @@ async function main() {
     BUILD_SHA = (build.match(/· ([0-9a-f]{7,}) ·/) || [])[1] || null
     return 'build ' + build
   })
-  await (await import('./steps.mjs')).run({ step, ev, waitFor, click, nav, text, shot, setFile, sleep, log, app: () => app, CAMPB, DL, RUN, relaunch, adopt, launchPeer, quitMain, guide: GUIDE ? guideShot : null, FORCE: new Set(arg('force', '').split(',').filter(Boolean)), ADMIN, PIN, signInIfAsked, UD, REPO, PORT, buildSha: () => BUILD_SHA })
+  await (await import('./steps.mjs')).run({ step, ev, waitFor, click, nav, text, shot, setFile, sleep, log, app: () => app, CAMPB, DL, RUN, relaunch, adopt, launchPeer, quitMain, guide: GUIDE ? guideShot : null, FORCE: new Set(arg('force', '').split(',').filter(Boolean)), ADMIN, PIN, signInIfAsked, mainEval, UD, REPO, PORT, buildSha: () => BUILD_SHA })
   finish()
 }
 

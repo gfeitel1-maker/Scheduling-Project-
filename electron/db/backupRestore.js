@@ -3,6 +3,9 @@ import path from 'node:path'
 import { loadDoc as decodeDoc, sharesGenesis, listRecordIds } from '../automerge/campDocument.js'
 import { readCampIdSafely, writeUserBackup } from './projectManager.js'
 import { docPath } from '../sync/automerge/docStore.js'
+import Database from 'better-sqlite3'
+import { getSchemaVersion, CURRENT_SCHEMA_VERSION, encryptingDatabaseCtor } from './localDb.js'
+import { isPlaintextSqliteFile, rawKeyPragma } from './sqliteCipher.js'
 
 export class RestoreRefusal extends Error {
   constructor(code, message) {
@@ -38,6 +41,51 @@ export function validateBackupPair(backupDbPath, { db, cipher = null }) {
     throw new RestoreRefusal('backup_wrong_camp', WRONG_CAMP)
   }
   return { campId, docSrc }
+}
+
+// The pick step of a restore: everything that decides whether a chosen file may be restored,
+// before anything on disk changes. Returns { backupDate } or { error, message? }.
+export function checkPickedBackup(sourcePath, { db, cipher = null, dbKey = null }) {
+  let stat
+  try {
+    stat = fs.statSync(sourcePath)
+    if (!stat.isFile()) return { error: 'invalid_path' }
+  } catch {
+    return { error: 'file_not_found' }
+  }
+
+  let probe
+  try {
+    // A backup is a byte copy of the db, so with encryption on it is encrypted under this device's key.
+    if (dbKey && !isPlaintextSqliteFile(sourcePath)) {
+      probe = new (encryptingDatabaseCtor())(sourcePath)
+      probe.pragma(rawKeyPragma(dbKey))
+    } else {
+      probe = new Database(sourcePath)
+    }
+    probe.pragma('journal_mode = WAL')
+    // getSchemaVersion swallows errors, so a wrong key or corrupt file must fail here, not read as version 0.
+    probe.prepare('SELECT count(*) FROM sqlite_master').get()
+    const version = getSchemaVersion(probe)
+    probe.close()
+    if (version > CURRENT_SCHEMA_VERSION) {
+      return {
+        error: 'schema_too_new',
+        message: `Backup requires a newer version of Shoresh (schema v${version}).`,
+      }
+    }
+  } catch {
+    try { probe?.close() } catch { /* ignore */ }
+    return { error: 'invalid_file', message: 'The selected file could not be read as a Shoresh database.' }
+  }
+
+  try {
+    validateBackupPair(sourcePath, { db, cipher })
+  } catch (err) {
+    if (err instanceof RestoreRefusal) return { error: err.code, message: err.message }
+    throw err
+  }
+  return { backupDate: stat.mtime.toISOString() }
 }
 
 function replaceFile(src, dest) {
