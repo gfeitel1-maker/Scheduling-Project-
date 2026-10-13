@@ -593,6 +593,26 @@ export function useSlotMutations({
       seenTailIds.add(t.id)
       tailRows.push(t)
     }
+    // OWNER RULING 2026-10-12 ("Swap them"): a grid card dropped on a filled cell SWAPS the two — the
+    // source cell takes the target's activity instead of being cleared. Only two plain single-block
+    // activities can swap: a multi-block span, an elective or an event on either side is refused with a
+    // plain note before anything is written, so a swap is never half done.
+    const targetFilled = Boolean(prevTargetOccupant.activity_id || prevTargetOccupant.elective_set_id || prevTargetOccupant.event_id)
+    // Not a swap when both cells hold the same activity: that is a head dropped on its own tail (or the
+    // reverse), the shrink-a-span gesture, which keeps its move behaviour.
+    const isSwap = Boolean(freshSourceRow) && targetFilled && prevTargetOccupant.activity_id !== prevSourceOccupant?.activity_id
+    if (isSwap) {
+      const nameOf = (id) => activities.find(a => a.id === id)?.name ?? 'that activity'
+      const plain = (occ) => occ.activity_id && !occ.elective_set_id && !occ.event_id
+      const spans = (row, tails) => tails.length > 0 || row.is_span_head === false
+      let refusal = null
+      if (!plain(prevTargetOccupant) || !plain(prevSourceOccupant)) refusal = 'Can\u2019t swap with an elective or an event. Move it to an empty cell instead.'
+      else if (spans(freshTargetRow, spanTailRows)) refusal = `Can\u2019t swap these: ${nameOf(prevTargetOccupant.activity_id)} runs over more than one block. Move it to an empty cell instead.`
+      else if (spans(freshSourceRow, sourceTailRows)) refusal = `Can\u2019t swap these: ${nameOf(prevSourceOccupant.activity_id)} runs over more than one block. Move it to an empty cell instead.`
+      if (refusal) { setActionError(refusal); return }
+    }
+    // What the source cell holds after the drop: the target's activity on a swap, else empty.
+    const sourceAfter = isSwap ? prevTargetOccupant.activity_id : null
     const tailKeys = tailRows.map(t => cellKey(t.group_id, t.day_id, t.time_block_id))
     // Canonical (lexical) order. Not load-bearing for deadlock-freedom today:
     // claimAndRun claims every key in one synchronous pass (no sequential
@@ -613,7 +633,7 @@ export function useSlotMutations({
       dispatch: async () => {
         try {
           const writes = [repo.writeSlotFields(targetRow.id, { ...occupantFields('activity_id', incoming.activityId), flags: {} })]
-          if (sourceRow) writes.push(repo.writeSlotFields(sourceRow.id, { ...occupantFields('activity_id', null), flags: {} }))
+          if (sourceRow) writes.push(repo.writeSlotFields(sourceRow.id, { ...occupantFields('activity_id', sourceAfter), flags: {} }))
           for (const tail of tailRows) {
             // ADR §4 — release whichever field this tail's chain was keyed
             // on (activity_id or event_id), not a hardcoded activity_id.
@@ -632,7 +652,7 @@ export function useSlotMutations({
             if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
               return { ...s, ...occupantFields('activity_id', incoming.activityId), flags: {} }
             if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
-              return { ...s, ...occupantFields('activity_id', null), flags: {} }
+              return { ...s, ...occupantFields('activity_id', sourceAfter), flags: {} }
             const tail = tailRows.find(t => t.id === s.id)
             if (tail) return { ...s, [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }
             return s
@@ -645,7 +665,7 @@ export function useSlotMutations({
       },
       ownWriteKinds: {
         [targetKey]: `activity:${incoming.activityId}`,
-        ...(sourceKey ? { [sourceKey]: 'empty' } : {}),
+        ...(sourceKey ? { [sourceKey]: sourceAfter ? `activity:${sourceAfter}` : 'empty' } : {}),
         ...Object.fromEntries(tailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), 'empty'])),
       },
     })
@@ -653,9 +673,11 @@ export function useSlotMutations({
 
     const incomingActivity = activities.find(a => a.id === incoming.activityId)
     const occupantActivity = activities.find(a => a.id === prevTargetOccupant.activity_id)
-    const description = occupantActivity
-      ? `Replaced ${occupantActivity.name} with ${incomingActivity?.name ?? 'an activity'}`
-      : `Placed ${incomingActivity?.name ?? 'an activity'}`
+    const description = isSwap
+      ? `Swapped ${incomingActivity?.name ?? 'an activity'} and ${occupantActivity?.name ?? 'an activity'}`
+      : occupantActivity
+        ? `Replaced ${occupantActivity.name} with ${incomingActivity?.name ?? 'an activity'}`
+        : `Placed ${incomingActivity?.name ?? 'an activity'}`
 
     pushUndo({
       description,
@@ -701,6 +723,9 @@ export function useSlotMutations({
                 }
                 return s
               })
+              // Recount after undo/redo too: without this the Placed count stayed stale (director test).
+              recalcStats(next)
+              recalcFindings(next)
               slotsRef.current = next
               return next
             })
@@ -724,7 +749,7 @@ export function useSlotMutations({
             try {
               await Promise.all([
                 repo.writeSlotFields(targetRow.id, { ...occupantFields('activity_id', incoming.activityId), flags: {} }),
-                ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { ...occupantFields('activity_id', null), flags: {} })] : []),
+                ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { ...occupantFields('activity_id', sourceAfter), flags: {} })] : []),
                 ...tailRows.map(tail => repo.writeSlotFields(tail.id, { [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} })),
               ])
             } catch (err) { redoWriteError = err }
@@ -736,18 +761,21 @@ export function useSlotMutations({
                 if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
                   return { ...s, ...occupantFields('activity_id', incoming.activityId), flags: {} }
                 if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
-                  return { ...s, ...occupantFields('activity_id', null), flags: {} }
+                  return { ...s, ...occupantFields('activity_id', sourceAfter), flags: {} }
                 const tail = tailRows.find(t => t.id === s.id)
                 if (tail) return { ...s, [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }
                 return s
               })
+              // Recount after undo/redo too: without this the Placed count stayed stale (director test).
+              recalcStats(next)
+              recalcFindings(next)
               slotsRef.current = next
               return next
             })
           },
           ownWriteKinds: {
             [targetKey]: `activity:${incoming.activityId}`,
-            ...(sourceKey ? { [sourceKey]: 'empty' } : {}),
+            ...(sourceKey ? { [sourceKey]: sourceAfter ? `activity:${sourceAfter}` : 'empty' } : {}),
             ...Object.fromEntries(tailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), 'empty'])),
           },
         })

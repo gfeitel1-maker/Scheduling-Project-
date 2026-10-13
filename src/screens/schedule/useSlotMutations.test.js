@@ -140,6 +140,83 @@ describe('useSlotMutations — replaceSlot', () => {
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(2)
   })
 
+  // OWNER RULING 2026-10-12 ("Swap them"): a grid card dropped on a filled cell swaps the two.
+  it('grid-to-grid onto a filled cell SWAPS the two activities', async () => {
+    const slots = [
+      { id: 'row-source', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-2', flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }, { id: 'act-2', name: 'Art' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b2' })
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source', { activity_id: 'act-2', elective_set_id: null, event_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(2)
+    expect(props.pushUndo.mock.calls[0][0].description).toBe('Swapped Swim and Art')
+  })
+
+  it('undo of a swap restores both cells', async () => {
+    const slots = [
+      { id: 'row-source', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-2', flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }, { id: 'act-2', name: 'Art' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b2' })
+    })
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await props.pushUndo.mock.calls[0][0].undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', expect.objectContaining({ activity_id: 'act-2' }))
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source', expect.objectContaining({ activity_id: 'act-1' }))
+  })
+
+  it('refuses a swap onto a two-block activity with a plain note, writing nothing', async () => {
+    const slots = [
+      { id: 'row-source', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-2', is_span_head: true, flags: {} },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'act-2', is_span_head: false, flags: {} },
+    ]
+    const timeBlocks = [{ id: 'b1', sort_order: 1 }, { id: 'b2', sort_order: 2 }, { id: 'b3', sort_order: 3 }]
+    const { hook, props } = setup({ slots, timeBlocks, activities: [{ id: 'act-1', name: 'Swim' }, { id: 'act-2', name: 'Art' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b2' })
+    })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.setActionError).toHaveBeenLastCalledWith(expect.stringMatching(/can.t swap/i))
+  })
+
+  it('refuses a swap with an elective cell, writing nothing', async () => {
+    const slots = [
+      { id: 'row-source', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, elective_set_id: 'set-1', flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b2' })
+    })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.setActionError).toHaveBeenLastCalledWith(expect.stringMatching(/can.t swap/i))
+  })
+
+  // Director test 2026-10-12: after a drag then Undo, Placed read 351 of 352 though both cells were back.
+  // The undo restored the cells but never recounted.
+  it('undo recounts the stats and findings', async () => {
+    const slots = [
+      { id: 'row-source', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, flags: {} },
+    ]
+    const sink = statefulSetSlots(slots)
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }], routeState: { setSlots: sink.fn } })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b2' })
+    })
+    props.recalcStats.mockClear(); props.recalcFindings.mockClear()
+    await act(async () => { await props.pushUndo.mock.calls[0][0].undo() })
+    expect(props.recalcStats).toHaveBeenCalled()
+    expect(props.recalcFindings).toHaveBeenCalled()
+  })
+
   it('refuses to write onto an anchor target', async () => {
     const slots = [
       { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', is_fixed_event: true, activity_id: null, flags: {} },

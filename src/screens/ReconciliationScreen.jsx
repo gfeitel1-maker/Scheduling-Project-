@@ -859,7 +859,7 @@ function CommittedTray({ notices, leftOut, outcome, graceWindow, onNavigate, ans
           <div style={styles.understoodRow} role="status">
             <span>{versionLine.text}</span>{' '}
             <button className="press-97" onClick={() => onNavigate?.('schedule:manual', { openVersionName: versionLine.versionName })} style={styles.linkButton}>
-              Open it in Manual
+              Open it in Manual Build
             </button>
           </div>
         )}
@@ -929,8 +929,11 @@ function CommittedTray({ notices, leftOut, outcome, graceWindow, onNavigate, ans
                   {secondaryContent.label}
                 </button>
               )}
+              {/* A real space, not only margin: without it the page text (screen readers) read "Undo this
+                  importfor the next few minutes" (director test 2026-10-12). */}
+              {secondaryContent?.note && ' '}
               {secondaryContent?.note && (
-                <span style={{ marginLeft: 8, color: 'var(--text-secondary)', fontSize: 12 }}>
+                <span style={{ marginLeft: 4, color: 'var(--text-secondary)', fontSize: 12 }}>
                   {secondaryContent.note}
                 </span>
               )}

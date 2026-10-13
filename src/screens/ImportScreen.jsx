@@ -1954,7 +1954,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
                 letterSpacing: '0.12em', textTransform: 'uppercase',
                 color: 'var(--text-secondary)', marginBottom: 8,
               }}>
-                Places
+                Locations
               </div>
 
               {locationBindings.length > 0 && (
@@ -1990,7 +1990,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
               {placeCandidates.length > 0 && (
                 <>
                   <div style={{ color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    Also a place? Tick to add it.
+                    Is this a location? Tick to add it.
                   </div>
                   <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexWrap: 'wrap', gap: '2px 14px' }}>
                     {placeCandidates.map((n) => (

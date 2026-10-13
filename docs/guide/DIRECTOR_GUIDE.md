@@ -244,8 +244,9 @@ Click **Review all** to see everything in **Still to place**. Click **Accept** t
 
 1. Switch to **Group View** or **Daily View**. (No dragging in **Activity View**.)
 2. Drag an activity from the left panel onto a cell — or drag one cell onto another.
-3. Dropping on a filled cell **replaces** it. It never swaps.
-4. Made a mistake? Click Undo.
+3. Drag one cell onto another filled cell and the two **swap**. Drag from the left panel onto a filled cell and it **replaces** what was there.
+4. Some cells can't swap: an activity that runs over more than one block, an elective, or an event. Shoresh says so and changes nothing. Move it to an empty cell instead.
+5. Made a mistake? Click Undo. It puts both cells back.
 
 ### Rebuild
 

@@ -22,6 +22,19 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
   }, [submitting])
 
   const valid = campName.trim() && adminName.trim() && /^\d{6,}$/.test(adminPin)
+  // Why Create is disabled, in one line (director test 2026-10-12: it said nothing).
+  const disabledReason = (() => {
+    if (valid) return null
+    const add = []
+    if (!campName.trim()) add.push('a camp name')
+    if (!adminName.trim()) add.push('your name')
+    const parts = []
+    if (!adminPin) add.push('a PIN of 6 or more digits')
+    else if (!/^\d+$/.test(adminPin)) parts.push('use only numbers in the PIN')
+    else if (adminPin.length < 6) parts.push('make the PIN 6 or more digits')
+    if (add.length) parts.unshift(`add ${add.length > 1 ? `${add.slice(0, -1).join(', ')} and ${add[add.length - 1]}` : add[0]}`)
+    return `To create the camp, ${parts.join(', and ')}.`
+  })()
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -91,9 +104,11 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
             type="password"
             inputMode="numeric"
             placeholder="6 or more digits"
+            aria-describedby="bootstrap-pin-hint"
             value={adminPin}
             onChange={e => setAdminPin(e.target.value)}
           />
+          <div id="bootstrap-pin-hint" style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>6 or more digits</div>
 
           <button
             type="submit"
@@ -102,6 +117,9 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
           >
             {submitting ? 'Creating…' : 'Create camp'}
           </button>
+          {disabledReason && !submitting && (
+            <div role="status" style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8, textAlign: 'center' }}>{disabledReason}</div>
+          )}
         </form>
       </div>
     </div>
