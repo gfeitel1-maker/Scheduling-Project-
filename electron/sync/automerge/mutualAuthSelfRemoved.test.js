@@ -1,4 +1,4 @@
-// A device the camp removed stops contacting camp peers, and a lost admission gets ONE
+// A device whose own state says it was removed retries slowly, and a lost admission gets ONE
 // re-authenticate (the path by which a removed device hears the refusal). See selfRemoval.js.
 import { describe, it, expect, vi } from 'vitest'
 import { wireMutualAuth } from './mutualAuth.js'
@@ -15,14 +15,20 @@ function fakeHandle(reply = { type: 'auth_ok' }) {
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms))
 
 describe('mutualAuth once this device was removed from the camp', () => {
-  it('makes no attempt at all while removed; control: attempts when not removed', async () => {
-    for (const removed of [true, false]) {
-      const handle = fakeHandle()
-      wireMutualAuth(handle, { deviceId: 'device-b', getToken: () => 'tok', isPeerTrusted: () => true, isSelfRemoved: () => removed })
-      for (let i = 0; i < 5; i++) handle.fireDiscovery(`peer-${i}`)
-      await tick()
-      expect(handle.authenticateWith).toHaveBeenCalledTimes(removed ? 0 : 5)
-    }
+  it('keeps trying while removed, but at most once per peer per interval', async () => {
+    let t = 0
+    const handle = fakeHandle({ type: 'auth_failed', reason: 'device_revoked' })
+    wireMutualAuth(handle, { deviceId: 'device-b', getToken: () => 'tok', isPeerTrusted: () => true, isSelfRemoved: () => true, now: () => t, removedRetryMs: 1000 })
+    handle.fireDiscovery('peer-a')
+    await tick()
+    expect(handle.authenticateWith).toHaveBeenCalledTimes(1)
+    handle.fireDiscovery('peer-a')
+    await tick()
+    expect(handle.authenticateWith).toHaveBeenCalledTimes(1)
+    t = 1500
+    handle.fireDiscovery('peer-a')
+    await tick()
+    expect(handle.authenticateWith).toHaveBeenCalledTimes(2)
   })
 
   it('re-authenticates exactly once after a peer that had admitted this device disconnects', async () => {
