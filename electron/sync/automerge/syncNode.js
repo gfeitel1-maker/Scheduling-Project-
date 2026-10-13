@@ -897,21 +897,26 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   // state says so. A revocation refusal's signed evidence is verified and merged first (removalEvidence.js), then
   // authority_cache is re-read; the removal is recorded durably before the caller hears about it.
   async function handleAuthRejected(peerId, reply) {
-    if (REVOCATION_REFUSAL_REASONS.has(reply?.reason) && reply.evidence !== undefined) {
-      try {
-        const doc = getCurrentDoc(db)
-        const writes = verifiedEvidenceWrites(doc, deviceId, reply.evidence)
-        if (writes.length) await applyLocalDoc(writes.reduce((d, w) => applyWrite(d, w), doc), 'camp_authority_log')
-      } catch (err) {
-        console.error(`syncNode: could not adopt revocation evidence from ${peerId}: ${err?.message ?? err}`)
+    try {
+      if (REVOCATION_REFUSAL_REASONS.has(reply?.reason) && reply.evidence !== undefined) {
+        try {
+          const doc = getCurrentDoc(db)
+          const rosterPeerIds = new Map(db.prepare('SELECT device_id, peer_id FROM roster_cache').all().map((r) => [r.device_id, r.peer_id]))
+          const writes = verifiedEvidenceWrites(doc, deviceId, reply.evidence, rosterPeerIds)
+          if (writes.length) await applyLocalDoc(writes.reduce((d, w) => applyWrite(d, w), doc), 'camp_authority_log')
+        } catch (err) {
+          console.error(`syncNode: could not adopt revocation evidence from ${peerId}: ${err?.message ?? err}`)
+        }
       }
+      let removed = false
+      if (isRevokedByOwnAuthority(db, deviceId)) {
+        removed = markRemovedFromCamp(db, { peerId, reason: reply?.reason })
+        if (!removed) console.error(`syncNode: this device's own authority state says it was removed, but recording that failed`)
+      }
+      onAuthRejected?.(peerId, reply, { removed })
+    } catch (err) {
+      console.error(`syncNode: handling a refusal from ${peerId} failed: ${err?.message ?? err}`)
     }
-    let removed = false
-    if (isRevokedByOwnAuthority(db, deviceId)) {
-      removed = markRemovedFromCamp(db, { peerId, reason: reply?.reason })
-      if (!removed) console.error(`syncNode: this device's own authority state says it was removed, but recording that failed`)
-    }
-    onAuthRejected?.(peerId, reply, { removed })
   }
   // `onlyEntity` scopes the projection to one entity: projectAll delete-reconciles every table, which would drop
   // SQLite rows the document does not hold. A roster write must touch roster state only.

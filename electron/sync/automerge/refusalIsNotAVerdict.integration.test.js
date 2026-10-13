@@ -177,3 +177,55 @@ describe('(d) a genuinely revoked device learns it from the refusal', () => {
     expect(clientA.db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(clientA.deviceId).status).toBe('revoked')
   }, 60000)
 })
+
+describe('(g) the revoking admin is one the refused device has never heard of', () => {
+  it('the refusal ships the signer\'s grant; the device verifies the chain (peer id from its own roster), merges it and records the removal', async () => {
+    const { rig, rejections } = await rigWithWatchingClientA()
+    await genesisOnEveryone(rig)
+    const { host, clientA, clientB } = rig
+    host.node.revokePeer(clientA.node.peerId)
+    const grantId = randomUUID()
+    await writeAuthorityEntry(host, grantId, {
+      kind: 'grant', target_device_id: clientB.deviceId, target_peer_id: clientB.node.peerId, signer_device_id: host.deviceId,
+      signature: signAuthorityEntry(host.db, { id: grantId, kind: 'grant', target_device_id: clientB.deviceId, signer_device_id: host.deviceId }),
+    })
+    const { id, ...fields } = signedRevoke(clientB.db, clientB.deviceId, clientA.deviceId)
+    await writeAuthorityEntry(host, id, fields)
+    host.db.prepare("UPDATE devices SET revoked_at = ?, pairing_status = 'revoked' WHERE id = ?").run(new Date().toISOString(), clientA.deviceId)
+    expect(clientA.node.getDoc().camp_authority_log?.[grantId]).toBeUndefined()
+    expect(clientA.db.prepare('SELECT 1 FROM roster_cache WHERE device_id = ?').get(clientB.deviceId)).toBeTruthy()
+
+    await hostEvictsClientA(rig)
+    await waitFor(() => isRemovedFromCamp(clientA.db), 15000)
+    expect(rejections.at(-1).info).toEqual({ removed: true })
+  }, 60000)
+})
+
+describe('(f) a throwing renderer notification', () => {
+  it('never becomes an unhandled rejection', async () => {
+    const unhandled = []
+    const onUnhandled = (e) => unhandled.push(e)
+    process.on('unhandledRejection', onUnhandled)
+    let called = 0
+    const rig = await setupTwoJoinedDevices({ clientANode: (opts) => startSyncNode({ ...opts, onAuthRejected: () => { called++; throw new Error('window destroyed') } }) })
+    rigs.push(rig)
+    lie.db = rig.host.db
+    lie.reason = 'device_not_authorized'
+    await genesisOnEveryone(rig)
+    await hostEvictsClientA(rig)
+    await waitFor(() => called > 0, 8000)
+    await settleMs(500)
+    process.off('unhandledRejection', onUnhandled)
+    expect(unhandled).toEqual([])
+  }, 60000)
+})
+
+describe('(g2) evidence unit', () => {
+  it('a grant claim whose signer is not an admin here is not adopted', async () => {
+    const { rig } = await rigWithWatchingClientA()
+    await genesisOnEveryone(rig)
+    const { clientA } = rig
+    const { verifiedEvidenceWrites } = await import('./removalEvidence.js')
+    expect(verifiedEvidenceWrites(clientA.node.getDoc(), clientA.deviceId, [{ id: 'x', kind: 'grant', target_device_id: 'z', signer_device_id: 'nobody', signature: 'sig' }], new Map([['z', 'p']]))).toEqual([])
+  }, 60000)
+})
