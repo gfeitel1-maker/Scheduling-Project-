@@ -8,6 +8,8 @@ const STATS = `const t=__main().replace(/\\n+/g,' ¦ '); const m=t.match(/(\\d+)
 export async function run(h) {
   const { parseTextGrid } = await import(`file://${h.REPO}/src/ingest/textGrid.js`)
   const { step, ev, waitFor, click, nav, setFile, sleep, CAMPB, DL, relaunch, UD } = h
+  // Director-guide screenshots (scripts/finalAudit/guideShots.mjs): a no-op outside --guide.
+  const guide = h.guide ?? (async () => {})
   const listNames = async (screen) => {
     await nav(screen)
     await waitFor(`return /\\d+ (FIXED|RECURRING) EVENTS?/.test(__main())`, 20000, `${screen} list`)
@@ -36,6 +38,7 @@ export async function run(h) {
     await nav('Roots'); await click('Import last year', false, 20000)
     await setFile(file)
     await waitFor(`return !!__btn('Review ') || !!__btn('Replace with ')`, 60000, 'Review N records')
+    if (await ev(`return !!__btn('○ Replace them', false)`)) await guide('import/keep-or-replace')
     // "Replace them" is offered only when something is already set up; on an empty camp Review is the only path.
     if (replace && await ev(`return !!__btn('○ Replace them', false)`)) { await click('○ Replace them', false, 10000); await sleep(500) }
     await waitFor(`const b=__btn('Replace with ')||__btn('Review '); if(!b||b.disabled) return false; b.click(); return true`, 15000, 'Replace with / Review button')
@@ -51,6 +54,14 @@ export async function run(h) {
   await step(1, 'Import campB with zero answers: questions, Roots, no name both Fixed and Recurring, lunch on every group the file feeds', async () => {
     const r = await importFile(CAMPB)
     await click('Continue', true, 10000).catch(() => {})
+    if (h.guide) {
+      // A one-day file is recognised and not imported as the week; shot, then Cancel.
+      await nav('Roots'); await click('Import last year', false, 20000)
+      await setFile(path.join(h.REPO, 'docs/work/specs/samples/synthetic/special-days/s02-color-war-day.txt'))
+      await waitFor(`return /This looks like a single-day schedule/.test(__main())`, 60000, 'one-day file card')
+      await guide('import/one-day-file-card')
+      await click('Cancel', true, 10000).catch(() => {})
+    }
     await nav('Roots')
     const roots = await ev(`const t=__main(); const g=(k)=>{const m=t.match(new RegExp(k+'\\\\n(\\\\d+)'));return m&&+m[1]}; return {activities:g('Activities'), groups:g('Groups'), divisions:g('Age Divisions'), timeBlocks:g('Time Blocks'), fixed:g('Fixed Events')}`)
     const fixed = await listNames('Fixed Events'); const rec = await listNames('Recurring Events')
@@ -104,6 +115,7 @@ export async function run(h) {
     await waitFor(`const b=document.querySelector('button[aria-label^="Week 1, Friday"]'); if(!b) return false; b.click(); return true`, 10000, 'Week 1 Friday cell')
     const before = await waitFor(`const m=__main().match(/(\\d+) \\/ (\\d+) filled/); return m && +m[1]`, 10000, 'filled count')
     const offer = await waitFor(`const m=__main().match(/Also bring[^\\n]*/); return m && m[0]`, 15000, 'Also bring offer')
+    await guide('special-day/bring-recurring-events')
     await click('Bring', true)
     const after = await waitFor(`const m=__main().match(/(\\d+) \\/ (\\d+) filled/); return m && +m[1] > ${before} && +m[1]`, 15000, 'filled count to rise')
     return `"${offer}"; filled ${before} -> ${after}`
@@ -125,6 +137,7 @@ export async function run(h) {
     const added = await importFile(path.join(h.REPO, 'docs/work/specs/samples/synthetic/campb-variants/b1-renamed.txt'))
     await click('Undo this import', true, 15000)
     const undone = await waitFor(`const m=__main().match(/Undo complete[^\\n]*/); return m && m[0]`, 60000, 'undo result')
+    await guide('reconcile/undo-receipt')
     await click('Continue', true, 5000).catch(() => {})
     const r1 = await rootsNow()
     const note = `Keep: ${keep.done} (questions ${keep.questions}); Replace: ${(rep.ms / 1000).toFixed(1)}s (questions ${rep.questions}); "Before replace" version ${before ? 'present' : 'MISSING'}; Undo of "${added.done}": "${undone}", Roots ${r0 === r1 ? 'restored' : `NOT restored: before=${JSON.stringify(r0)} after=${JSON.stringify(r1)}`}`
@@ -138,6 +151,7 @@ export async function run(h) {
     const found = await waitFor(`if (__click('What Shoresh has learned', true)) return 'sidebar'; if (!window.__settingsTried) { window.__settingsTried = 1; __click('Settings', true) } return false`, 10000, '"What Shoresh has learned"').catch(() => null)
     if (!found) throw new Error('"What Shoresh has learned" not found in the sidebar or under Settings')
     await waitFor(`return /learned/i.test(__main())`, 10000, 'learned screen')
+    await guide('learned/what-shoresh-has-learned')
     // Answer one question, then import the same file again: that question must not be asked again.
     // A synthetic camp raises questions on top of campB (a campB re-import asks none).
     const QFILE = path.join(h.REPO, 'docs/work/specs/samples/synthetic/s07-by-group-3-divisions.txt')
@@ -258,6 +272,7 @@ export async function run(h) {
       await ev(`__set(__inp('input[placeholder="Pool"]'), 'Audit Hall'); return true`); await sleep(200); await click('+ Add', true)
       await waitFor(`return !/No locations yet/.test(__main())`, 15000, 'added location')
     }
+    await guide('worksheet/locations-sheet')
     await nav('Roots')
     const before = new Set(fs.readdirSync(DL))
     await click('Download worksheet', true)
@@ -381,7 +396,7 @@ export async function run(h) {
     await openDevices()
     await click('Turn off encryption…', true, 15000)
     await waitFor(`const i=[...document.querySelectorAll('label input')].filter(__vis)[0]; if(!i) return false; __set(i,'DISABLE ENCRYPTION'); return true`, 10000, 'confirmation input')
-    await sleep(300); await click('Turn off encryption', true, 10000)
+    await sleep(300); await guide('devices/turn-off-encryption'); await click('Turn off encryption', true, 10000)
     const said = await waitFor(`const m=__main().match(/Encryption is off[^\\n]*|Encryption is still on[^\\n]*/); return m && m[0]`, 120000, 'disable outcome')
     if (/still on/.test(said)) throw new Error(`refused: "${said}"`)
     const ms = await h.adopt()

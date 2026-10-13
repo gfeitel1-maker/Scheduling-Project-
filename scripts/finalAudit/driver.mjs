@@ -97,6 +97,22 @@ async function shot(label) {
   try { await app.shot(f) } catch (e) { log(`  screenshot failed: ${e.message}`) }
   return path.basename(f)
 }
+// --guide: director-guide screenshots (scripts/finalAudit/guideShots.mjs). The steps call guideShot at the
+// screens DIRECTOR_GUIDE.md marks with <!-- shot: name -->; each name is taken once, at 1280x800, into
+// docs/guide/img/<name>.png.
+const GUIDE = process.argv.includes('--guide')
+const guideTaken = new Set()
+async function guideShot(name) {
+  if (guideTaken.has(name)) return
+  await app.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false })
+  await sleep(600)
+  const f = path.join(REPO, 'docs/guide/img', `${name}.png`)
+  fs.mkdirSync(path.dirname(f), { recursive: true })
+  await app.shot(f)
+  guideTaken.add(name)
+  log(`  guide shot: ${path.relative(REPO, f)}`)
+}
+
 async function setFile(file) {
   await waitFor(`return !!document.querySelector('input[type=file]')`, 20000, 'file input')
   const { root } = await app.send('DOM.getDocument', { depth: -1 })
@@ -147,7 +163,7 @@ async function main() {
     BUILD_SHA = (build.match(/· ([0-9a-f]{7,}) ·/) || [])[1] || null
     return 'build ' + build
   })
-  await (await import('./steps.mjs')).run({ step, ev, waitFor, click, nav, text, shot, setFile, sleep, log, app: () => app, CAMPB, DL, RUN, relaunch, adopt, launchPeer, quitMain, FORCE: new Set(arg('force', '').split(',').filter(Boolean)), ADMIN, PIN, signInIfAsked, UD, REPO, PORT, buildSha: () => BUILD_SHA })
+  await (await import('./steps.mjs')).run({ step, ev, waitFor, click, nav, text, shot, setFile, sleep, log, app: () => app, CAMPB, DL, RUN, relaunch, adopt, launchPeer, quitMain, guide: GUIDE ? guideShot : null, FORCE: new Set(arg('force', '').split(',').filter(Boolean)), ADMIN, PIN, signInIfAsked, UD, REPO, PORT, buildSha: () => BUILD_SHA })
   finish()
 }
 
