@@ -45,7 +45,7 @@ describe('RestoreControl', () => {
 
   it('says backups restore on this computer only, and how to protect against losing it', async () => {
     await pick()
-    expect(screen.getByText('Backups restore on this computer only. To protect against losing this laptop, pair a second device.')).toBeTruthy()
+    expect(screen.getByText('Backups restore on this computer only. To protect against losing this laptop, pair a second device, or use Save whole camp and keep the file somewhere private.')).toBeTruthy()
   })
 
   it('does not restore when cancelled at the confirm', async () => {

@@ -5,9 +5,9 @@ import { WarningTriangleIcon } from '../components/icons'
 import sproutMark from '../assets/brand/sprout-mark.svg'
 import IndeterminateBar from '../components/schedule/IndeterminateBar'
 
-export default function CampBootstrapScreen({ onBack, onSubmit }) {
+export default function CampBootstrapScreen({ onBack, onSubmit, fromFile = null }) {
   const badgeEnter = useEnterTransition('liftFade')
-  const [campName, setCampName] = useState('')
+  const [campName, setCampName] = useState(fromFile?.campName ?? '')
   const [adminName, setAdminName] = useState('')
   const [adminPin, setAdminPin] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -71,7 +71,12 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
           style={{ width: 64, height: 64, display: 'block', margin: '0 auto 14px', ...badgeEnter }}
         />
 
-        <div style={S.authTitle}>Set up your camp</div>
+        <div style={S.authTitle}>{fromFile ? 'Set up your saved camp' : 'Set up your camp'}</div>
+        {fromFile && (
+          <div style={{ ...S.authSubtitle, textAlign: 'center' }}>
+            From {fromFile.fileName}: {fromFile.summary}. This computer gets its own PIN.
+          </div>
+        )}
 
         {error && <div style={S.authErrorBox}><WarningTriangleIcon style={{ marginTop: 2 }} /><span>{error}</span></div>}
 
@@ -115,7 +120,7 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
             style={{ ...S.authBtnPrimary, opacity: valid && !submitting ? 1 : 0.4, cursor: valid && !submitting ? 'pointer' : 'not-allowed' }}
             disabled={!valid || submitting}
           >
-            {submitting ? 'Creating…' : 'Create camp'}
+            {submitting ? (fromFile ? 'Opening…' : 'Creating…') : (fromFile ? 'Open camp' : 'Create camp')}
           </button>
           {disabledReason && !submitting && (
             <div role="status" style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8, textAlign: 'center' }}>{disabledReason}</div>

@@ -856,6 +856,8 @@ Managed by `electron/db/projectManager.js`. A "project" is a named SQLite file o
 | `shoresh:open-recent-project` | Open a project from the recent list |
 | `shoresh:get-current-project` | Return metadata (path, name) for the currently open project |
 
+**Whole-camp file** (`electron/ops/campFile/`, `docs/adr/2026-10-13-whole-camp-file-save-and-open.md`): an admin's **Save whole camp** (sidebar footer, beside Restore) writes a `.shoresh-camp` JSON file (setup, both schedules with saved versions, special days, learned answers; no keys, PINs, users, devices, campers or elective runs; not encrypted). The start screen's **Open a saved camp** ("Start from a saved camp file") picks and validates the file in the main process before anything is created (`shoresh:pick-camp-file`), then bootstraps a brand-new camp and loads the file through the real write paths (`shoresh:load-camp-file`, admin-gated, fresh camps only). A load that stops partway leaves a device-local "load incomplete" marker, which `shoresh:get-camp` reports; the only way forward is **Start over** (`shoresh:start-over-camp-file`), which switches to a new empty profile file and deletes nothing. It is a portable copy, not a sync or backup mechanism.
+
 **Backup rotation**: maximum 10 backups kept per project; oldest are pruned automatically. Pre-migration and pre-restore backups are taken automatically before any destructive operation.
 
 ---

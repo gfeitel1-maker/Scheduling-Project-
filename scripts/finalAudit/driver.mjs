@@ -50,9 +50,9 @@ function launch() {
 }
 // The main process (inspector on PORT+1): route every download to DL, so an export never opens a
 // native save dialog (which CDP cannot see or close). Driver-side only; no product change.
-async function mainEval(expr) {
+async function mainEval(expr, inspectPort = PORT + 1) {
   const t0 = Date.now(); let t
-  while (!t && Date.now() - t0 < 30000) { try { [t] = await (await fetch(`http://127.0.0.1:${PORT + 1}/json/list`)).json() } catch { await sleep(500) } }
+  while (!t && Date.now() - t0 < 30000) { try { [t] = await (await fetch(`http://127.0.0.1:${inspectPort}/json/list`)).json() } catch { await sleep(500) } }
   const ws = new WebSocket(t.webSocketDebuggerUrl); await new Promise((r, j) => { ws.onopen = r; ws.onerror = j })
   return new Promise((res, rej) => {
     const tm = setTimeout(() => rej(new Error('main eval timeout')), 20000)
@@ -209,7 +209,7 @@ async function launchPeer(label, port, { reuse = null } = {}) {
   for (const p of [port, port + 1]) if (await portBusy(p)) throw new Error(`peer ${label}: port ${p} is already in use`)
   const ud = reuse ?? fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'shoresh-pkg-smoke-'))
   const out = fs.openSync(path.join(RUN, `app-${label}.log`), 'a')
-  const child = spawn(APP, [`--remote-debugging-port=${port}`], { env: { ...process.env, SHORESH_SMOKE_USERDATA: ud }, detached: true, stdio: ['ignore', out, out] })
+  const child = spawn(APP, [`--remote-debugging-port=${port}`, `--inspect=${port + 1}`], { env: { ...process.env, SHORESH_SMOKE_USERDATA: ud }, detached: true, stdio: ['ignore', out, out] })
   child.unref()
   log(`peer ${label} launched pid=${child.pid} port=${port} userData=${ud}`)
   let conn = null
@@ -225,7 +225,7 @@ async function launchPeer(label, port, { reuse = null } = {}) {
   peerData.push({ label, ud })
   conn = await connect(port, 120000)
   const shotPeer = async (name) => { const f = path.join(SHOTS, `${String(results.length + 1).padStart(2, '0')}-${label}-${name}.png`); try { await conn.shot(f) } catch (e) { log(`  peer screenshot failed: ${e.message}`) } }
-  return { label, pid: child.pid, ud, stop, shot: shotPeer, send: (m, p) => conn.send(m, p), shotTo: (f) => { fs.mkdirSync(path.dirname(f), { recursive: true }); return conn.shot(f) }, ...ctxFor(() => conn) }
+  return { label, pid: child.pid, ud, stop, shot: shotPeer, mainEval: (expr) => mainEval(expr, port + 1), send: (m, p) => conn.send(m, p), shotTo: (f) => { fs.mkdirSync(path.dirname(f), { recursive: true }); return conn.shot(f) }, ...ctxFor(() => conn) }
 }
 
 // Quit the main instance (SIGTERM) and wait for it to exit; later steps then have no main app.

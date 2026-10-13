@@ -115,6 +115,8 @@ export const localClient = {
   getPortMappingStatus: () => (shoresh.getPortMappingStatus ? shoresh.getPortMappingStatus() : Promise.resolve(null)),
   // T275 — the sidebar's host-not-syncing retry affordance.
   retrySync: () => shoresh.retrySync(),
+  saveCampFile: () => shoresh.saveCampFile({ token: currentToken() }),
+  loadCampFile: () => shoresh.loadCampFile({ token: currentToken() }),
   disableAtRestEncryption: (phrase) => shoresh.disableAtRestEncryption({ token: currentToken(), phrase }),
   // T16 — commit an approved import proposal. The preview is built in the
   // renderer; only the confirmed list crosses this boundary.
@@ -400,6 +402,10 @@ export const localClient = {
   createProject: () => shoresh.createProject(),
   openProject: () => shoresh.openProject(),
   exportProject: () => shoresh.exportProject(),
+  // Open a saved camp: picked BEFORE the camp exists, so no token (main refuses once a camp is here).
+  pickCampFile: () => shoresh.pickCampFile(),
+  beginCampFileLoad: () => shoresh.beginCampFileLoad(),
+  startOverCampFile: () => shoresh.startOverCampFile(),
   backupProject: () => shoresh.backupProject(),
   showBackupInFolder: () => shoresh.showBackupInFolder(),
   pickRestoreBackup: () => shoresh.pickRestoreBackup(),

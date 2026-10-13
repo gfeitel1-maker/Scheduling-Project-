@@ -600,7 +600,9 @@ describe('guard: one reader', () => {
     return out
   }
   it('no other source file names the answer kinds or imports their constants', () => {
-    const allowed = new Set(['electron/ops/answerMemory.js'])
+    // T381: the whole-camp file test helper builds fixture rows of both kinds to prove a round trip; it writes
+    // rows for a test and reads nothing, so it is not a second reader of the answer kinds.
+    const allowed = new Set(['electron/ops/answerMemory.js', 'electron/ops/campFile/campFileTestSupport.js'])
     const hits = sources()
       .filter(({ rel, text }) => !allowed.has(rel) && /\bimport_answer\b|\bimport_rule_veto\b|\bANSWER_KIND\b|\bVETO_KIND\b/.test(text))
       .map(({ rel }) => rel)

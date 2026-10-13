@@ -55,8 +55,13 @@ device *is* the backup, continuously.
 **Backups restore on this computer only.** A backup (**Backup now**) is a copy of the database and the
 camp document, both encrypted under this computer's keychain-sealed key, so it opens on this computer and
 nowhere else. It protects against a bad edit or a damaged file, not against losing the laptop. For that the
-director pairs a second device (owner ruling 2026-10-13, "Second device + camp file"; the camp-file half is
-being built). The app and the Director's Guide say so at the point of restore.
+director pairs a second device, or uses **Save whole camp** (owner ruling 2026-10-13, "Second device + camp file").
+Save whole camp writes a `.shoresh-camp` file: the camp's setup, both schedules with their saved versions, special
+days and learned answers, with no keys, PINs, users or devices. **Open a saved camp**, on the start screen, turns that
+file into a brand-new camp with its own identity and PIN on any computer. The file is deliberately **not encrypted**
+(the dialog says so) and leaves out camper lists and elective choices, so no child's name is in it; those are
+imported again after opening. It is a portable copy of setup, not a sync or backup mechanism, and never merges into
+a camp that already has data (`docs/adr/2026-10-13-whole-camp-file-save-and-open.md`). The app and the Director's Guide say so at the point of restore.
 
 **There is deliberately no plaintext local backup.** Once encryption has verified, the first-run
 plaintext rollback backup and any legacy plaintext schema-migration backups

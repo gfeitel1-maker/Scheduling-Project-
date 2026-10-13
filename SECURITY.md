@@ -807,6 +807,10 @@ key material is a single point of failure for revoking another device.
 
 ---
 
+### The whole-camp file is not protected (T381; accepted by the owner 2026-10-13)
+
+**Save whole camp** writes a `.shoresh-camp` file that is deliberately **not encrypted**, so it opens on a different computer. Anyone who gets the file can read the camp's setup, both schedules, special days and learned answers. The file can also carry the camp map images (with whatever metadata the image itself holds) and text from imported spreadsheets that is kept in the learned answers. It carries no keys, PINs, users, devices or authority log, and no campers or elective assignment runs (so no child's name). The save confirmation says so and tells the director to keep it somewhere private. The file is unauthenticated: **Open a saved camp** treats it as hostile input (size and row caps checked before and during the read, an allowlist of entities and fields from the projection registry, closed references, no `__proto__`/`constructor` keys) and only ever loads it into a brand-new, empty camp through the ordinary write paths; it cannot inject an admin or a device. **Start over** after an open that did not finish takes no sign-in (the director may be unable to sign in in that state), but is allowed only for a profile marked incomplete before the camp was made; it is refused for every other camp, and nothing is deleted: the old profile stays on disk. See `docs/adr/2026-10-13-whole-camp-file-save-and-open.md`.
+
 ## Explicitly NOT for
 
 - **Public hosting** — Shoresh is not a service to host for others. A device's sync port can be

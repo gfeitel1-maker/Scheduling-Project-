@@ -431,7 +431,7 @@ The special day stays saved and the regular schedule comes back on that day.
 
 Backups go to `~/Library/Application Support/shoresh/backups/` on your Mac. Shoresh keeps the newest 10. Each backup includes the camp document as well as the database.
 
-**Backups restore on this computer only.** A backup is locked with this computer's own key, so it cannot be opened on another computer. To protect against losing this laptop, pair a second device: every paired computer holds a full copy of the camp.
+**Backups restore on this computer only.** A backup is locked with this computer's own key, so it cannot be opened on another computer. To protect against losing this laptop, pair a second device: every paired computer holds a full copy of the camp. Or use **Save whole camp** and keep the file somewhere private (see "Moving your camp to a new computer" below).
 
 If you see **Backup saved — camp document not included**, the database was backed up but the camp document could not be copied. Click **Backup now** again; if the message keeps appearing, do not rely on that backup alone.
 
@@ -447,6 +447,29 @@ Restoring rebuilds *this computer* from the backup, then syncs. If other compute
 Backups made before backups included the camp document cannot be restored. Shoresh will say so, because the restore would be undone at the next sync. If a restore says it did not finish, your previous data was put back and nothing changed; if it also says to restart Shoresh, do that before anything else, because a copy of your previous data is in the backups folder.
 
 The confirmation says it too: "Anything erased since then may reappear until other devices sync." So if you erased records after the backup was made, they can come back on this computer until the other computers sync.
+
+### Moving your camp to a new computer
+
+A backup only works on the computer that made it. To rebuild your camp on a different computer, save the whole camp to a file and open that file on the new computer.
+
+On the old computer (directors only):
+
+1. At the bottom of the sidebar, click **Save whole camp**.
+2. Read the two lines: the file isn't protected, so keep it somewhere private; camper lists and elective choices aren't included.
+3. Click **Choose where to save**, pick a folder, and save. When it finishes, Shoresh names the file and says what it holds.
+
+On the new computer, with Shoresh installed and no camp yet:
+
+1. On the first screen, click **Open a saved camp** ("Start from a saved camp file").
+2. Choose the `.shoresh-camp` file. Shoresh checks it before anything is created; if it can't be opened, it says why and you can pick another file.
+3. Enter the camp name, your name, and a new PIN, then click **Open camp**.
+4. Wait while Shoresh checks the file, loads your camp, and finishes.
+
+The new computer starts a new camp with its own PIN and its own identity. Your setup, both schedules with their saved versions, special days, and what Shoresh has learned from your import answers all come across. Camper lists and elective choices do not: import them again. Computers paired to the old camp do not follow; pair them to the new one.
+
+If opening stops partway, Shoresh will not let you use that half-opened camp. Click **Start over** and try the file again.
+
+The file is not locked. Anyone who gets it can read your camp setup, so keep it somewhere private and don't email it.
 
 Your best protection is still a second computer joined to the camp — it keeps a full copy all the time.
 

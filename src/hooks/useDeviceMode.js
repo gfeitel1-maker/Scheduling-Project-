@@ -61,6 +61,9 @@ export function useDeviceMode() {
   const [campIsEmpty, setCampIsEmpty] = useState(null)
   const [error, setError] = useState(null)
   const [bootFailure, setBootFailure] = useState(null)
+  // Open a saved camp: a screen-flow flag, deliberately not persisted (a reload mid-flow returns to the start screen,
+  // before anything has been written).
+  const [openingFile, setOpeningFile] = useState(false)
   const [initNonce, setInitNonce] = useState(0)
   // Director-facing explanation for why they landed back on the login screen.
   // null = ordinary (fresh device, deliberate logout, benign local-expiry).
@@ -292,6 +295,49 @@ export function useDeviceMode() {
   }, [refreshCamp, login])
 
 
+  const chooseOpenFile = useCallback(() => setOpeningFile(true), [])
+  const cancelOpenFile = useCallback(() => setOpeningFile(false), [])
+  const pickCampFile = useCallback(() => localClient.pickCampFile(), [])
+
+  // The file was already picked and checked in main. Make the camp the ordinary way, sign in, then load; the camp is
+  // NOT refreshed into state here, so the screen stays up showing progress (or the failure) until finishOpenFile.
+  const bootstrapFromCampFile = useCallback(async ({ campName, adminName, adminPin }) => {
+    try {
+      const begun = await localClient.beginCampFileLoad()
+      if (!begun?.ok) return { ok: false, reason: begun?.reason ?? 'load_incomplete', detail: {} }
+      await localClient.chooseMode({ mode: 'host', campName, port: DEFAULT_HOST_PORT })
+      await localClient.bootstrapCamp({ campName, adminName, adminPin })
+      await login(adminName, adminPin)
+    } catch (err) {
+      return { ok: false, reason: 'load_incomplete', detail: { message: err && err.message ? err.message : String(err) } }
+    }
+    try {
+      return await localClient.loadCampFile()
+    } catch (err) {
+      return { ok: false, reason: 'load_incomplete', detail: { message: err && err.message ? err.message : String(err) } }
+    }
+  }, [login])
+
+  const finishOpenFile = useCallback(async () => {
+    localStorage.setItem(MODE_KEY, 'host')
+    setMode('host')
+    setOpeningFile(false)
+    await refreshCamp()
+  }, [refreshCamp])
+
+  // Walk away from a camp that never opened. Main switches to a new empty profile file and reloads the window; what
+  // this device remembered about the abandoned camp must go first, or the reload would try to resume it.
+  const startOver = useCallback(async () => {
+    localStorage.removeItem(MODE_KEY)
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(ROLE_KEY)
+    try {
+      return await localClient.startOverCampFile()
+    } catch (err) {
+      return { ok: false, reason: 'start_over_failed', message: err && err.message ? err.message : String(err) }
+    }
+  }, [])
+
   const logout = useCallback(() => {
     clearSessionState(null)
   }, [clearSessionState])
@@ -304,6 +350,8 @@ export function useDeviceMode() {
   let phase
   if (error || bootFailure) phase = 'error'
   else if (loading) phase = 'loading'
+  else if (camp?.loadIncomplete) phase = 'load-incomplete'
+  else if (openingFile && !camp) phase = 'open-file'
   else if (!mode) phase = 'mode-select'
   else if (mode === 'host' && !camp) phase = 'bootstrap'
   // `!camp` matters for the libp2p join flow (docs/adr/2026-09-08-libp2p-join-flow.md):
@@ -328,6 +376,12 @@ export function useDeviceMode() {
     retry,
     chooseHost,
     chooseJoin,
+    chooseOpenFile,
+    cancelOpenFile,
+    pickCampFile,
+    bootstrapFromCampFile,
+    finishOpenFile,
+    startOver,
     bootstrapCamp,
     login,
     completeJoin,

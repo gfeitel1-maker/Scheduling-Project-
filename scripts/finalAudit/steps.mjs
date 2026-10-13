@@ -10,21 +10,22 @@ export async function run(h) {
   const { step, ev, waitFor, click, nav, setFile, sleep, CAMPB, DL, relaunch, UD } = h
   // Director-guide screenshots (scripts/finalAudit/guideShots.mjs): a no-op outside --guide.
   const guide = h.guide ?? (async () => {})
-  const listNames = async (screen) => {
-    await nav(screen)
-    await waitFor(`return /\\d+ (FIXED|RECURRING) EVENTS?/.test(__main())`, 20000, `${screen} list`)
+  const listNamesOn = async (c, screen) => {
+    await c.nav(screen)
+    await c.waitFor(`return /\\d+ (FIXED|RECURRING) EVENTS?/.test(__main())`, 20000, `${screen} list`)
     // One entry per event per DAY, [name, day, block, divisions], whether the screen groups an event's
     // days into one row (T377) or not. Every grouped row is expanded; its header row is skipped, and a
     // day row's name comes from its "Edit NAME on DAY" label (its first cell shows the day).
-    await ev(`for (const b of [...document.querySelectorAll('button[aria-label^="Show each day of"]')].filter(__vis)) b.click(); return true`)
+    await c.ev(`for (const b of [...document.querySelectorAll('button[aria-label^="Show each day of"]')].filter(__vis)) b.click(); return true`)
     await sleep(400)
-    return ev(`return [...document.querySelectorAll('tr')].filter(__vis).flatMap(r=>{
+    return c.ev(`return [...document.querySelectorAll('tr')].filter(__vis).flatMap(r=>{
       if (r.querySelector('button[aria-label^="Hide each day of"],button[aria-label^="Show each day of"]')) return []
       const c=[...r.querySelectorAll('td')].map(td=>td.innerText.trim()); if (c.length<3) return []
       const m=(r.querySelector('[role=button][aria-label^="Edit "]')?.getAttribute('aria-label')||'').match(/^Edit (.+) on (.+)$/)
       return [m ? [m[1], c[1], c[2], c[3]] : c]
     })`)
   }
+  const listNames = (screen) => listNamesOn({ nav, waitFor, ev }, screen)
   // Which groups the FILE gives a lunch, per day (CIT has none in campB).
   const fileLunch = () => {
     const out = {}
@@ -686,6 +687,87 @@ export async function run(h) {
         return `R removed on A; after relaunch R showed the ${seen} within ${learnedS}s; A stayed signed in`
       } finally { await B2.stop() }
     } finally { await B.stop().catch(() => {}) }
+  })
+
+  await step(20, 'Save whole camp, then Open a saved camp on a new device: both schedules, events and locations carry over; no sign-in or device does', async () => {
+    // T381 / docs/adr/2026-10-13-whole-camp-file-save-and-open.md section 7. The native dialogs are invisible to CDP,
+    // so each app's main process answers them with this run's file. Needs A running (runs before 13, which quits A),
+    // and a build with the feature (the PR from claude/whole-camp-file-adr).
+    featureInBranch('claude/whole-camp-file-adr', 'Whole-camp file', 20)
+    const saved = path.join(h.RUN, 'whole-camp.shoresh-camp')
+    fs.rmSync(saved, { force: true })
+    const hook = (kind) => `(()=>{const r=process.getBuiltinModule('module').createRequire('/x.js'); const {dialog}=r('electron'); ${kind === 'save'
+      ? `dialog.showSaveDialog=async()=>({canceled:false,filePath:${JSON.stringify(saved)}})`
+      : `dialog.showOpenDialog=async()=>({canceled:false,filePaths:[${JSON.stringify(saved)}]})`}; return 'hooked'})()`
+    const lines = (c) => c.ev(`return __main().split('\\n').map(l=>l.trim()).filter(Boolean)`)
+    const read = async (c) => {
+      await c.nav('Generated Schedule')
+      const gen = await c.waitFor(STATS, 120000, 'Generated stats')
+      await c.nav('Manual Build')
+      const man = await c.waitFor(STATS, 60000, 'Manual stats')
+      const events = [...(await listNamesOn(c, 'Fixed Events')), ...(await listNamesOn(c, 'Recurring Events'))].map((r) => JSON.stringify(r)).sort()
+      await c.nav('Locations')
+      await c.waitFor(`return !/No locations yet/.test(__main())`, 15000, 'locations list')
+      return { gen, man, events, locations: await lines(c) }
+    }
+    const before = await read({ nav, waitFor, ev })
+
+    await h.mainEval(hook('save'))
+    await click('Save whole camp', true, 10000)
+    const warning = await waitFor(`const a=document.querySelector('[role=alertdialog][aria-label="Confirm save whole camp"]'); return a ? a.innerText : false`, 10000, 'save confirmation')
+    for (const sentence of ["This file isn't protected — keep it somewhere private.", "Camper lists and elective choices aren't included; import them again after opening."]) {
+      if (!warning.includes(sentence)) throw new Error(`the save confirmation lacks "${sentence}": ${warning}`)
+    }
+    await h.shot('s20-save-warning')
+    await click('Choose where to save', true, 10000)
+    const savedLine = await waitFor(`const m=__main().match(/Saved [^\\n]*\\.shoresh-camp[^\\n]*/); return m && m[0]`, 60000, 'saved confirmation')
+    await h.shot('s20-saved')
+    if (!fs.existsSync(saved) || fs.statSync(saved).size < 1000) throw new Error('the camp file was not written')
+    if (fs.readdirSync(h.RUN).some((f) => f.includes('.tmp-'))) throw new Error('a temp file was left beside the camp file')
+    const file = JSON.parse(fs.readFileSync(saved, 'utf8'))
+    for (const gone of ['users', 'device_roster', 'camp_authority_log', 'campers']) if (file.entities?.[gone]) throw new Error(`the file carries ${gone}`)
+    if (JSON.stringify(file).includes(h.PIN) || /signing_secret|pin_hash/.test(JSON.stringify(file))) throw new Error('the file carries a secret')
+
+    const W = await h.launchPeer('W', h.PORT + 60)
+    try {
+      await W.mainEval(hook('open'))
+      await W.waitFor(`return document.body.innerText.includes('Open a saved camp')`, 120000, 'W: start screen')
+      await W.shot('s20-start-screen')
+      await W.click('Open a saved camp', false)
+      await W.click('Choose a camp file', true, 15000)
+      const SECOND_PIN = '715204'
+      await W.waitFor(`const n=document.getElementById('bootstrap-camp-name'); if(!n || !n.value) return false; __set(document.getElementById('bootstrap-admin-name'), 'Second Director'); __set(document.getElementById('bootstrap-admin-pin'), ${JSON.stringify(SECOND_PIN)}); return true`, 15000, 'W: form prefilled from the file')
+      await sleep(300); await W.click('Open camp', true, 10000)
+      await W.waitFor(`return document.body.innerText.includes('Log out')`, 240000, 'W: signed in to the opened camp')
+      if (await W.ev(`return /didn.t finish opening|Couldn.t open that camp/.test(document.body.innerText)`)) throw new Error('W shows a load-incomplete or failure screen')
+      const after = await read(W)
+      await W.shot('s20-opened')
+      const problems = []
+      for (const k of ['gen', 'man']) if (before[k].placed !== after[k].placed || before[k].total !== after[k].total) problems.push(`${k} placed ${before[k].placed}/${before[k].total} -> ${after[k].placed}/${after[k].total}`)
+      if (JSON.stringify(before.events) !== JSON.stringify(after.events)) problems.push(`events differ: ${before.events.length} -> ${after.events.length}`)
+      const gone = before.locations.filter((l) => !after.locations.includes(l)), added = after.locations.filter((l) => !before.locations.includes(l))
+      if (gone.length || added.length) problems.push(`locations differ: missing ${JSON.stringify(gone.slice(0, 3))}, extra ${JSON.stringify(added.slice(0, 3))}`)
+      // Derived ids resolve: a regenerated Generated schedule still places.
+      await W.nav('Generated Schedule')
+      const regen = await W.ev(`const b=[...document.querySelectorAll('button')].filter(__vis).find(b=>/^(Re-?generate|Generate again)/i.test(b.innerText.trim())); if(!b) return 'NO REGENERATE BUTTON: '+[...document.querySelectorAll('button')].filter(__vis).map(b=>b.innerText.trim()).filter(Boolean).slice(0,25).join(' | '); b.click(); return 'clicked'`)
+      if (regen !== 'clicked') problems.push(regen)
+      else {
+        await sleep(1500)
+        const again = await W.waitFor(STATS, 120000, 'W: regenerated stats')
+        if (!(again.placed > 0)) problems.push('regenerating on the opened camp placed nothing')
+      }
+      // No sign-in carries over: the first camp's director and PIN do not work on the opened camp.
+      await W.click('Log out', true, 10000)
+      await W.waitFor(`return !!__inp('#login-name')`, 20000, 'W: sign-in screen')
+      await W.ev(`__set(__inp('#login-name'), ${JSON.stringify(h.ADMIN)}); __set(__inp('#login-pin'), ${JSON.stringify(h.PIN)}); setTimeout(()=>__click('Sign in', true),300); return true`)
+      await sleep(4000)
+      if (await W.ev(`return document.body.innerText.includes('Log out')`)) problems.push("the first camp's director and PIN signed in to the opened camp")
+      await W.shot('s20-no-identity')
+      if (problems.length) throw new Error(problems.join('; '))
+      return `${savedLine}; opened in a new device as a new camp: Generated ${after.gen.placed}/${after.gen.total} and Manual ${after.man.placed}/${after.man.total} placed (as before), ${after.events.length} events and ${after.locations.length} location lines match, a regeneration places, the first camp's sign-in is refused`
+    } finally {
+      await W.stop()
+    }
   })
 
   await step(15, 'Two camps on one network: both hosts stay signed in, neither admits the other, no data crosses', async () => {

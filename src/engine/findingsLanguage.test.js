@@ -101,6 +101,10 @@ const REASON_FAMILY_PATTERNS = [
 // strictly better than the prior failure mode (silent, zero-action shrink),
 // and is accepted.
 const NON_FINDING_MESSAGE_FILES = [
+  // T381: `reason` here is an open-a-saved-camp failure code (not_a_camp_file, too_large, ...), not a schedule finding.
+  'src/hooks/useDeviceMode.js',
+  'src/screens/LoadIncompleteScreen.jsx',
+  'src/screens/OpenSavedCampScreen.jsx',
   'src/components/reconciliation/reconciliationCards.jsx',
   'src/data/setupCrudRepository.js',
   'src/engine/weekCatalog.js',

@@ -272,6 +272,17 @@ export function StarIcon({ size = 18, style, ...rest }) {
   )
 }
 
+// A document with a folded corner — "start from a saved camp file".
+export function CampFileIcon({ size = 18, style, ...rest }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" style={{ flexShrink: 0, ...style }} {...rest}>
+      <path d="M6.5 3.5h7l4 4v13h-11z" />
+      <path d="M13.5 3.5v4h4" />
+    </svg>
+  )
+}
+
 // Two arcs chasing each other — "join a camp already running", i.e. sync with
 // another device. Each arrowhead is drawn as a corner AT its arc's endpoint,
 // which is what makes it read as a head rather than a stray tick.
