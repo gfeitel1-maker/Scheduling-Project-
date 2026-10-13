@@ -56,6 +56,32 @@ describe('SaveCampControl', () => {
     expect(screen.queryByText(/Saving your camp/)).toBeNull()
   })
 
+  it('says how many items were left out when something pointed at what no longer exists', async () => {
+    localClient.saveCampFile.mockResolvedValue({ ...OK, leftOut: 3 })
+    render(<SaveCampControl />)
+    fireEvent.click(screen.getByRole('button', { name: 'Save whole camp' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose where to save' }))
+    const done = await screen.findByText(/Camp Probe\.shoresh-camp/)
+    expect(done.textContent).toMatch(/3 items were left out because they pointed at something that no longer exists/)
+  })
+
+  it('says nothing extra when nothing was left out', async () => {
+    localClient.saveCampFile.mockResolvedValue({ ...OK, leftOut: 0 })
+    render(<SaveCampControl />)
+    fireEvent.click(screen.getByRole('button', { name: 'Save whole camp' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose where to save' }))
+    const done = await screen.findByText(/Camp Probe\.shoresh-camp/)
+    expect(done.textContent).not.toMatch(/left out/)
+  })
+
+  it('tells a director a too-large camp cannot be saved as one file', async () => {
+    localClient.saveCampFile.mockResolvedValue({ ok: false, reason: 'too_large', detail: {} })
+    render(<SaveCampControl />)
+    fireEvent.click(screen.getByRole('button', { name: 'Save whole camp' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose where to save' }))
+    expect((await screen.findByRole('alert')).textContent).toMatch(/too large to save as one file/)
+  })
+
   it('returns quietly to the button when the save dialog is cancelled', async () => {
     localClient.saveCampFile.mockResolvedValue({ ok: false, reason: 'canceled' })
     render(<SaveCampControl />)

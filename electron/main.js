@@ -66,7 +66,7 @@ import { getElectiveRun } from './ops/getElectiveRun.js'
 import { getElectiveRunOuterSchedule } from './ops/getElectiveRunOuterSchedule.js'
 import { campHasSetupData } from './ops/campHasSetupData.js'
 import { saveCampFileToDisk, pickCampFileFromDisk } from './ops/campFile/campFileIo.js'
-import { loadCampFile as loadCampFileIntoCamp } from './ops/campFile/loadCampFile.js'
+import { loadCampFile as loadCampFileIntoCamp, setMarker as markCampFileLoadIncomplete, clearMarker as clearCampFileLoadMarker } from './ops/campFile/loadCampFile.js'
 import { CAMP_FILE_EXTENSION } from './ops/campFile/campFileScope.js'
 import { readCampStatus, canStartOver, freshProjectPath } from './ops/campFile/campFileLifecycle.js'
 import { PROJECTIONS } from './ops/projections.js'
@@ -2472,10 +2472,20 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   async function pickCampFileHandler() {
     pickedCampFile = null
     if (db.prepare('SELECT COUNT(*) AS n FROM camps').get().n > 0) return { ok: false, reason: 'camp_not_empty' }
+    clearCampFileLoadMarker(db)
     const picked = await pickCampFileFromDisk({ showOpenDialog: campFileDialogsFn.showOpenDialog })
     if (!picked.ok) return picked
     pickedCampFile = picked.file
     return { ok: true, fileName: picked.fileName, campName: picked.file.camp.name, counts: picked.file.counts }
+  }
+
+  // Runs just before the camp is made, so a crash or a failed sign-in between bootstrap and load still leaves the
+  // profile marked incomplete (and so offers Start over). loadCampFile clears it when the load finishes.
+  function beginCampFileLoadHandler() {
+    if (!pickedCampFile) return { ok: false, reason: 'no_file_picked' }
+    if (db.prepare('SELECT COUNT(*) AS n FROM camps').get().n > 0) return { ok: false, reason: 'camp_not_empty' }
+    markCampFileLoadIncomplete(db, randomUUID(), deviceId)
+    return { ok: true }
   }
 
   function loadCampFileHandler({ token } = {}) {
@@ -3392,6 +3402,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     attributeSubject: attributeSubjectHandler,
     saveCampFile: saveCampFileHandler,
     pickCampFile: pickCampFileHandler,
+    beginCampFileLoad: beginCampFileLoadHandler,
     loadCampFile: loadCampFileHandler,
     deleteElectiveSet: deleteElectiveSetHandler,
     deleteElectiveRun: deleteElectiveRunHandler,
@@ -3751,6 +3762,7 @@ if (isElectronEntryPoint()) {
     'shoresh:attribute-subject',
     'shoresh:save-camp-file',
     'shoresh:pick-camp-file',
+    'shoresh:begin-camp-file-load',
     'shoresh:load-camp-file',
   ]
 
@@ -3866,6 +3878,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:attribute-subject', (_event, args) => handlers.attributeSubject(args))
     ipcMain.handle('shoresh:save-camp-file', (_event, args) => handlers.saveCampFile(args))
     ipcMain.handle('shoresh:pick-camp-file', () => handlers.pickCampFile())
+    ipcMain.handle('shoresh:begin-camp-file-load', () => handlers.beginCampFileLoad())
     ipcMain.handle('shoresh:load-camp-file', (_event, args) => handlers.loadCampFile(args))
     ipcMain.handle('shoresh:delete-elective-set', (_event, args) => handlers.deleteElectiveSet(args))
     ipcMain.handle('shoresh:delete-special-day', (_event, args) => handlers.deleteSpecialDay(args))

@@ -2056,6 +2056,9 @@ export const mockShoresh = {
   async pickCampFile() {
     return { ok: true, fileName: 'Mock Camp.shoresh-camp', campName: 'Mock Camp', counts: { groups: 12, activities: 20 } }
   },
+  async beginCampFileLoad() {
+    return { ok: true }
+  },
   async loadCampFile() {
     return { ok: true, counts: { groups: 12, activities: 20 } }
   },

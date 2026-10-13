@@ -10,13 +10,12 @@ export function readCampStatus(db) {
   return { ...camp, loadIncomplete: readLoadIncomplete(db) !== null }
 }
 
-// Start over only ever walks away from a camp that was never usable: one left half-loaded, or one that was just
-// bootstrapped and is still empty. A real camp with setup data and no marker is refused, so a stray call cannot
-// abandon it.
-const SETUP_TABLES = ['tiers', 'groups', 'time_blocks', 'activities']
+// Start over only ever walks away from a profile whose open-from-file did not finish: the marker is set before the
+// camp is made, so even a crash before the director could sign in leaves it. It takes no sign-in on purpose (that
+// director may be unable to log in in this state); the marker is the whole gate, and every other camp is refused.
+// Nothing is deleted: the abandoned profile stays on disk.
 export function canStartOver(db) {
-  if (readLoadIncomplete(db) !== null) return true
-  return !SETUP_TABLES.some((t) => db.prepare(`SELECT 1 FROM ${t} LIMIT 1`).get())
+  return readLoadIncomplete(db) !== null
 }
 
 export function freshProjectPath(currentDbPath, now = Date.now) {

@@ -25,6 +25,7 @@ import { PERMISSIONS } from './auth/permissions.js'
 import { appendOp } from './ops/operations.js'
 import { exportCampFile, serializeCampFile } from './ops/campFile/exportCampFile.js'
 import { validateCampFile } from './ops/campFile/validateCampFile.js'
+import { readCampStatus, canStartOver } from './ops/campFile/campFileLifecycle.js'
 import { readLoadIncomplete } from './ops/campFile/loadCampFile.js'
 import { makeFreshCamp, buildFixtureCamp } from './ops/campFile/campFileTestSupport.js'
 import { setUserDataDirGetter, resetForTests as resetLiveDocForTests } from './sync/automerge/liveDoc.js'
@@ -125,6 +126,25 @@ describe('Save whole camp (saveCampFile)', () => {
     dialogs.showSaveDialog.mockResolvedValue({ canceled: true })
     expect(await handlers.saveCampFile({ token })).toEqual({ ok: false, reason: 'canceled' })
     expect(fs.readdirSync(dir).filter((n) => n.endsWith('.shoresh-camp') || n.includes('.tmp'))).toEqual([])
+  })
+
+  it('returns what the exporter left out because it pointed at something gone', async () => {
+    const { handlers, token } = await loginAs('Director', '135790')
+    const ids = buildFixtureCamp(db, { campId, deviceId, userId: null })
+    db.pragma('foreign_keys = OFF')
+    db.prepare('DELETE FROM locations WHERE id = ?').run(ids.field)
+    dialogs.showSaveDialog.mockResolvedValue({ canceled: false, filePath: path.join(dir, 'gap.shoresh-camp') })
+    const result = await handlers.saveCampFile({ token })
+    expect(result.ok).toBe(true)
+    expect(result.report.nulledReferences + result.report.droppedRows).toBeGreaterThan(0)
+    expect(result.leftOut).toBe(result.report.nulledReferences + result.report.droppedRows)
+  })
+
+  it('reports nothing left out for a clean camp', async () => {
+    const { handlers, token } = await loginAs('Director', '135790')
+    dialogs.showSaveDialog.mockResolvedValue({ canceled: false, filePath: path.join(dir, 'clean.shoresh-camp') })
+    const result = await handlers.saveCampFile({ token })
+    expect(result.leftOut).toBe(0)
   })
 
   it('reports a write failure in plain words and leaves no half file', async () => {
@@ -255,6 +275,53 @@ describe('Open a saved camp: loadCampFile (after bootstrap and login)', () => {
     const result = await handlers.loadCampFile({ token })
     expect(result).toMatchObject({ ok: false, reason: 'camp_not_empty' })
     expect(d.prepare('SELECT COUNT(*) AS n FROM groups').get().n).toBe(1)
+    expect(readLoadIncomplete(d)).toBeNull()
+  })
+})
+
+describe('Open a saved camp: the incomplete marker is set before bootstrap', () => {
+  it('beginCampFileLoad marks the profile before any camp exists; a launch after bootstrap-ok / load-never-ran reports loadIncomplete and allows Start over', async () => {
+    await writeSavedFile()
+    const { d, handlers } = campLessHandlers()
+    choose(savedFilePath)
+    await handlers.pickCampFile()
+    expect(handlers.beginCampFileLoad()).toEqual({ ok: true })
+    expect(readLoadIncomplete(d)).not.toBeNull()
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp A' })
+    await handlers.bootstrapCamp({ campName: 'Camp A', adminName: 'Director', adminPin: '135790' })
+    expect(readCampStatus(d)).toMatchObject({ loadIncomplete: true })
+    expect(canStartOver(d)).toBe(true)
+  })
+
+  it('refuses to begin with no picked file, and once a camp exists', async () => {
+    const { handlers } = campLessHandlers()
+    expect(handlers.beginCampFileLoad()).toMatchObject({ ok: false, reason: 'no_file_picked' })
+    const existing = makeHandlers(db, deviceId, { campFileDialogs: dialogs })
+    expect(existing.beginCampFileLoad()).toMatchObject({ ok: false })
+    expect(readLoadIncomplete(db)).toBeNull()
+  })
+
+  it('picking again (backing out and choosing another file) clears a marker left with no camp behind it', async () => {
+    await writeSavedFile()
+    const { d, handlers } = campLessHandlers()
+    choose(savedFilePath)
+    await handlers.pickCampFile()
+    handlers.beginCampFileLoad()
+    dialogs.showOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] })
+    await handlers.pickCampFile()
+    expect(readLoadIncomplete(d)).toBeNull()
+  })
+
+  it('a completed load clears it', async () => {
+    await writeSavedFile()
+    const { d, handlers } = campLessHandlers()
+    choose(savedFilePath)
+    await handlers.pickCampFile()
+    handlers.beginCampFileLoad()
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp A' })
+    await handlers.bootstrapCamp({ campName: 'Camp A', adminName: 'Director', adminPin: '135790' })
+    const { token } = await handlers.login({ name: 'Director', pin: '135790' })
+    expect((await handlers.loadCampFile({ token })).ok).toBe(true)
     expect(readLoadIncomplete(d)).toBeNull()
   })
 })

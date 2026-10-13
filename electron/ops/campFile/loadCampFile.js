@@ -62,13 +62,13 @@ export function readLoadIncomplete(db) {
   return row ?? null
 }
 
-function setMarker(db, loadId, deviceId) {
+export function setMarker(db, loadId, deviceId) {
   db.prepare('DELETE FROM locks WHERE entity = ?').run(MARKER_ENTITY)
   db.prepare('INSERT INTO locks (entity, entity_id, field, holder_device_id, acquired_at) VALUES (?, ?, ?, ?, ?)')
     .run(MARKER_ENTITY, loadId, MARKER_FIELD, deviceId, new Date().toISOString())
 }
 
-function clearMarker(db) {
+export function clearMarker(db) {
   db.prepare('DELETE FROM locks WHERE entity = ?').run(MARKER_ENTITY)
 }
 

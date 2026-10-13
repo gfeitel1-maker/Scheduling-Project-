@@ -32,10 +32,10 @@ describe('canStartOver', () => {
     markIncomplete(db)
     expect(canStartOver(db)).toBe(true)
   })
-  it('allows a freshly bootstrapped, still empty camp', () => {
+  it('refuses a camp made by plain Start a new camp: empty tables without the marker are not abandonable', () => {
     const { db } = openTemplatedDb()
     makeFreshCamp(db)
-    expect(canStartOver(db)).toBe(true)
+    expect(canStartOver(db)).toBe(false)
   })
   it('refuses a real camp that has setup data and no marker', () => {
     const { db } = openTemplatedDb()

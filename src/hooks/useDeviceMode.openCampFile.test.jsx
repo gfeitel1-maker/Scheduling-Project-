@@ -9,7 +9,7 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 const mockLocalClient = {
   getBootFailure: vi.fn(), getCamp: vi.fn(), campHasSetupData: vi.fn(), chooseMode: vi.fn(), bootstrapCamp: vi.fn(),
   login: vi.fn(), verifySession: vi.fn(), getDevicePairingStatus: vi.fn(), onAuthRejected: vi.fn(),
-  pickCampFile: vi.fn(), loadCampFile: vi.fn(), startOverCampFile: vi.fn(),
+  pickCampFile: vi.fn(), beginCampFileLoad: vi.fn(), loadCampFile: vi.fn(), startOverCampFile: vi.fn(),
 }
 vi.mock('../localClient', () => ({ get localClient() { return mockLocalClient } }))
 const { useDeviceMode } = await import('./useDeviceMode')
@@ -30,6 +30,7 @@ beforeEach(() => {
   mockLocalClient.campHasSetupData.mockResolvedValue(false)
   mockLocalClient.onAuthRejected.mockReturnValue(() => {})
   mockLocalClient.pickCampFile.mockResolvedValue({ ok: true, fileName: 'f.shoresh-camp', campName: 'C', counts: {} })
+  mockLocalClient.beginCampFileLoad.mockResolvedValue({ ok: true })
   mockLocalClient.loadCampFile.mockResolvedValue({ ok: true, counts: { groups: 2 } })
   mockLocalClient.startOverCampFile.mockResolvedValue({ ok: true })
 })
@@ -74,6 +75,19 @@ describe('open a saved camp', () => {
     await act(async () => { await result.current.finishOpenFile() })
     expect(result.current.phase).toBe('session')
     expect(localStorage.getItem('shoresh-mode')).toBe('host')
+  })
+
+  it('marks the profile incomplete before the camp is made, and makes no camp if it cannot', async () => {
+    const { result } = await ready()
+    act(() => result.current.chooseOpenFile())
+    await act(async () => { await result.current.bootstrapFromCampFile(creds) })
+    expect(mockLocalClient.beginCampFileLoad.mock.invocationCallOrder[0]).toBeLessThan(mockLocalClient.chooseMode.mock.invocationCallOrder[0])
+    mockLocalClient.chooseMode.mockClear()
+    mockLocalClient.beginCampFileLoad.mockResolvedValue({ ok: false, reason: 'no_file_picked' })
+    let outcome
+    await act(async () => { outcome = await result.current.bootstrapFromCampFile(creds) })
+    expect(outcome).toMatchObject({ ok: false })
+    expect(mockLocalClient.chooseMode).not.toHaveBeenCalled()
   })
 
   it('reports a failed load with its reason and does not refresh the camp', async () => {

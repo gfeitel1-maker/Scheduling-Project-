@@ -156,6 +156,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   exportProject: () => ipcRenderer.invoke('shoresh:export-project'),
   saveCampFile: (args) => ipcRenderer.invoke('shoresh:save-camp-file', args),
   pickCampFile: () => ipcRenderer.invoke('shoresh:pick-camp-file'),
+  beginCampFileLoad: () => ipcRenderer.invoke('shoresh:begin-camp-file-load'),
   loadCampFile: (args) => ipcRenderer.invoke('shoresh:load-camp-file', args),
   startOverCampFile: () => ipcRenderer.invoke('shoresh:start-over-camp-file'),
   backupProject: () => ipcRenderer.invoke('shoresh:backup-project'),

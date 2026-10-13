@@ -404,6 +404,7 @@ export const localClient = {
   exportProject: () => shoresh.exportProject(),
   // Open a saved camp: picked BEFORE the camp exists, so no token (main refuses once a camp is here).
   pickCampFile: () => shoresh.pickCampFile(),
+  beginCampFileLoad: () => shoresh.beginCampFileLoad(),
   startOverCampFile: () => shoresh.startOverCampFile(),
   backupProject: () => shoresh.backupProject(),
   showBackupInFolder: () => shoresh.showBackupInFolder(),

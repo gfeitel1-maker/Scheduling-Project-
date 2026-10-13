@@ -303,6 +303,8 @@ export function useDeviceMode() {
   // NOT refreshed into state here, so the screen stays up showing progress (or the failure) until finishOpenFile.
   const bootstrapFromCampFile = useCallback(async ({ campName, adminName, adminPin }) => {
     try {
+      const begun = await localClient.beginCampFileLoad()
+      if (!begun?.ok) return { ok: false, reason: begun?.reason ?? 'load_incomplete', detail: {} }
       await localClient.chooseMode({ mode: 'host', campName, port: DEFAULT_HOST_PORT })
       await localClient.bootstrapCamp({ campName, adminName, adminPin })
       await login(adminName, adminPin)

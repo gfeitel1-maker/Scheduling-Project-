@@ -13,7 +13,8 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
 function savedText(result) {
   const c = result.counts ?? {}
   const parts = [plural(c.groups ?? 0, 'group', 'groups'), plural(c.activities ?? 0, 'activity', 'activities'), plural(c.locations ?? 0, 'location', 'locations')]
-  return `Saved ${result.fileName} — ${parts.join(', ')}. Keep it somewhere private.`
+  const gone = result.leftOut > 0 ? ` ${plural(result.leftOut, 'item was', 'items were')} left out because ${result.leftOut === 1 ? 'it' : 'they'} pointed at something that no longer exists.` : ''
+  return `Saved ${result.fileName} — ${parts.join(', ')}.${gone} Keep it somewhere private.`
 }
 
 // Save whole camp: confirm (the file is unprotected; campers are left out), save in place, then say what was saved.
@@ -28,6 +29,7 @@ export default function SaveCampControl() {
     try {
       const result = await localClient.saveCampFile()
       if (result?.ok) setMessage({ ok: true, text: savedText(result) })
+      else if (result?.reason === 'too_large') setMessage({ ok: false, text: 'This camp is too large to save as one file.' })
       else if (result?.reason !== 'canceled') setMessage({ ok: false, text: result?.message || "The camp couldn't be saved. Try again." })
     } catch {
       setMessage({ ok: false, text: "The camp couldn't be saved. Try again." })

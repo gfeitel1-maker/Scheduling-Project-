@@ -15,7 +15,7 @@ export function defaultCampFileName(campName) {
 }
 
 // Temp file in the same folder, then rename: a crash never leaves a truncated file that looks complete.
-export async function saveCampFileToDisk({ db, camp, showSaveDialog, appVersion = null }) {
+export async function saveCampFileToDisk({ db, camp, showSaveDialog, appVersion = null, caps }) {
   const chosen = await showSaveDialog(defaultCampFileName(camp.name))
   if (chosen?.canceled || !chosen?.filePath) return { ok: false, reason: 'canceled' }
   const target = chosen.filePath.endsWith(CAMP_FILE_EXTENSION) ? chosen.filePath : `${chosen.filePath}${CAMP_FILE_EXTENSION}`
@@ -23,10 +23,13 @@ export async function saveCampFileToDisk({ db, camp, showSaveDialog, appVersion 
   const report = {}
   try {
     const file = exportCampFile(db, camp.id, { appVersion, report })
-    fs.writeFileSync(temp, serializeCampFile(file), { mode: 0o600 })
+    const text = serializeCampFile(file)
+    const sized = validateCampFile(text, { caps })
+    if (!sized.ok && sized.reason === 'too_large') return { ok: false, reason: 'too_large', detail: sized.detail ?? {} }
+    fs.writeFileSync(temp, text, { mode: 0o600 })
     fs.renameSync(temp, target)
     const total = Object.values(file.counts).reduce((a, b) => a + b, 0)
-    return { ok: true, fileName: path.basename(target), counts: file.counts, total, report }
+    return { ok: true, fileName: path.basename(target), counts: file.counts, total, report, leftOut: report.droppedRows + report.nulledReferences }
   } catch (err) {
     try { fs.rmSync(temp, { force: true }) } catch { /* nothing to clean */ }
     return { ok: false, reason: 'write_failed', message: `The file could not be saved (${err?.code ?? 'unknown error'}). Pick a different folder and try again.` }
