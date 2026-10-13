@@ -102,9 +102,13 @@ async function shot(label) {
 // docs/guide/img/<name>.png.
 const GUIDE = process.argv.includes('--guide')
 const guideTaken = new Set()
-async function guideShot(name) {
+// `show`: text of the element the shot is about; it is scrolled to the middle of the 1280x800 view first, so a
+// control below the fold is in the picture.
+async function guideShot(name, show = null) {
   if (guideTaken.has(name)) return
   await app.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false })
+  await sleep(400)
+  if (show) await ev(`const t=${JSON.stringify(show)}; const el=[...document.querySelectorAll('button,label,input,h1,h2,h3,h4,p,div,span')].filter(__vis).find(e=>e.children.length===0&&((e.innerText||'').includes(t)||(e.value||'')===t)); if(el) el.scrollIntoView({block:'center'}); return !!el`).catch(() => false)
   await sleep(600)
   const f = path.join(REPO, 'docs/guide/img', `${name}.png`)
   fs.mkdirSync(path.dirname(f), { recursive: true })
