@@ -133,14 +133,14 @@ const UNFILLABLE_ENTRY = {
   description: 'Unfillable',
 }
 
-// One entry for the three caution dots (both routes): over capacity, off this
-// week, changed on another device.
+// One entry for the caution dots (both routes): over capacity, off this week, changed on
+// another device, or a rainy day's rain plan was full.
 const CAUTION_ENTRY = {
-  flagKeys: ['OVERLAP', 'WEEK_CLOSED', 'CONTENT_RACE'],
+  flagKeys: ['OVERLAP', 'WEEK_CLOSED', 'CONTENT_RACE', 'RAIN_PLAN_FULL'],
   label: 'Check this cell',
   shape: 'dot',
   color: 'var(--accent)',
-  description: 'Over capacity, off this week, or changed on another device',
+  description: 'Over capacity, off this week, changed on another device, or its rain plan was full',
 }
 
 export const LEGEND_ENTRIES = [

@@ -29,7 +29,7 @@ describe('grid legend', () => {
   // tooltip names the reason.
   it('gives every caution flag the one caution colour, documented by one entry', () => {
     const caution = Object.keys(FLAG_COLORS).filter(k => FLAG_SEVERITY[k] === 'caution')
-    expect(caution.sort()).toEqual(['CONTENT_RACE', 'OVERLAP', 'WEEK_CLOSED'])
+    expect(caution.sort()).toEqual(['CONTENT_RACE', 'OVERLAP', 'RAIN_PLAN_FULL', 'WEEK_CLOSED'])
     for (const key of caution) expect(FLAG_COLORS[key]).toBe('var(--accent)')
     const entries = LEGEND_ENTRIES.filter(e => e.flagKeys.some(k => caution.includes(k)))
     expect(entries).toHaveLength(1)
