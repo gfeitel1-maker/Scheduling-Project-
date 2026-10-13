@@ -1,5 +1,5 @@
 import { recoverFromRendererGone, wireActivate } from './windowLifecycle.js'
-import { app, BrowserWindow, ipcMain, dialog, safeStorage, Menu, shell, powerMonitor, session } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, safeStorage, Menu, shell, powerMonitor, session as electronSession } from 'electron'
 import { createWillQuitHandler, createQuitFlush, wireSessionEndFlush } from './willQuit.js'
 import path from 'node:path'
 import os from 'node:os'
@@ -4243,7 +4243,7 @@ if (isElectronEntryPoint()) {
     closeDb: () => db.close(),
     listProjectDbPaths: () => dataPathsForKey(),
     reset: ({ extraDbPaths }) => runLocalReset({ userDataDir: userDataPath, extraDbPaths }),
-    clearRendererStorage: () => session.defaultSession.clearStorageData(),
+    clearRendererStorage: () => electronSession.defaultSession.clearStorageData(),
     restart: (ms) => setTimeout(() => { app.relaunch(); app.exit(0) }, ms),
   }))
   const initialHandlers = makeHandlers(db, deviceId, {
