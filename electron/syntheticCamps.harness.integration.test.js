@@ -920,6 +920,45 @@ describe('a fitting week with a double period is filled again on every seed (T37
     expect(short).toEqual([])
     d.close()
   })
+  // A multi-block activity is one contiguous session: every placed one is a head followed by exactly
+  // span_blocks - 1 tails in the next blocks of that group's day, and no tail stands without its head.
+  it('every placed multi-block activity is a contiguous head + tail run of exactly span_blocks, on every seed', () => {
+    const { d, id } = seedCamp('t378-contiguous')
+    importFile(d, id, fs.readFileSync(path.join(DIR, 'repro/r9-double-period-elective.txt'), 'utf8'))
+    const input = scheduleInput(d, id)
+    const order = new Map(input.timeBlocks.map((b, i) => [b.id, i]))
+    const spanOf = new Map(input.activities.filter((a) => (a.span_blocks ?? 1) > 1).map((a) => [a.id, a.span_blocks]))
+    expect(spanOf.size).toBeGreaterThan(0)
+    const problems = []
+    let runs = 0
+    for (let i = 0; i < 200; i++) {
+      const { slots } = buildSchedule({ ...input, campId: `seed-${i}` })
+      const at = new Map(slots.map((s) => [`${s.groupId}|${s.dayId}|${order.get(s.blockId)}`, s]))
+      const covered = new Set()
+      for (const s of slots) {
+        const span = spanOf.get(s.activityId)
+        if (!span || !s.is_span_head) continue
+        runs++
+        const head = order.get(s.blockId)
+        covered.add(`${s.groupId}|${s.dayId}|${head}`)
+        for (let k = 1; k < span; k++) {
+          const t = at.get(`${s.groupId}|${s.dayId}|${head + k}`)
+          if (t?.activityId !== s.activityId || t.is_span_head !== false) problems.push(`seed-${i}: a span is missing its tail ${k}`)
+          covered.add(`${s.groupId}|${s.dayId}|${head + k}`)
+        }
+        const next = at.get(`${s.groupId}|${s.dayId}|${head + span}`)
+        if (next?.activityId === s.activityId && next.is_span_head === false) problems.push(`seed-${i}: a span runs longer than span_blocks`)
+      }
+      for (const s of slots) {
+        if (spanOf.has(s.activityId) && !covered.has(`${s.groupId}|${s.dayId}|${order.get(s.blockId)}`)) problems.push(`seed-${i}: a span cell stands without its head`)
+      }
+    }
+    // Non-vacuity: the double period is placed on every seed (one per eligible group at least).
+    expect(runs).toBeGreaterThanOrEqual(200 * 2)
+    expect([...new Set(problems)].slice(0, 10)).toEqual([])
+    d.close()
+  })
+
   it('never moves a locked span, and a double period still counts as one session', () => {
     const { d, id } = seedCamp('t378-locked')
     importFile(d, id, fs.readFileSync(path.join(DIR, 'repro/r9-double-period-elective.txt'), 'utf8'))
