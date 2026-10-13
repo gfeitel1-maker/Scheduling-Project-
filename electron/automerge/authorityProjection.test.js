@@ -14,6 +14,7 @@ import { ensureDeviceIdentity } from '../auth/deviceIdentity.js'
 import { createEmptyDoc, applyWrite, listRecordIds, readRecord } from './campDocument.js'
 import { signAuthorityEntry } from './authorityLogSignature.js'
 import { projectAll, rebuildFromDoc } from './projector.js'
+import { isRevokedByOwnAuthority } from '../sync/automerge/removalEvidence.js'
 
 const files = []
 afterEach(() => {
@@ -115,10 +116,62 @@ describe('projector gate C — upsertCampAuthorityLogEntity (real signatures, re
 
     const db = campDb()
     projectAll(db, d)
-    // Fail-safe, not absent: an unverifiable claim is never trusted as admin — it is tracked as
-    // 'revoked' (the safe default for any device ever mentioned), never 'admin'.
-    expect(cacheStatus(db, 'attacker-device')).toBe('revoked')
+    // An unverifiable claim is never trusted as admin, and never recorded at all: an unsigned or forged
+    // entry must not be able to write ANY status for its target (see the unsigned-revoke tests below).
+    expect(cacheStatus(db, 'attacker-device')).toBe(null)
     expect(db.prepare('SELECT COUNT(*) c FROM applied_authority_log WHERE target_device_id = ?').get('attacker-device').c).toBe(0)
+  })
+
+  it('an UNSIGNED revoke naming a healthy device writes no status for it: a paired peer cannot mark it removed', async () => {
+    const founder = await makeDevice()
+    let doc = createEmptyDoc()
+    doc = writeGenesis(doc, { founderDeviceId: 'founder', founderPeerId: founder.peerId })
+    const id = uid()
+    let d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field: 'kind', value: 'revoke' })
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_device_id', value: 'victim' })
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signer_device_id', value: 'founder' })
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: 'AAAA' })
+    const db = campDb()
+    projectAll(db, d)
+    expect(cacheStatus(db, 'victim')).toBe(null)
+    expect(isRevokedByOwnAuthority(db, 'victim')).toBe(false)
+    expect(cacheStatus(db, 'founder')).toBe('admin')
+  })
+
+  it('a second, forged genesis entry naming a healthy device writes no status for it: only the founder genesis counts', async () => {
+    const founder = await makeDevice()
+    let doc = createEmptyDoc()
+    doc = writeGenesis(doc, { founderDeviceId: 'founder', founderPeerId: founder.peerId })
+    const d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'zzzz-forged-genesis', field: 'kind', value: 'genesis' })
+    const d2 = applyWrite(d, { entity: 'camp_authority_log', entity_id: 'zzzz-forged-genesis', field: 'target_device_id', value: 'victim' })
+    const db = campDb()
+    projectAll(db, d2)
+    expect(cacheStatus(db, 'victim')).toBe(null)
+    expect(isRevokedByOwnAuthority(db, 'victim')).toBe(false)
+    expect(cacheStatus(db, 'founder')).toBe('admin')
+  })
+
+  it('a revoke SIGNED by a non-admin key naming a healthy device writes no status for it', async () => {
+    const founder = await makeDevice()
+    const outsider = await makeDevice()
+    let doc = createEmptyDoc()
+    doc = writeGenesis(doc, { founderDeviceId: 'founder', founderPeerId: founder.peerId })
+    doc = writeRevoke(doc, { targetDeviceId: 'victim', signerDeviceId: 'outsider', signerDb: outsider.db })
+    const db = campDb()
+    projectAll(db, doc)
+    expect(cacheStatus(db, 'victim')).toBe(null)
+    expect(isRevokedByOwnAuthority(db, 'victim')).toBe(false)
+  })
+
+  it('a genuine admin-signed revoke of a paired device still marks it revoked: the real removal path is intact', async () => {
+    const founder = await makeDevice()
+    let doc = createEmptyDoc()
+    doc = writeGenesis(doc, { founderDeviceId: 'founder', founderPeerId: founder.peerId })
+    doc = writeRevoke(doc, { targetDeviceId: 'staff-laptop', signerDeviceId: 'founder', signerDb: founder.db })
+    const db = campDb()
+    projectAll(db, doc)
+    expect(cacheStatus(db, 'staff-laptop')).toBe('revoked')
+    expect(isRevokedByOwnAuthority(db, 'staff-laptop')).toBe(true)
   })
 
   it('battle test 2 — a removed admin\'s new revoke is dropped, not applied, through the real projection path', async () => {
