@@ -912,8 +912,8 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   // The refusal's changes are applied exactly as an ordinary sync message's are: into the held document, then projected,
   // so authority_cache is derived by authorityReplay with each entry judged at its own causal position.
   function adoptRefusalEvidence(peerId, evidence) {
-    const rejectEvidence = (reason) => console.error(`syncNode: revocation evidence from ${peerId} not adopted: ${reason}`)
-    if (evidence?.schemaVersion !== getHandshakeSchemaVersion()) return rejectEvidence(`schema-version ${evidence?.schemaVersion} != ${getHandshakeSchemaVersion()}`)
+    const rejectEvidence = (reason) => console.error(`syncNode: revocation evidence from ${peerId} not adopted: ${String(reason).slice(0, 200)}`)
+    if (evidence?.schemaVersion !== getHandshakeSchemaVersion()) return rejectEvidence(`schema-version ${String(evidence?.schemaVersion).slice(0, 40)} != ${getHandshakeSchemaVersion()}`)
     const currentDoc = getCurrentDoc(db)
     const bytes = validateRefusalEvidence(currentDoc, deviceId, evidence, rejectEvidence)
     if (!bytes) return

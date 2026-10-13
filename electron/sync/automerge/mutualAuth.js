@@ -406,7 +406,9 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onReje
         }
         const learnAttempts = learnRetries.get(peerId) ?? 0
         if (REVOCATION_REFUSAL_REASONS.has(reply?.reason) && !isSelfRemoved() && learnAttempts < LEARN_RETRY_LIMIT) {
+          learnRetries.delete(peerId)
           learnRetries.set(peerId, learnAttempts + 1)
+          if (learnRetries.size > NEGATIVE_CACHE_MAX_SIZE) learnRetries.delete(learnRetries.keys().next().value)
           setTimeout(() => { tryAuthenticate(peerId).catch(() => {}) }, removedRetryMs).unref?.()
         }
         if (!stalled) emitter.emit(EVENTS.AUTH_REJECTED, { peerId, retried, attemptId })
@@ -426,6 +428,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onReje
         if (owns()) ownerOf.delete(peerId)
         admittedBy.add(peerId)
         if (admittedBy.size > NEGATIVE_CACHE_MAX_SIZE) admittedBy.delete(admittedBy.keys().next().value)
+        learnRetries.delete(peerId)
         if (!stalled) emitter.emit(EVENTS.AUTH_OK, { peerId, attemptId })
       }
     } catch (err) {
