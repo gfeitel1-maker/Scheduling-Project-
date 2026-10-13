@@ -106,7 +106,7 @@ export async function run(h) {
   // file has its elective on Monday, which a Monday special day would hide.
   await step(4, 'Special day: Copy time blocks, place on Week 1 Fri, Also bring', async () => {
     await nav('Special Events')
-    await waitFor(`const i=__inp('input[placeholder="Color War"]'); if(!i) return false; __set(i,'Audit Day'); const s=__inp('select'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,[...s.options].find(o=>o.text==='Special Day').value); s.dispatchEvent(new Event('change',{bubbles:true})); return true`, 10000, 'special event form')
+    await waitFor(`const i=__inp('input[placeholder$="Color War"]'); if(!i) return false; __set(i,'Audit Day'); const s=__inp('select'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,[...s.options].find(o=>o.text==='Special Day').value); s.dispatchEvent(new Event('change',{bubbles:true})); return true`, 10000, 'special event form')
     await sleep(300); await click('+ Add', true)
     await click('Copy time blocks', true, 15000)
     await waitFor(`return /created — build it/.test(__main())`, 120000, 'copy finished')
@@ -267,9 +267,9 @@ export async function run(h) {
     XLSX.set_fs(fs)
     // Make sure there is a location to edit.
     await nav('Locations')
-    await waitFor(`return !!__inp('input[placeholder="Pool"]')`, 15000, 'Locations add row')
+    await waitFor(`return !!__inp('input[placeholder$="Pool"]')`, 15000, 'Locations add row')
     if (await ev(`return /No locations yet/.test(__main())`)) {
-      await ev(`__set(__inp('input[placeholder="Pool"]'), 'Audit Hall'); return true`); await sleep(200); await click('+ Add', true)
+      await ev(`__set(__inp('input[placeholder$="Pool"]'), 'Audit Hall'); return true`); await sleep(200); await click('+ Add', true)
       await waitFor(`return !/No locations yet/.test(__main())`, 15000, 'added location')
     }
     await guide('worksheet/locations-sheet')
@@ -578,7 +578,7 @@ export async function run(h) {
       const tag = Date.now().toString(36)
       const addLoc = async (c, name) => {
         await c.nav('Locations')
-        await c.waitFor(`const i=__inp('input[placeholder="Pool"]'); if(!i) return false; __set(i, ${JSON.stringify(name)}); return true`, 15000, 'Locations add row')
+        await c.waitFor(`const i=__inp('input[placeholder$="Pool"]'); if(!i) return false; __set(i, ${JSON.stringify(name)}); return true`, 15000, 'Locations add row')
         await sleep(200); await c.click('+ Add', true, 10000)
         await c.waitFor(`return __main().includes(${JSON.stringify(name)})`, 15000, `${name} added`)
       }
@@ -610,7 +610,7 @@ export async function run(h) {
         const code = await waitFor(`const m=__main().match(/\\b([A-Z0-9]{4,6}-[A-Z0-9]{4,6})\\b/); return m && m[1]`, 30000, 'camp code on A')
         await Y.waitFor(`return document.body.innerText.includes('Join with a camp code')`, 120000, 'Y: mode-select')
         await Y.click('Join with a camp code', false)
-        await Y.waitFor(`const i=__inp('input[placeholder="K4P7-2MRQ"]'); if(!i) return false; __set(i, ${JSON.stringify(code)}); return true`, 15000, 'Y: code field')
+        await Y.waitFor(`const i=__inp('input[placeholder$="K4P7-2MRQ"]'); if(!i) return false; __set(i, ${JSON.stringify(code)}); return true`, 15000, 'Y: code field')
         await sleep(300); await Y.click('Continue', true, 10000)
         const seen = await waitFor(`return [...document.querySelectorAll('button')].filter(__vis).some(b=>b.innerText.trim()==='Approve')`, 90000, 'control').catch(() => false)
         if (!seen) throw new Error('not exercised: a same-camp join request never reached A within 90s, so discovery does not work on this machine/network (VPN?) and the silence between the two camps proves nothing')
@@ -642,7 +642,7 @@ export async function run(h) {
       const code = await waitFor(`const m=__main().match(/\\b([A-Z0-9]{4,6}-[A-Z0-9]{4,6})\\b/); return m && m[1]`, 30000, 'camp code')
       await peer.waitFor(`return document.body.innerText.includes('Join with a camp code')`, 120000, `${peer.label}: mode-select`)
       await peer.click('Join with a camp code', false)
-      await peer.waitFor(`const i=__inp('input[placeholder="K4P7-2MRQ"]'); if(!i) return false; __set(i, ${JSON.stringify(code)}); return true`, 15000, `${peer.label}: code field`)
+      await peer.waitFor(`const i=__inp('input[placeholder$="K4P7-2MRQ"]'); if(!i) return false; __set(i, ${JSON.stringify(code)}); return true`, 15000, `${peer.label}: code field`)
       await sleep(300); await peer.click('Continue', true, 10000)
       h.log(`[t13] ${new Date().toISOString()} ${peer.label}: pairing request sent (code ${code})`)
       await waitFor(`return [...document.querySelectorAll('button')].filter(__vis).some(b=>b.innerText.trim()==='Approve'&&!b.disabled)`, 90000, `${peer.label}'s pairing request on A`)
@@ -670,7 +670,7 @@ export async function run(h) {
       const editReaches = async (tag) => {
         const name = `${tag} ${Date.now().toString(36)}`
         await B.nav('Locations')
-        await B.waitFor(`const i=__inp('input[placeholder="Pool"]'); if(!i) return false; __set(i, ${JSON.stringify(name)}); return true`, 15000, 'B: Locations add row')
+        await B.waitFor(`const i=__inp('input[placeholder$="Pool"]'); if(!i) return false; __set(i, ${JSON.stringify(name)}); return true`, 15000, 'B: Locations add row')
         await sleep(200); await B.click('+ Add', true, 10000)
         await B.waitFor(`return __main().includes(${JSON.stringify(name)})`, 15000, 'B: location added')
         const t0 = Date.now()
