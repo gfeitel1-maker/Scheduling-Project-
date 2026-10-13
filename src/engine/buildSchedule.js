@@ -817,7 +817,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, mat
     }
   }
 
-  // T379: an activity capped to a few groups at once (an instructor, a boat) can be left one session
+  // T380: an activity capped to a few groups at once (an instructor, a boat) can be left one session
   // short by the greedy rounds even in a week that fits: they fill one cell at a time and spend the
   // capped slots on whichever activity is first in line. In a tight week the capped activities
   // compete for the same cells (every group needs one session of each, one group per activity per

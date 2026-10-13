@@ -1,4 +1,4 @@
-// T379: in a week that fits exactly (every group's cells equal the sessions it is owed) activities capped
+// T380: in a week that fits exactly (every group's cells equal the sessions it is owed) activities capped
 // to one group per slot compete for the same cells, a Latin-square problem. The slot-by-slot matching
 // that runs before the greedy rounds must fill it on every seed, never move a locked cell, and keep a
 // multi-block span one session.
@@ -20,7 +20,7 @@ const short = (r) => ({
   unfillable: r.slots.filter((s) => s.flags?.UNFILLABLE).length,
 })
 
-describe('buildSchedule: capacity-capped activities in an exactly fitting week (T379)', () => {
+describe('buildSchedule: capacity-capped activities in an exactly fitting week (T380)', () => {
   it('8 groups x 8 cells x 8 one-group-per-slot activities: nothing short on seeds 0..99', () => {
     const bad = []
     for (let i = 0; i < 100; i++) {

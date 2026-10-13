@@ -9,7 +9,7 @@ related_tickets: [docs/work/tickets/T378-generate-refills-a-fitting-week-with-sp
 archive_when: "the synthetic harness asserts, for every camp whose inferred rules admit its own file, that Generate leaves nothing still needed and nothing unfillable on every seed of its sweep, and campB plus the synthetic camps are no worse"
 ---
 
-# T379: a week the file shows fits is filled on every seed, capped activities included
+# T380: a week the file shows fits is filled on every seed, capped activities included
 
 Owner rule: when an imported file shows the week fits, Generate fills it again, on every seed.
 
@@ -80,7 +80,7 @@ campB 33 -> 31, b3 58 -> 60, s04 280 -> 277, s13 118 -> 124, s09 61 -> 63, every
 
 ## Round 2 (Red Hat) dispositions
 
-- Priority starvation: not reproduced as stated (a high-priority uncapped minimum was never short in 100 seeds), but the same fixture exposed a real defect: 12/100 seeds short on main, 16/100 on the first T379 commit. The matching ordered groups by spare cells that counted cells the matching had already passed over. Fixed: pressure is now cells in this slot and later less scarce sessions still owed, and activities owed as many sessions as they have seats left (urgency 1) are matched first. 0/100 now. The priority contract is not preserved inside a tight week: scarce activities of either priority are matched before greedy placement, because honouring it would make the week unfillable; stated in the ADR amendment.
+- Priority starvation: not reproduced as stated (a high-priority uncapped minimum was never short in 100 seeds), but the same fixture exposed a real defect: 12/100 seeds short on main, 16/100 on the first T380 commit. The matching ordered groups by spare cells that counted cells the matching had already passed over. Fixed: pressure is now cells in this slot and later less scarce sessions still owed, and activities owed as many sessions as they have seats left (urgency 1) are matched first. 0/100 now. The priority contract is not preserved inside a tight week: scarce activities of either priority are matched before greedy placement, because honouring it would make the week unfillable; stated in the ADR amendment.
 - Spare-of-1 cliff: probed (9 cells, 8 capped activities, seeds 0..99): nothing underserved with the gate as is; test added as a guard, gate unchanged.
 - Shared-location caps: real. Fixture of 8 activities on two locations of capacity 4: 18/100 short on main, 28/100 on the first commit, 2/100 now (location headroom checked while matching, plus a fallback to the group's next candidate). Residual 2/100 pinned as an upper bound in the test.
 - Harness: sweep errors are caught per sweep and fail the invariant, default seeds 25 -> 50, and a non-vacuity test asserts all 30 camp variants were swept.

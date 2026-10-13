@@ -265,7 +265,7 @@ function scheduleInput(d, id) {
 
 
 // Generate draws its choices from a PRNG seeded by the camp id, so one stable id proving a week fills proves
-// little (T379: s02 came out clean on 13 of 50 seeds). The sweep re-runs Generate under SEEDS camp ids.
+// little (T380: s02 came out clean on 13 of 50 seeds). The sweep re-runs Generate under SEEDS camp ids.
 // SEED_SWEEP_OUT=<file> appends one JSON line per sweep (the before/after evidence); a plain run writes nothing.
 const SEEDS = Number(process.env.SYNTHETIC_SEEDS ?? 50)
 function seedSweep(d, id, label) {
