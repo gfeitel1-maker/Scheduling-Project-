@@ -3693,78 +3693,6 @@ if (isElectronEntryPoint()) {
   let appQuitting = false
   app.on('before-quit', () => { appQuitting = true })
 
-  // All IPC channels registered by makeHandlers. Keep in sync with the
-  // ipcMain.handle calls in registerHandlers() below.
-  const HANDLER_CHANNELS = [
-    'shoresh:choose-mode',
-    'shoresh:discover-hosts',
-    'shoresh:login',
-    'shoresh:create-user',
-    'shoresh:promote-to-admin',
-    'shoresh:bootstrap-camp',
-    'shoresh:write',
-    'shoresh:bulk-replace',
-    'shoresh:verify-session',
-    'shoresh:get-camp',
-    'shoresh:camp-has-setup-data',
-    'shoresh:list-users',
-    'shoresh:list',
-    'shoresh:list-by-scope',
-    'shoresh:get-device-id',
-    'shoresh:get-sync-status',
-    'shoresh:get-port-mapping-status',
-    'shoresh:retry-sync',
-    'shoresh:disable-at-rest-encryption',
-    'shoresh:ingest-commit',
-    'shoresh:ingest-reconcile',
-    'shoresh:ingest-undo',
-    'shoresh:add-held-event-for-all-groups',
-    'shoresh:confirm-alias',
-    'shoresh:record-declined-split',
-    'shoresh:list-declined-split-names',
-    'shoresh:latest-op-seq',
-    'shoresh:resolve-conflict',
-    'shoresh:list-conflicts',
-    'shoresh:list-deleted',
-    'shoresh:get-entity-history',
-    'shoresh:restore-entity',
-    'shoresh:preview-delete',
-    'shoresh:delete-record',
-    'shoresh:delete-elective-run',
-    'shoresh:merge-location',
-    'shoresh:merge-activity',
-    'shoresh:preview-activity-merge',
-    'shoresh:list-migration-reviews',
-    'shoresh:dismiss-migration-reviews',
-    'shoresh:get-device-pairing-status',
-    'shoresh:list-pending-pairing-requests',
-    'shoresh:list-devices',
-    'shoresh:list-peer-erasure-state',
-    'shoresh:import-setup-rows',
-    'shoresh:approve-device',
-    'shoresh:list-tool-authorizations',
-    'shoresh:grant-tool-authorization',
-    'shoresh:revoke-tool-authorization',
-    'shoresh:get-sync-engine',
-    'shoresh:get-join-code',
-    'shoresh:set-join-window',
-    'shoresh:join-start',
-    'shoresh:join-find-host',
-    'shoresh:join-request-pairing',
-    'shoresh:join-await-pairing-decision',
-    'shoresh:join-login',
-    'shoresh:join-await-data',
-    'shoresh:join-cancel',
-    'shoresh:deny-device',
-    'shoresh:revoke-device',
-    'shoresh:duplicate-week',
-    'shoresh:delete-week',
-    'shoresh:attribute-subject',
-    'shoresh:save-camp-file',
-    'shoresh:pick-camp-file',
-    'shoresh:begin-camp-file-load',
-    'shoresh:load-camp-file',
-  ]
 
   function registerHandlers(handlers, currentDb) {
     // Whichever handler set is currently registered. Needed because the
@@ -3774,21 +3702,24 @@ if (isElectronEntryPoint()) {
     // stale set after a switch.
     if (liveHandlers && liveHandlers !== handlers) liveHandlers.dispose?.()
     liveHandlers = handlers
-    // Remove existing registrations before re-registering (project switch).
-    for (const ch of HANDLER_CHANNELS) ipcMain.removeHandler(ch)
+    // A db swap (Restore from backup, project switch) calls this again, and ipcMain.handle throws on a
+    // channel that is still registered. Each channel is removed just before it is registered, so no
+    // hand-kept list can drift out of step with the calls below (38 channels had, and the first swap
+    // threw halfway; electron/registerHandlersSwap.test.js).
+    const handle = (ch, fn) => { ipcMain.removeHandler(ch); ipcMain.handle(ch, fn) }
 
-    ipcMain.handle('shoresh:choose-mode', (_event, args) => handlers.chooseMode(args))
-    ipcMain.handle('shoresh:login', (_event, args) => handlers.login(args))
-    ipcMain.handle('shoresh:create-user', (_event, args) => handlers.createUser(args))
-    ipcMain.handle('shoresh:promote-to-admin', (_event, args) => handlers.promoteToAdmin(args))
-    ipcMain.handle('shoresh:bootstrap-camp', (_event, args) => handlers.bootstrapCamp(args))
-    ipcMain.handle('shoresh:write', (_event, args) => handlers.write(args))
-    ipcMain.handle('shoresh:bulk-replace', (_event, args) => handlers.bulkReplace(args))
-    ipcMain.handle('shoresh:verify-session', (_event, args) => handlers.verifySession(args))
+    handle('shoresh:choose-mode', (_event, args) => handlers.chooseMode(args))
+    handle('shoresh:login', (_event, args) => handlers.login(args))
+    handle('shoresh:create-user', (_event, args) => handlers.createUser(args))
+    handle('shoresh:promote-to-admin', (_event, args) => handlers.promoteToAdmin(args))
+    handle('shoresh:bootstrap-camp', (_event, args) => handlers.bootstrapCamp(args))
+    handle('shoresh:write', (_event, args) => handlers.write(args))
+    handle('shoresh:bulk-replace', (_event, args) => handlers.bulkReplace(args))
+    handle('shoresh:verify-session', (_event, args) => handlers.verifySession(args))
     // get-camp is pre-auth (called before a session exists to decide the
     // bootstrap-vs-join phase). See the note in the original registration
     // block for the full justification.
-    ipcMain.handle('shoresh:get-camp', () => readCampStatus(currentDb))
+    handle('shoresh:get-camp', () => readCampStatus(currentDb))
     // Stage-aware landing (docs/adr/2026-08-28-stage-aware-nav-landing.md
     // Decision 1) — pre-auth like get-camp above (called before a session
     // exists, inside useDeviceMode's init effect). A single cheap existence
@@ -3797,108 +3728,108 @@ if (isElectronEntryPoint()) {
     // getReadiness's full five-collection engine pass — the landing decision
     // only ever needs the one "is this camp truly untouched" bit. Returns
     // true the moment ANY required table has a row.
-    ipcMain.handle('shoresh:camp-has-setup-data', () => campHasSetupData(currentDb))
-    ipcMain.handle('shoresh:list-users', (_event, args) => handlers.listUsers(args && args.token))
-    ipcMain.handle('shoresh:list', (_event, args) => {
+    handle('shoresh:camp-has-setup-data', () => campHasSetupData(currentDb))
+    handle('shoresh:list-users', (_event, args) => handlers.listUsers(args && args.token))
+    handle('shoresh:list', (_event, args) => {
       const { token, entity } = args || {}
       return handlers.list(token, entity)
     })
-    ipcMain.handle('shoresh:list-by-scope', (_event, args) => {
+    handle('shoresh:list-by-scope', (_event, args) => {
       const { token, entity, scopeId } = args || {}
       return handlers.listByScope(token, entity, scopeId)
     })
-    ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
-    ipcMain.handle('shoresh:get-sync-status', () => handlers.getSyncStatus())
-    ipcMain.handle('shoresh:get-port-mapping-status', () => handlers.getPortMappingStatus())
-    ipcMain.handle('shoresh:retry-sync', () => handlers.retrySync())
-    ipcMain.handle('shoresh:disable-at-rest-encryption', (_event, args) => handlers.disableAtRestEncryption(args))
-    ipcMain.handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
-    ipcMain.handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))
-    ipcMain.handle('shoresh:ingest-undo', (_event, args) => handlers.ingestUndo(args))
-    ipcMain.handle('shoresh:add-held-event-for-all-groups', (_event, args) => handlers.addHeldEventForAllGroups(args))
-    ipcMain.handle('shoresh:last-import-undo', (_event, args) => handlers.lastImportUndo(args))
-    ipcMain.handle('shoresh:confirm-alias', (_event, args) => handlers.confirmAlias(args))
-    ipcMain.handle('shoresh:record-declined-split', (_event, args) => handlers.recordDeclinedSplit(args))
-    ipcMain.handle('shoresh:record-import-decisions', (_event, args) => handlers.recordImportDecisions(args))
-    ipcMain.handle('shoresh:remember-column-mapping', (_event, args) => handlers.rememberColumnMapping(args))
-    ipcMain.handle('shoresh:match-import-answers', (_event, args) => handlers.matchImportAnswers(args))
-    ipcMain.handle('shoresh:remember-import-answers', (_event, args) => handlers.rememberImportAnswers(args))
-    ipcMain.handle('shoresh:list-learned', (_event, args) => handlers.listLearned(args))
-    ipcMain.handle('shoresh:change-import-answer', (_event, args) => handlers.changeImportAnswer(args))
-    ipcMain.handle('shoresh:forget-import-answer', (_event, args) => handlers.forgetImportAnswer(args))
-    ipcMain.handle('shoresh:forget-import-pattern', (_event, args) => handlers.forgetImportPattern(args))
-    ipcMain.handle('shoresh:keep-import-answer', (_event, args) => handlers.keepImportAnswer(args))
-    ipcMain.handle('shoresh:list-declined-split-names', (_event, args) => handlers.listDeclinedSplitNames(args))
-    ipcMain.handle('shoresh:list-compound-cell-decisions', (_event, args) => handlers.listCompoundCellDecisions(args))
-    ipcMain.handle('shoresh:latest-op-seq', () => handlers.latestOpSeq())
-    ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
-    ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))
-    ipcMain.handle('shoresh:list-deleted', (_event, args) => handlers.listDeleted(args && args.token))
-    ipcMain.handle('shoresh:get-entity-history', (_event, args) => handlers.getEntityHistory(args))
-    ipcMain.handle('shoresh:restore-entity', (_event, args) => handlers.restoreEntity(args))
-    ipcMain.handle('shoresh:preview-delete', (_event, args) => handlers.previewDelete(args))
-    ipcMain.handle('shoresh:delete-record', (_event, args) => handlers.deleteRecord(args))
-    ipcMain.handle('shoresh:delete-elective-run', (_event, args) => handlers.deleteElectiveRun(args))
-    ipcMain.handle('shoresh:purge-elective-season', (_event, args) => handlers.purgeElectiveSeason(args))
-    ipcMain.handle('shoresh:merge-location', (_event, args) => handlers.mergeLocation(args))
-    ipcMain.handle('shoresh:merge-activity', (_event, args) => handlers.mergeActivity(args))
-    ipcMain.handle('shoresh:preview-activity-merge', (_event, args) => handlers.previewActivityMerge(args))
-    ipcMain.handle('shoresh:list-migration-reviews', (_event, args) => handlers.listMigrationReviews(args && args.token))
-    ipcMain.handle('shoresh:dismiss-migration-reviews', (_event, args) => handlers.dismissMigrationReviews(args))
-    ipcMain.handle('shoresh:list-open-reconciliation-decisions', (_event, args) => handlers.listOpenReconciliationDecisions(args))
-    ipcMain.handle('shoresh:dismiss-open-reconciliation-decisions', (_event, args) => handlers.dismissOpenReconciliationDecisions(args))
-    ipcMain.handle('shoresh:get-device-pairing-status', () => handlers.getDevicePairingStatus())
-    ipcMain.handle('shoresh:list-pending-pairing-requests', (_event, args) => handlers.listPendingPairingRequests(args))
-    ipcMain.handle('shoresh:list-devices', (_event, args) => handlers.listDevices(args))
-    ipcMain.handle('shoresh:list-peer-erasure-state', (_event, args) => handlers.listPeerErasureState(args))
-    ipcMain.handle('shoresh:import-setup-rows', (_event, args) => handlers.importSetupRows(args))
-    ipcMain.handle('shoresh:approve-device', (_event, args) => handlers.approveDevice(args))
-    ipcMain.handle('shoresh:list-tool-authorizations', (_event, args) => handlers.listToolAuthorizations(args))
-    ipcMain.handle('shoresh:grant-tool-authorization', (_event, args) => handlers.grantToolAuthorization(args))
-    ipcMain.handle('shoresh:revoke-tool-authorization', (_event, args) => handlers.revokeToolAuthorization(args))
-    ipcMain.handle('shoresh:get-sync-engine', () => handlers.getSyncEngine())
-    ipcMain.handle('shoresh:get-join-code', (_event, args) => handlers.getJoinCode(args))
-    ipcMain.handle('shoresh:set-join-window', (_event, args) => handlers.setJoinWindow(args))
-    ipcMain.handle('shoresh:handoff-status', (_event, args) => handlers.handoffStatus(args))
-    ipcMain.handle('shoresh:handoff-start', (_event, args) => handlers.handoffStart(args))
-    ipcMain.handle('shoresh:handoff-accept', (_event, args) => handlers.handoffAccept(args))
-    ipcMain.handle('shoresh:handoff-decline', (_event, args) => handlers.handoffDecline(args))
-    ipcMain.handle('shoresh:join-start', (_event, args) => handlers.joinStart(args))
-    ipcMain.handle('shoresh:join-find-host', () => handlers.joinFindHost())
-    ipcMain.handle('shoresh:join-request-pairing', () => handlers.joinRequestPairing())
-    ipcMain.handle('shoresh:join-await-pairing-decision', () => handlers.joinAwaitPairingDecision())
-    ipcMain.handle('shoresh:join-login', (_event, args) => handlers.joinLogin(args))
-    ipcMain.handle('shoresh:join-await-data', () => handlers.joinAwaitData())
-    ipcMain.handle('shoresh:join-cancel', () => handlers.joinCancel())
-    ipcMain.handle('shoresh:deny-device', (_event, args) => handlers.denyDevice(args))
-    ipcMain.handle('shoresh:revoke-device', (_event, args) => handlers.revokeDevice(args))
-    ipcMain.handle('shoresh:rename-device', (_event, args) => handlers.renameDevice(args))
-    ipcMain.handle('shoresh:duplicate-week', (_event, args) => handlers.duplicateWeek(args))
-    ipcMain.handle('shoresh:delete-week', (_event, args) => handlers.deleteWeek(args))
-    ipcMain.handle('shoresh:attribute-subject', (_event, args) => handlers.attributeSubject(args))
-    ipcMain.handle('shoresh:save-camp-file', (_event, args) => handlers.saveCampFile(args))
-    ipcMain.handle('shoresh:pick-camp-file', () => handlers.pickCampFile())
-    ipcMain.handle('shoresh:begin-camp-file-load', () => handlers.beginCampFileLoad())
-    ipcMain.handle('shoresh:load-camp-file', (_event, args) => handlers.loadCampFile(args))
-    ipcMain.handle('shoresh:delete-elective-set', (_event, args) => handlers.deleteElectiveSet(args))
-    ipcMain.handle('shoresh:delete-special-day', (_event, args) => handlers.deleteSpecialDay(args))
-    ipcMain.handle('shoresh:bind-special-day', (_event, args) => handlers.bindSpecialDay(args))
-    ipcMain.handle('shoresh:unbind-special-day', (_event, args) => handlers.unbindSpecialDay(args))
-    ipcMain.handle('shoresh:copy-special-day-blocks', (_event, args) => handlers.copySpecialDayBlocks(args))
-    ipcMain.handle('shoresh:delete-event', (_event, args) => handlers.deleteEvent(args))
-    ipcMain.handle('shoresh:list-durable-elective-sets', (_event, args) => handlers.listDurableElectiveSets(args && args.token))
-    ipcMain.handle('shoresh:commit-elective-run', (_event, args) => handlers.commitElectiveRun(args))
-    ipcMain.handle('shoresh:list-elective-runs', (_event, args) => handlers.listElectiveRuns(args && args.token))
-    ipcMain.handle('shoresh:get-elective-run', (_event, args) => handlers.getElectiveRun(args))
-    ipcMain.handle('shoresh:finalize-elective-run', (_event, args) => handlers.finalizeElectiveRun(args))
-    ipcMain.handle('shoresh:set-elective-assignment', (_event, args) => handlers.setElectiveAssignment(args))
-  ipcMain.handle('shoresh:set-elective-preference', (_event, args) => handlers.setElectivePreference(args))
-  ipcMain.handle('shoresh:remove-elective-preference', (_event, args) => handlers.removeElectivePreference(args))
-    ipcMain.handle('shoresh:get-security-status', () => handlers.getSecurityStatus())
-    ipcMain.handle('shoresh:list-import-evidence', (_event, args) => handlers.listImportEvidence(args && args.token))
-    ipcMain.handle('shoresh:list-division-evidence', (_event, args) => handlers.listDivisionEvidence(args && args.token))
-    ipcMain.handle('shoresh:location-capacity-provenance', (_event, args) => handlers.locationCapacityProvenance(args && args.token))
-    ipcMain.handle('shoresh:get-elective-run-outer-schedule', (_event, args) => handlers.getElectiveRunOuterSchedule(args))
+    handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
+    handle('shoresh:get-sync-status', () => handlers.getSyncStatus())
+    handle('shoresh:get-port-mapping-status', () => handlers.getPortMappingStatus())
+    handle('shoresh:retry-sync', () => handlers.retrySync())
+    handle('shoresh:disable-at-rest-encryption', (_event, args) => handlers.disableAtRestEncryption(args))
+    handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
+    handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))
+    handle('shoresh:ingest-undo', (_event, args) => handlers.ingestUndo(args))
+    handle('shoresh:add-held-event-for-all-groups', (_event, args) => handlers.addHeldEventForAllGroups(args))
+    handle('shoresh:last-import-undo', (_event, args) => handlers.lastImportUndo(args))
+    handle('shoresh:confirm-alias', (_event, args) => handlers.confirmAlias(args))
+    handle('shoresh:record-declined-split', (_event, args) => handlers.recordDeclinedSplit(args))
+    handle('shoresh:record-import-decisions', (_event, args) => handlers.recordImportDecisions(args))
+    handle('shoresh:remember-column-mapping', (_event, args) => handlers.rememberColumnMapping(args))
+    handle('shoresh:match-import-answers', (_event, args) => handlers.matchImportAnswers(args))
+    handle('shoresh:remember-import-answers', (_event, args) => handlers.rememberImportAnswers(args))
+    handle('shoresh:list-learned', (_event, args) => handlers.listLearned(args))
+    handle('shoresh:change-import-answer', (_event, args) => handlers.changeImportAnswer(args))
+    handle('shoresh:forget-import-answer', (_event, args) => handlers.forgetImportAnswer(args))
+    handle('shoresh:forget-import-pattern', (_event, args) => handlers.forgetImportPattern(args))
+    handle('shoresh:keep-import-answer', (_event, args) => handlers.keepImportAnswer(args))
+    handle('shoresh:list-declined-split-names', (_event, args) => handlers.listDeclinedSplitNames(args))
+    handle('shoresh:list-compound-cell-decisions', (_event, args) => handlers.listCompoundCellDecisions(args))
+    handle('shoresh:latest-op-seq', () => handlers.latestOpSeq())
+    handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
+    handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))
+    handle('shoresh:list-deleted', (_event, args) => handlers.listDeleted(args && args.token))
+    handle('shoresh:get-entity-history', (_event, args) => handlers.getEntityHistory(args))
+    handle('shoresh:restore-entity', (_event, args) => handlers.restoreEntity(args))
+    handle('shoresh:preview-delete', (_event, args) => handlers.previewDelete(args))
+    handle('shoresh:delete-record', (_event, args) => handlers.deleteRecord(args))
+    handle('shoresh:delete-elective-run', (_event, args) => handlers.deleteElectiveRun(args))
+    handle('shoresh:purge-elective-season', (_event, args) => handlers.purgeElectiveSeason(args))
+    handle('shoresh:merge-location', (_event, args) => handlers.mergeLocation(args))
+    handle('shoresh:merge-activity', (_event, args) => handlers.mergeActivity(args))
+    handle('shoresh:preview-activity-merge', (_event, args) => handlers.previewActivityMerge(args))
+    handle('shoresh:list-migration-reviews', (_event, args) => handlers.listMigrationReviews(args && args.token))
+    handle('shoresh:dismiss-migration-reviews', (_event, args) => handlers.dismissMigrationReviews(args))
+    handle('shoresh:list-open-reconciliation-decisions', (_event, args) => handlers.listOpenReconciliationDecisions(args))
+    handle('shoresh:dismiss-open-reconciliation-decisions', (_event, args) => handlers.dismissOpenReconciliationDecisions(args))
+    handle('shoresh:get-device-pairing-status', () => handlers.getDevicePairingStatus())
+    handle('shoresh:list-pending-pairing-requests', (_event, args) => handlers.listPendingPairingRequests(args))
+    handle('shoresh:list-devices', (_event, args) => handlers.listDevices(args))
+    handle('shoresh:list-peer-erasure-state', (_event, args) => handlers.listPeerErasureState(args))
+    handle('shoresh:import-setup-rows', (_event, args) => handlers.importSetupRows(args))
+    handle('shoresh:approve-device', (_event, args) => handlers.approveDevice(args))
+    handle('shoresh:list-tool-authorizations', (_event, args) => handlers.listToolAuthorizations(args))
+    handle('shoresh:grant-tool-authorization', (_event, args) => handlers.grantToolAuthorization(args))
+    handle('shoresh:revoke-tool-authorization', (_event, args) => handlers.revokeToolAuthorization(args))
+    handle('shoresh:get-sync-engine', () => handlers.getSyncEngine())
+    handle('shoresh:get-join-code', (_event, args) => handlers.getJoinCode(args))
+    handle('shoresh:set-join-window', (_event, args) => handlers.setJoinWindow(args))
+    handle('shoresh:handoff-status', (_event, args) => handlers.handoffStatus(args))
+    handle('shoresh:handoff-start', (_event, args) => handlers.handoffStart(args))
+    handle('shoresh:handoff-accept', (_event, args) => handlers.handoffAccept(args))
+    handle('shoresh:handoff-decline', (_event, args) => handlers.handoffDecline(args))
+    handle('shoresh:join-start', (_event, args) => handlers.joinStart(args))
+    handle('shoresh:join-find-host', () => handlers.joinFindHost())
+    handle('shoresh:join-request-pairing', () => handlers.joinRequestPairing())
+    handle('shoresh:join-await-pairing-decision', () => handlers.joinAwaitPairingDecision())
+    handle('shoresh:join-login', (_event, args) => handlers.joinLogin(args))
+    handle('shoresh:join-await-data', () => handlers.joinAwaitData())
+    handle('shoresh:join-cancel', () => handlers.joinCancel())
+    handle('shoresh:deny-device', (_event, args) => handlers.denyDevice(args))
+    handle('shoresh:revoke-device', (_event, args) => handlers.revokeDevice(args))
+    handle('shoresh:rename-device', (_event, args) => handlers.renameDevice(args))
+    handle('shoresh:duplicate-week', (_event, args) => handlers.duplicateWeek(args))
+    handle('shoresh:delete-week', (_event, args) => handlers.deleteWeek(args))
+    handle('shoresh:attribute-subject', (_event, args) => handlers.attributeSubject(args))
+    handle('shoresh:save-camp-file', (_event, args) => handlers.saveCampFile(args))
+    handle('shoresh:pick-camp-file', () => handlers.pickCampFile())
+    handle('shoresh:begin-camp-file-load', () => handlers.beginCampFileLoad())
+    handle('shoresh:load-camp-file', (_event, args) => handlers.loadCampFile(args))
+    handle('shoresh:delete-elective-set', (_event, args) => handlers.deleteElectiveSet(args))
+    handle('shoresh:delete-special-day', (_event, args) => handlers.deleteSpecialDay(args))
+    handle('shoresh:bind-special-day', (_event, args) => handlers.bindSpecialDay(args))
+    handle('shoresh:unbind-special-day', (_event, args) => handlers.unbindSpecialDay(args))
+    handle('shoresh:copy-special-day-blocks', (_event, args) => handlers.copySpecialDayBlocks(args))
+    handle('shoresh:delete-event', (_event, args) => handlers.deleteEvent(args))
+    handle('shoresh:list-durable-elective-sets', (_event, args) => handlers.listDurableElectiveSets(args && args.token))
+    handle('shoresh:commit-elective-run', (_event, args) => handlers.commitElectiveRun(args))
+    handle('shoresh:list-elective-runs', (_event, args) => handlers.listElectiveRuns(args && args.token))
+    handle('shoresh:get-elective-run', (_event, args) => handlers.getElectiveRun(args))
+    handle('shoresh:finalize-elective-run', (_event, args) => handlers.finalizeElectiveRun(args))
+    handle('shoresh:set-elective-assignment', (_event, args) => handlers.setElectiveAssignment(args))
+  handle('shoresh:set-elective-preference', (_event, args) => handlers.setElectivePreference(args))
+  handle('shoresh:remove-elective-preference', (_event, args) => handlers.removeElectivePreference(args))
+    handle('shoresh:get-security-status', () => handlers.getSecurityStatus())
+    handle('shoresh:list-import-evidence', (_event, args) => handlers.listImportEvidence(args && args.token))
+    handle('shoresh:list-division-evidence', (_event, args) => handlers.listDivisionEvidence(args && args.token))
+    handle('shoresh:location-capacity-provenance', (_event, args) => handlers.locationCapacityProvenance(args && args.token))
+    handle('shoresh:get-elective-run-outer-schedule', (_event, args) => handlers.getElectiveRunOuterSchedule(args))
   }
 
   /**
