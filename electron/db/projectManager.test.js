@@ -121,6 +121,15 @@ describe('writeUserBackup', () => {
     expect(fs.readFileSync(backupPath, 'utf8')).toBe('data')
   })
 
+  // Director test 2026-10-12: an automatic backup (before a Replace import or a restore) says so in its
+  // name, so the backups folder tells it apart from a director's own "Backup now".
+  it('names an automatic backup by its reason, and a manual one plainly', () => {
+    const dbFile = path.join(tmpDir, 'shoresh.db')
+    fs.writeFileSync(dbFile, 'data')
+    expect(path.basename(writeUserBackup(dbFile, tmpDir, undefined, undefined, null, null, 'before-replace'))).toMatch(/^shoresh-.+-before-replace\.db$/)
+    expect(path.basename(writeUserBackup(dbFile, tmpDir))).toMatch(/^shoresh-[0-9TZ-]+\.db$/)
+  })
+
   it('rotates backups to keep max 10', () => {
     const dbFile = path.join(tmpDir, 'shoresh.db')
     const backupDir = path.join(tmpDir, 'backups')

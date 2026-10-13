@@ -1853,7 +1853,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (dbPath && handlersUserDataPath) {
       try {
         try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
-        writeUserBackup(dbPath, handlersUserDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err), null, db)
+        writeUserBackup(dbPath, handlersUserDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err), null, db, 'before-replace')
       } catch (err) {
         // Non-fatal by design, but never silent: the replace proceeds without a safety snapshot.
         console.error('backup: pre-bulk-replace snapshot failed (non-fatal, replace proceeds without one):', err?.message ?? err)
@@ -3969,7 +3969,8 @@ if (isElectronEntryPoint()) {
       let docBackupError
       const backupPath = writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => { docBackupError = err.message }, null, db)
       lastBackupPath = backupPath
-      return docBackupError ? { backupPath, docBackupError } : { backupPath }
+      const savedAt = new Date().toISOString()
+      return docBackupError ? { backupPath, savedAt, docBackupError } : { backupPath, savedAt }
     } catch (err) {
       return { error: 'backup_failed', message: err.message }
     }

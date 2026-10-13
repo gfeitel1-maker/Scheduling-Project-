@@ -374,12 +374,13 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
         </div>
 
         <div style={grid3}>
-          <Field label="Min per week">
-            <CapacityStepper value={minWeek} onChange={setMinWeek} min={0} ariaLabel="Minimum per week" />
+          {/* The same words as the table's "Times per week" column (director test 2026-10-12). */}
+          <Field label="Fewest times a week">
+            <CapacityStepper value={minWeek} onChange={setMinWeek} min={0} ariaLabel="Fewest times a week" />
           </Field>
-          <Field label="Max per week">
+          <Field label="Most times a week">
             <input
-              type="text" inputMode="numeric" placeholder="No cap" aria-label="Maximum per week"
+              type="text" inputMode="numeric" placeholder="No limit" aria-label="Most times a week"
               value={maxWeek}
               onChange={e => { if (/^\d*$/.test(e.target.value)) setMaxWeek(e.target.value) }}
               style={{ ...S.input, width: 90 }}
@@ -1276,6 +1277,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                         )}
                         {/* Actions side by side at one row height, never stacked (consistency audit C7). */}
                         <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap', borderLeft: weekId ? '1px solid var(--border)' : undefined }}>
+                          {/* A visible Edit, not only a clickable name (director test 2026-10-12). */}
+                          <button className="press-97" onClick={e => { e.stopPropagation(); setModal({ activity: a }) }} aria-label={`Edit ${a.name} details`} style={{ ...S.btnSecondary, marginRight: 6 }}>Edit</button>
                           <button className="press-97" onClick={e => { e.stopPropagation(); duplicateActivity(a) }} style={S.btnSecondary}>Duplicate</button>
                           <button
                             onClick={e => { e.stopPropagation(); deleteActivity(a.id) }}

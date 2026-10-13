@@ -62,7 +62,7 @@ export default function Sidebar({
   current, onNavigate, role, badges = {}, campId,
   counts, countsFor, campName, syncStatus,
   projectPath, isDevDb, buildLabel,
-  backupStatus, handleBackupNow, backupRevealable, handleShowBackup,
+  backupStatus, handleBackupNow, backupRevealable, handleShowBackup, lastBackupAt = null,
   offerShown, setOfferShown, openQuestionCount = 0,
 }) {
   const [sidebar, setSidebar] = useState(() => loadSidebarState(globalThis.localStorage))
@@ -486,7 +486,8 @@ export default function Sidebar({
               color: 'var(--text-secondary)', textDecoration: 'underline', textUnderlineOffset: 2,
             }}
           >
-            Show in Finder
+            {/* When it was made stays on this line after "Backup saved" fades (director test 2026-10-12). */}
+            {lastBackupAt ? `Last backup ${new Date(lastBackupAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · ` : ''}Show in Finder
           </button>
         )}</div>}
         {role === 'admin' && <RestoreControl />}

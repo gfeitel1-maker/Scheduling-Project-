@@ -632,6 +632,12 @@ describe('Sidebar: footer sync-not-running indicator (T277)', () => {
 })
 
 describe('Sidebar: packaged audit #32/#33/#34', () => {
+  it('after a backup, says when it was made beside Show in Finder (director test)', () => {
+    render(sidebarElement({ handleShowBackup: vi.fn(), backupRevealable: true, lastBackupAt: '2026-10-13T14:05:00' }))
+    const time = new Date('2026-10-13T14:05:00').toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    expect(screen.getByRole('button', { name: `Last backup ${time} · Show in Finder` })).toBeTruthy()
+  })
+
   it('#32 offers Show in Finder once a backup has been saved, and it calls the reveal handler', () => {
     const handleShowBackup = vi.fn()
     const { rerender } = renderSidebar({ handleShowBackup })
@@ -651,11 +657,11 @@ describe('Sidebar: packaged audit #32/#33/#34', () => {
     }
   })
 
-  it('#34 the "only this computer" row opens Devices', () => {
+  it('#34 the "1 device · add a laptop" row opens Devices', () => {
     const onNavigate = vi.fn()
     renderSidebar({ onNavigate, syncStatus: { state: 'standalone', otherDeviceCount: 0 } })
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('only this computer'))
+    fireEvent.click(screen.getByText('1 device · add a laptop'))
     expect(onNavigate).toHaveBeenCalledWith('devices')
   })
 })
