@@ -609,7 +609,7 @@ export async function run(h) {
     await waitFor(`const i=__inp('input[placeholder$="Swim"]'); if(!i) return false; __set(i, ${JSON.stringify(probe)}); i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})); return true`, 10000, 'new activity name')
     await waitFor(`return !!document.querySelector('[aria-label=${JSON.stringify(`Edit ${probe} details`)}]')`, 15000, 'probe activity added')
 
-    await mainEval(`(()=>{const r=process.getBuiltinModule('module').createRequire('/x.js'); const {dialog}=r('electron'); dialog.showOpenDialog=async()=>({canceled:false,filePaths:[${JSON.stringify(backupFile)}]}); return 'hooked'})()`)
+    await h.mainEval(`(()=>{const r=process.getBuiltinModule('module').createRequire('/x.js'); const {dialog}=r('electron'); dialog.showOpenDialog=async()=>({canceled:false,filePaths:[${JSON.stringify(backupFile)}]}); return 'hooked'})()`)
     await click('Restore from backup…', true, 10000)
     const picked = await waitFor(`const a=document.querySelector('[role=alertdialog][aria-label="Confirm restore"]'); if(a) return 'confirm'; const m=document.querySelector('[role=alert]'); return m ? 'REFUSED: '+m.innerText : false`, 20000, 'confirm restore or a refusal')
     if (picked !== 'confirm') throw new Error(`the encrypted backup was not accepted: ${picked}`)
