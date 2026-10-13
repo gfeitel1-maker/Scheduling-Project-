@@ -716,7 +716,14 @@ export async function run(h) {
       const B2 = await h.launchPeer('S2', h.PORT + 80, { reuse: ud })
       try {
         await B2.waitFor(`return /Log out|Sign in/.test(document.body.innerText)`, 120000, 'S2: up')
-        await B2.waitFor(`return [...document.querySelectorAll('button')].some(b=>b.innerText.trim()==='Start fresh on this computer')`, 90000, 'S2 offers Start fresh')
+        // A device signed in when it learns its removal stays signed in and shows the sidebar row
+        // ("removed from this camp · sign out, then Start fresh"); one signed out shows Start fresh on the sign-in
+        // screen. Either is a removal learned: the signed-in one is signed out, as the row says, to reach Start fresh.
+        const state = await B2.waitFor(`const t=document.body.innerText; if ([...document.querySelectorAll('button')].some(b=>b.innerText.trim()==='Start fresh on this computer')) return 'sign-in'; if (/removed from this camp/.test(t) && /Log out/.test(t)) return 'signed-in'; return false`, 90000, 'S2 shows it was removed')
+        if (state === 'signed-in') {
+          await B2.click('Log out', true, 10000)
+          await B2.waitFor(`return [...document.querySelectorAll('button')].some(b=>b.innerText.trim()==='Start fresh on this computer')`, 30000, 'S2 offers Start fresh after signing out')
+        }
         await B2.shot('start-fresh-offered')
         await B2.click('Start fresh on this computer', true, 10000)
         await B2.waitFor(`return /clears Shoresh on this computer only/.test(document.body.innerText)`, 10000, 'S2 confirm text')

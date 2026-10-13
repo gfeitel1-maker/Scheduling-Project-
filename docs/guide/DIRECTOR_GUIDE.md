@@ -552,6 +552,9 @@ Keep the host computer on, with **Add a device** open, until the new computer sh
 
 **Removing a device** works the same way: remove it from any computer that was made an admin (it does not have to be the host): open Settings gear, **Devices**, and press **Revoke** on the device's row. Every computer that hears about the removal stops syncing with it. A computer that has not heard yet, because it has been off or out of range, keeps syncing with the removed one until it does. Removed devices cannot be added back. To use the same computer again, open Shoresh on it: it shows **This computer was removed from the camp.** and a **Start fresh on this computer** button. Press it and read what it clears. It lists every other camp on that computer; for each, use **Save whole camp** in that camp first if you want to open it again (a camp stored outside Shoresh's folder is left alone but will no longer open). Then press **Yes, start fresh**. This clears Shoresh on that computer only, including its backups, and anything changed there after it was removed is lost. The camp's information is still on your other computers, and a **Save whole camp** file you kept elsewhere is not affected. Shoresh then restarts on the first screen. Choose **Join with a camp code** and add it as a new device, as in [Adding a device](#9-adding-a-device).
 
+![A removed computer's screen: This computer was removed from the camp, with the Start fresh on this computer button](img/devices/removed-start-fresh.png)
+![The Start fresh confirm step: what it clears, what is kept elsewhere, and the Yes, start fresh button](img/devices/start-fresh-confirm.png)
+
 ### Moving hosting to another computer
 
 Only the host computer can add devices. If that computer is being replaced or turned in, hand hosting to another computer that is already joined to the camp. That computer must be a director's (admin) device.
