@@ -289,7 +289,7 @@ describe('syncStatusLabel — a refused relay reservation (T336 Precondition 3)'
     expect(vsLowDisk.text).toBe('storage almost full')
   })
 
-  it('outranks the quiet "only this computer" standing notice', () => {
+  it('outranks the quiet "1 device · add a laptop" standing notice', () => {
     const label = syncStatusLabel({ state: 'host', relayReservationRefused: true, otherDeviceCount: 0 })
     expect(label.text).toBe('relay full')
   })
@@ -304,7 +304,7 @@ describe('syncStatusLabel — a refused relay reservation (T336 Precondition 3)'
 describe('syncStatusLabel — no second copy of the camp (T176)', () => {
   it('says so, in terms that are true today and stay true after encryption', () => {
     const label = syncStatusLabel({ state: 'host', otherDeviceCount: 0 })
-    expect(label.text).toBe('only this computer')
+    expect(label.text).toBe('1 device · add a laptop')
     expect(label.title).toMatch(/no second copy to restore from/)
     // The stronger claim is true only when the device's data is actually encrypted.
     expect(label.title).not.toMatch(/cannot be recovered|unrecoverable/i)
@@ -314,7 +314,7 @@ describe('syncStatusLabel — no second copy of the camp (T176)', () => {
 
   it('says the camp cannot be recovered only when at-rest encryption is on', () => {
     const label = syncStatusLabel({ state: 'host', otherDeviceCount: 0, atRestEncryptionEnabled: true })
-    expect(label.text).toBe('only this computer')
+    expect(label.text).toBe('1 device · add a laptop')
     expect(label.title).toMatch(/its data is encrypted on this computer/)
     expect(label.title).toMatch(/the camp cannot be recovered/)
   })
@@ -334,13 +334,13 @@ describe('syncStatusLabel — no second copy of the camp (T176)', () => {
 
   it('goes away as soon as a second device is paired', () => {
     const paired = syncStatusLabel({ state: 'host', otherDeviceCount: 1 })
-    expect(paired.text).not.toMatch(/only this computer/)
+    expect(paired.text).not.toMatch(/add a laptop/)
   })
 
   it('UNKNOWN is not zero — a caller that did not report the count says nothing', () => {
     // The same discipline as lowDisk: "we could not measure" must never render
     // as an assertion about the camp.
-    expect(syncStatusLabel({ state: 'host' }).text).not.toMatch(/only this computer/)
+    expect(syncStatusLabel({ state: 'host' }).text).not.toMatch(/add a laptop/)
   })
 })
 
@@ -364,7 +364,7 @@ describe('syncStatusLabel — a refused sync outranks every other label (T268)',
 
   it('outranks an otherDeviceCount warning alone', () => {
     const label = syncStatusLabel({ state: 'sync-blocked', syncBlocked: true, otherDeviceCount: 0 })
-    expect(label.text).not.toMatch(/only this computer/)
+    expect(label.text).not.toMatch(/add a laptop/)
     expect(label.tone).toBe('danger')
   })
 
@@ -376,7 +376,7 @@ describe('syncStatusLabel — a refused sync outranks every other label (T268)',
       lowDisk: true,
       otherDeviceCount: 0,
     })
-    expect(label.text).not.toMatch(/not shared|storage almost full|only this computer/)
+    expect(label.text).not.toMatch(/not shared|storage almost full|add a laptop/)
     expect(label.tone).toBe('danger')
   })
 

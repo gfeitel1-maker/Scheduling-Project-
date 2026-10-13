@@ -1279,10 +1279,13 @@ describe('ActivitiesScreen — row-click to edit', () => {
     })
   })
 
-  it('has no visible Edit button', async () => {
+  // Director test 2026-10-12 reversed the earlier "no visible Edit button" choice: a first-time director
+  // did not find that the name was clickable. The row stays clickable too.
+  it('has a visible Edit button that opens the activity editor', async () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
-    expect(screen.queryByText('Edit')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Archery details' }))
+    await waitFor(() => expect(screen.queryByPlaceholderText('Activity name')).not.toBeNull())
   })
 
   it('Enter on a focused row opens the edit modal', async () => {
@@ -1437,13 +1440,13 @@ describe('duplicate-catcher — the typo a re-import creates', () => {
 
 // F11: a null max_per_week means "no cap". The editor must not turn it into 5 on open-and-save.
 describe('ActivitiesScreen — null max_per_week is no cap', () => {
-  it('shows "No cap" and saving unchanged never writes a number', async () => {
+  it('shows "No limit" and saving unchanged never writes a number', async () => {
     localClient.list.mockImplementation(entity => (entity === 'activities' ? Promise.resolve([activity({ max_per_week: null })]) : Promise.resolve([])))
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
     fireEvent.click(screen.getByRole('button', { name: 'Edit Archery' }))
-    await waitFor(() => expect(screen.queryByPlaceholderText('No cap')).not.toBeNull())
-    expect(screen.getByLabelText('Maximum per week').value).toBe('')
+    await waitFor(() => expect(screen.queryByPlaceholderText('No limit')).not.toBeNull())
+    expect(screen.getByLabelText('Most times a week').value).toBe('')
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
     await act(async () => { await new Promise(r => setTimeout(r, 30)) })
     expect(localClient.write.mock.calls.filter(c => c[3] === 'max_per_week' && c[4] !== null)).toEqual([])
@@ -1454,8 +1457,8 @@ describe('ActivitiesScreen — null max_per_week is no cap', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
     fireEvent.click(screen.getByRole('button', { name: 'Edit Archery' }))
-    await waitFor(() => expect(screen.queryByLabelText('Maximum per week')).not.toBeNull())
-    fireEvent.change(screen.getByLabelText('Maximum per week'), { target: { value: '' } })
+    await waitFor(() => expect(screen.queryByLabelText('Most times a week')).not.toBeNull())
+    fireEvent.change(screen.getByLabelText('Most times a week'), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'act-1', 'max_per_week', null))
   })

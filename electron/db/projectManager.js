@@ -125,7 +125,9 @@ export function readCampIdSafely(db) {
 }
 
 // keepPath: a backup a restore is about to read; rotation must not delete it.
-export function writeUserBackup(dbPath, userDataPath, campId, onDocError, keepPath = null, db = null) {
+// reason: an automatic backup says why it was made in its file name (`before-replace`, `before-restore`),
+// so the backups folder tells it apart from a director's own "Backup now" (director test 2026-10-12).
+export function writeUserBackup(dbPath, userDataPath, campId, onDocError, keepPath = null, db = null, reason = null) {
   // Committed rows may sit in <db>-wal; copying the main file alone would silently miss them.
   if (db) {
     const [res] = db.pragma('wal_checkpoint(TRUNCATE)')
@@ -137,7 +139,7 @@ export function writeUserBackup(dbPath, userDataPath, campId, onDocError, keepPa
   }
   rotateBackups(backupDir, MAX_BACKUPS, keepPath)
   const ts = new Date().toISOString().replace(/[:.]/g, '-')
-  const backupPath = path.join(backupDir, `shoresh-${ts}.db`)
+  const backupPath = path.join(backupDir, `shoresh-${ts}${reason ? `-${reason}` : ''}.db`)
   fs.copyFileSync(dbPath, backupPath)
   // Restrict backup file permissions so it's not world-readable.
   try { fs.chmodSync(backupPath, 0o600) } catch { /* non-fatal on Windows */ }
