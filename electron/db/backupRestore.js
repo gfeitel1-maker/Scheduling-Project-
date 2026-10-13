@@ -16,6 +16,8 @@ export class RestoreRefusal extends Error {
 
 const NO_DOCUMENT = 'This backup is from before backups included the camp document, so restoring it would be undone at the next sync.'
 const WRONG_CAMP = 'This backup belongs to a different camp, so it cannot be restored here.'
+const UNREADABLE_DB = 'The selected file could not be read as a Shoresh database.'
+const UNREADABLE_ENCRYPTED = 'This file could not be opened on this computer. If it is a backup made with encryption on another computer, or before this computer\'s key changed, it cannot be restored here.'
 const UNREADABLE = 'The camp document in this backup cannot be read on this computer, so it cannot be restored.'
 
 // A backup is a pair: shoresh-<ts>.db + shoresh-<ts>.automerge/<campId>.automerge. Every refusal
@@ -58,12 +60,11 @@ export function checkPickedBackup(sourcePath, { db, cipher = null, dbKey = null 
   try {
     // A backup is a byte copy of the db, so with encryption on it is encrypted under this device's key.
     if (dbKey && !isPlaintextSqliteFile(sourcePath)) {
-      probe = new (encryptingDatabaseCtor())(sourcePath)
+      probe = new (encryptingDatabaseCtor())(sourcePath, { readonly: true })
       probe.pragma(rawKeyPragma(dbKey))
     } else {
-      probe = new Database(sourcePath)
+      probe = new Database(sourcePath, { readonly: true })
     }
-    probe.pragma('journal_mode = WAL')
     // getSchemaVersion swallows errors, so a wrong key or corrupt file must fail here, not read as version 0.
     probe.prepare('SELECT count(*) FROM sqlite_master').get()
     const version = getSchemaVersion(probe)
@@ -76,7 +77,7 @@ export function checkPickedBackup(sourcePath, { db, cipher = null, dbKey = null 
     }
   } catch {
     try { probe?.close() } catch { /* ignore */ }
-    return { error: 'invalid_file', message: 'The selected file could not be read as a Shoresh database.' }
+    return { error: 'invalid_file', message: isPlaintextSqliteFile(sourcePath) ? UNREADABLE_DB : UNREADABLE_ENCRYPTED }
   }
 
   try {

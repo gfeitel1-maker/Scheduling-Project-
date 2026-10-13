@@ -10,7 +10,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID, randomBytes } from 'node:crypto'
+import Database from 'better-sqlite3'
 import { openLocalDb } from './localDb.js'
+import { isPlaintextSqliteFile } from './sqliteCipher.js'
 import { makeDocCipher } from './docCipher.js'
 import { writeUserBackup } from './projectManager.js'
 import { checkPickedBackup, restoreFromBackup } from './backupRestore.js'
@@ -82,6 +84,28 @@ describe.skipIf(!driverAvailable && !onCI)('restore from an encrypted backup —
     installed[0].close()
   })
 
+  it('restores a plaintext backup onto an encrypted device and the live db ends up encrypted', async () => {
+    const plainPath = path.join(tmp, 'plain.sqlite')
+    const plainDb = newCampDb(plainPath, null)
+    addLocation(plainDb, 'Lake')
+    const backupDbPath = backup(plainDb, plainPath)
+    plainDb.close()
+    const dbPath = path.join(tmp, 'live.sqlite')
+    const db = newCampDb(dbPath, dbKey)
+    addLocation(db, 'Pool')
+    const installed = []
+    const r = await restoreFromBackup({
+      sourcePath: backupDbPath, dbPath, userDataPath: tmp, db, cipher,
+      flushDoc() {}, stopSync: async () => {}, startSync() {}, discardDoc() {},
+      openDb: () => openLocalDb(dbPath, { key: dbKey }),
+      installDb: async (d) => { installed.push(d) },
+    })
+    expect(r).toEqual({ restored: true })
+    expect(names(installed[0])).toEqual(['Lake'])
+    installed[0].close()
+    expect(isPlaintextSqliteFile(dbPath)).toBe(false)
+  })
+
   it('refuses an encrypted backup written under a different key', () => {
     const dbPath = path.join(tmp, 'live.sqlite')
     const db = newCampDb(dbPath, dbKey)
@@ -110,6 +134,37 @@ describe.skipIf(!driverAvailable && !onCI)('restore from an encrypted backup —
 })
 
 describe('restore pick without encryption', () => {
+  it('leaves the picked backup untouched: no byte changes, no -wal/-shm beside it', () => {
+    const dbPath = path.join(tmp, 'live.sqlite')
+    const db = newCampDb(dbPath, null)
+    const backupDbPath = backup(db, dbPath)
+    const plain = new Database(backupDbPath)
+    plain.pragma('journal_mode = DELETE')
+    plain.close()
+    for (const ext of ['-wal', '-shm']) fs.rmSync(backupDbPath + ext, { force: true })
+    const before = fs.readFileSync(backupDbPath)
+    expect(checkPickedBackup(backupDbPath, { db, cipher, dbKey: null }).error).toBeUndefined()
+    expect(fs.readFileSync(backupDbPath).equals(before)).toBe(true)
+    expect(fs.existsSync(`${backupDbPath}-wal`) || fs.existsSync(`${backupDbPath}-shm`)).toBe(false)
+    db.close()
+  })
+
+  it('says an unopenable non-database file may be an encrypted backup from elsewhere, not just "not a database"', () => {
+    const dbPath = path.join(tmp, 'live.sqlite')
+    const db = newCampDb(dbPath, null)
+    const opaque = path.join(tmp, 'opaque.db')
+    fs.writeFileSync(opaque, randomBytes(8192))
+    const r = checkPickedBackup(opaque, { db, cipher, dbKey: null })
+    expect(r.error).toBe('invalid_file')
+    expect(r.message).toMatch(/another computer/)
+    db.close()
+  })
+
+  it('the pick handler in main.js hands the device key to checkPickedBackup', () => {
+    const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'main.js'), 'utf8')
+    expect(src).toMatch(/checkPickedBackup\(sourcePath, \{[^}]*\bdbKey\b[^}]*\}\)/)
+  })
+
   it('still accepts a plaintext backup when no key is in use', () => {
     const dbPath = path.join(tmp, 'live.sqlite')
     const db = newCampDb(dbPath, null)
