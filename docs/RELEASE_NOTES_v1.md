@@ -13,7 +13,7 @@ Shoresh is a scheduling app for summer camps. It builds and keeps the weekly sch
 activity, where, and when) and leaves the decisions to you. It runs on your camp's own computers: there is no
 account to create and no company server holding your camp's data.
 
-**Download:** [Shoresh v1.0.0 on GitHub Releases](https://github.com/gfeitel1-maker/Scheduling-Project-/releases/tag/v1.0.0): **Shoresh-1.0.0-macOS.zip** (Mac; Intel build that also runs on Apple Silicon via Rosetta) and **Shoresh Setup 1.0.0.exe** (Windows 64-bit installer).
+**Download:** [Shoresh v1.0.1 on GitHub Releases](https://github.com/gfeitel1-maker/Scheduling-Project-/releases/tag/v1.0.1): **Shoresh-1.0.1-macOS.zip** (Mac; Intel build that also runs on Apple Silicon via Rosetta) and **Shoresh Setup 1.0.1.exe** (Windows 64-bit installer).
 
 This page is for two readers: a camp director deciding whether to use Shoresh, and a camp's own developer who
 forks it. The step-by-step guide is [the director guide](guide/DIRECTOR_GUIDE.md).
