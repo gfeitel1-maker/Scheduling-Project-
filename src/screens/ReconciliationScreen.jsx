@@ -307,7 +307,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       // 'replace' (commitPlan's own Invariant-3 guard would throw otherwise);
       // buildCommitInputs never sets mode:'replace' AND captureInverse
       // together — foldTriageInputs' mode comes straight from baseInputs.
-      const outcome = await localClient.ingestCommit({ ...inputs, openDecisions: heldBackDecisions(decisions, answersForApply), captureInverse: inputs.mode !== 'replace' })
+      const outcome = await localClient.ingestCommit({ ...inputs, openDecisions: heldBackDecisions(decisions, answersForApply, baseInputs.fixedEvents), captureInverse: inputs.mode !== 'replace' })
       if (outcome?.held) {
         // A peer race held the real commit — surface it the same way the dry
         // run does, as fresh hold-lane cards, never a silent failure.

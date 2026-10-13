@@ -146,9 +146,28 @@ function overflowChipHover(e, on) {
 // navigates to nothing.
 // A question kept for later can be set aside from where it stands. Dismissing
 // removes it from this list only; nothing in the camp changes.
-function AttentionRow({ row, onNavigate, onName, animStyle, onDismiss }) {
+function AttentionRow({ row, onNavigate, onName, animStyle, onDismiss, onAddForAllGroups, adding = false }) {
   const body = <AttentionRowBody row={row} onNavigate={onNavigate} onName={onName} animStyle={animStyle} />
   if (row.sourceKind !== 'reconciliation' || !onDismiss) return body
+  // UX audit A1: the question is answered where it stands. "Leave as is" sets it aside, like Dismiss.
+  if (row.addForAllGroups && onAddForAllGroups) {
+    return (
+      <div style={{ ...styles.attentionRow, ...animStyle, flexWrap: 'wrap' }}>
+        <div style={styles.attentionName}>{row.name}</div>
+        <div style={{ ...styles.attentionWhy, flexBasis: '100%' }}>{row.why}</div>
+        <div style={{ display: 'flex', gap: 8, flexBasis: '100%', marginTop: 6 }}>
+          <button type="button" className="press-97" disabled={adding} onClick={() => onAddForAllGroups(row.id)}
+            style={adding ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary}>
+            {adding ? 'Adding…' : 'Add for all groups'}
+          </button>
+          <button type="button" className="press-97" disabled={adding} onClick={() => onDismiss(row.id)}
+            style={adding ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}>
+            Leave as is
+          </button>
+        </div>
+      </div>
+    )
+  }
   return (
     <div style={{ position: 'relative' }}>
       {body}
@@ -176,7 +195,7 @@ function AttentionRowBody({ row, onNavigate, onName, animStyle }) {
   const content = (
     <>
       <div style={styles.attentionName}>{row.name}</div>
-      <span style={styles.domainChip}>{row.domainTag}</span>
+      {row.domainTag && <span style={styles.domainChip}>{row.domainTag}</span>}
       <div style={{ ...styles.attentionWhy, flexBasis: '100%' }}>{row.why}</div>
     </>
   )
@@ -227,7 +246,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
   // 'understood' rows, so the reconciliation half was structurally empty until
   // this store existed; the hook's { model, decisionsById } carries the real
   // attention/changed rows.
-  const { model: openModel, decisionsById: openDecisionsById, dismiss } = useOpenReconciliationDecisions()
+  const { model: openModel, decisionsById: openDecisionsById, dismiss, addForAllGroups } = useOpenReconciliationDecisions()
   const [dismissError, setDismissError] = useState(null)
   async function dismissOpenQuestion(id) {
     setDismissError(null)
@@ -235,6 +254,21 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
       await dismiss(id)
     } catch (err) {
       setDismissError(describeWriteFailure(err, 'Could not dismiss this question. It is still listed; nothing was lost.'))
+    }
+  }
+  // One add at a time: a second click on a question already being answered would report a false failure.
+  const [addingId, setAddingId] = useState(null)
+  async function addOpenEventForAllGroups(id) {
+    if (addingId) return
+    setAddingId(id)
+    setDismissError(null)
+    try {
+      await addForAllGroups(id)
+      reload?.()
+    } catch (err) {
+      setDismissError(describeWriteFailure(err, 'Could not add this event. Nothing was changed; the question is still listed.'))
+    } finally {
+      setAddingId(null)
     }
   }
   const [preparingWorksheet, setPreparingWorksheet] = useState(false)
@@ -400,6 +434,8 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
                   onNavigate={onNavigate}
                   onName={setNamingRow}
                   onDismiss={dismissOpenQuestion}
+                  onAddForAllGroups={addOpenEventForAllGroups}
+                  adding={addingId === row.id}
                   animStyle={attentionStyleFor(index)}
                 />
               ))}

@@ -332,7 +332,10 @@ CREATE TABLE IF NOT EXISTS open_reconciliation_decisions (
   entity_name TEXT,             -- display name
   reason TEXT,                  -- the decision's .reason/why text
   import_run_id TEXT NOT NULL,  -- same value import_evidence.import_run_id gets for this commit
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  payload TEXT                  -- v98 (UX audit A1): JSON {fixedEvent, cohortId} for a held-back
+                                -- fixed_events question, so "Add for all groups" can add the event
+                                -- later. NULL for every other kind of question. ALTER-appended LAST.
 );
 
 CREATE INDEX IF NOT EXISTS idx_open_reconciliation_decisions_lookup

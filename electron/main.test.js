@@ -3232,6 +3232,39 @@ describe('listOpenReconciliationDecisions / dismissOpenReconciliationDecisions h
   })
 })
 
+describe('addHeldEventForAllGroups handler (UX audit A1)', () => {
+  it('rejects with no token, and with no decisionId', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.addHeldEventForAllGroups({})).toThrow('token is required')
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    await seedCampAndUser({ name: 'RuthA1', pin: '432101', role: 'admin' })
+    const { token } = await handlers.login({ name: 'RuthA1', pin: '432101' })
+    expect(() => handlers.addHeldEventForAllGroups({ token })).toThrow('decisionId is required')
+  })
+
+  it('takes the same gate as an import: a role that may import gets past it', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    await seedCampAndUser({ name: 'StaffA1', pin: '1235', role: 'staff' })
+    const { token } = await handlers.login({ name: 'StaffA1', pin: '1235' })
+    expect(() => handlers.addHeldEventForAllGroups({ token, decisionId: 'x' })).toThrow(/no open question/)
+  })
+
+  it('fails loudly for a question that carries no event', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    await seedCampAndUser({ name: 'RuthA1b', pin: '432102', role: 'admin' })
+    const { token } = await handlers.login({ name: 'RuthA1b', pin: '432102' })
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    db.prepare(
+      `INSERT INTO open_reconciliation_decisions
+         (id, camp_id, entity_type, cohort_id, entity_id, identity_key, kind, domain_key, child_key, entity_name, reason, import_run_id, created_at)
+       VALUES ('fixed_events:x', ?, 'fixed_events', NULL, NULL, 'x', 'confirm_value', 'Scheduling', 'fixed_events', 'Flag', 'r', 'run1', ?)`
+    ).run(campIdHere, new Date().toISOString())
+    expect(() => handlers.addHeldEventForAllGroups({ token, decisionId: 'fixed_events:x' })).toThrow(/no event/)
+  })
+})
+
 describe('the generic write() path refuses source_aliases (S1b)', () => {
   it('throws rather than silently no-opping', async () => {
     const handlers = makeHandlers(db, deviceId, {})

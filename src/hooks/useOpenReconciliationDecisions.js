@@ -49,7 +49,14 @@ export function useOpenReconciliationDecisions() {
     return result
   }, [])
 
+  // UX audit A1 — adds a held-back event for every group (an import of its own, undone like one).
+  const addForAllGroups = useCallback(async (id) => {
+    const result = await localClient.addHeldEventForAllGroups(id)
+    if (mountedRef.current) setRows((prev) => prev.filter((row) => row.id !== id))
+    return result
+  }, [])
+
   const { model, decisionsById } = openDecisionsToModel(rows)
 
-  return { rows, model, decisionsById, loading, dismiss, refresh }
+  return { rows, model, decisionsById, loading, dismiss, addForAllGroups, refresh }
 }

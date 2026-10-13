@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   dismissMigrationReviews: (args) => ipcRenderer.invoke('shoresh:dismiss-migration-reviews', args),
   listOpenReconciliationDecisions: (token) => ipcRenderer.invoke('shoresh:list-open-reconciliation-decisions', { token }),
   dismissOpenReconciliationDecisions: (args) => ipcRenderer.invoke('shoresh:dismiss-open-reconciliation-decisions', args),
+  addHeldEventForAllGroups: (args) => ipcRenderer.invoke('shoresh:add-held-event-for-all-groups', args),
   getDevicePairingStatus: () => ipcRenderer.invoke('shoresh:get-device-pairing-status'),
   listPendingPairingRequests: (token) => ipcRenderer.invoke('shoresh:list-pending-pairing-requests', { token }),
   approveDevice: (args) => ipcRenderer.invoke('shoresh:approve-device', args),

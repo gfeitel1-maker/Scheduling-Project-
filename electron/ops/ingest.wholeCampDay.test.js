@@ -107,7 +107,7 @@ function importText(text, { weekId = week1, hasWeeks = true, tripAnswers = {}, w
   })
   const answers = Object.fromEntries(report.decisions.map((dec) => [dec.id, CONFIRM_ALL(dec)]).filter(([, a]) => a))
   const folded = foldTriageInputs(base, report.decisions, answers)
-  const committed = commitIngest(d, { ...common, ...base, ...folded, openDecisions: heldBackDecisions(report.decisions, answers), captureInverse })
+  const committed = commitIngest(d, { ...common, ...base, ...folded, openDecisions: heldBackDecisions(report.decisions, answers, base.fixedEvents), captureInverse })
   return { parsed, proposal, detections, trips, whole, claimed, committed }
 }
 

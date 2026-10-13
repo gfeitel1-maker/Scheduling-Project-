@@ -245,6 +245,8 @@ export const localClient = {
   listOpenReconciliationDecisions: () => shoresh.listOpenReconciliationDecisions(currentToken()),
   dismissOpenReconciliationDecisions: announcing((ids) =>
     shoresh.dismissOpenReconciliationDecisions({ token: currentToken(), ids })),
+  addHeldEventForAllGroups: announcing((decisionId) =>
+    shoresh.addHeldEventForAllGroups({ token: currentToken(), decisionId })),
   getDevicePairingStatus: () => shoresh.getDevicePairingStatus(),
   listPendingPairingRequests: () => shoresh.listPendingPairingRequests(currentToken()),
   approveDevice: (deviceId) => shoresh.approveDevice({ token: currentToken(), deviceId }),

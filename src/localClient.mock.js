@@ -1783,6 +1783,9 @@ export const mockShoresh = {
       state.open_reconciliation_decisions = (openDecisions ?? []).map((d) => ({
         id: d.id, kind: d.kind, entity_type: d.entity, entity_id: d.entityId ?? null, entity_name: d.entityName,
         reason: d.reason ?? null, domain_key: domainOf(d), child_key: childOf(d),
+        // Same contract as the real store (v97): a held-back event question keeps its event.
+        payload: d.entity === 'fixed_events' && d.fixedEvent ? JSON.stringify({ fixedEvent: d.fixedEvent, cohortId: cohort_id ?? null }) : null,
+        can_add_for_all_groups: d.entity === 'fixed_events' && d.fixedEvent ? 1 : 0,
       }))
       saveState(state)
     }
@@ -3187,6 +3190,27 @@ export const mockShoresh = {
     state.open_reconciliation_decisions = before.filter((r) => !(ids ?? []).includes(r.id))
     saveState(state)
     return { ok: true, dismissed: before.length - state.open_reconciliation_decisions.length }
+  },
+  // Mirrors electron/ops/addHeldEventForAllGroups.js: an import of the one event, for every group.
+  async addHeldEventForAllGroups({ decisionId } = {}) {
+    const before = loadState().open_reconciliation_decisions ?? []
+    const row = before.find((r) => r.id === decisionId)
+    if (!row) throw new Error('addHeldEventForAllGroups: there is no open question with that id')
+    let payload = null
+    try { payload = JSON.parse(row.payload) } catch { payload = null }
+    const fe = payload?.fixedEvent
+    if (!fe) throw new Error('addHeldEventForAllGroups: the question carries no event to add')
+    const outcome = await mockShoresh.ingestCommit({
+      approved: {}, cohort_id: payload.cohortId ?? null, mode: 'add', captureInverse: true,
+      fixedEvents: [{ ...fe, confidence: 'high', scope: { is_all_groups: true, groups: [] } }],
+    })
+    const state = loadState()
+    const created = outcome.fixedEvents?.created ?? 0
+    // Same as the real op: nothing created is a failure, and the question stays.
+    state.open_reconciliation_decisions = created > 0 ? before.filter((r) => r.id !== decisionId) : before
+    saveState(state)
+    if (created === 0) throw new Error(`addHeldEventForAllGroups: ${fe.name} was not added`)
+    return { created }
   },
 
   // Duplicate a week in mock state, mirroring duplicateWeek.js's contract:

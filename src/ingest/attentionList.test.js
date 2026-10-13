@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildAttentionList, buildStructureIssues } from './attentionList.js'
+import { openDecisionsToModel } from './openDecisionsToModel.js'
 import { DOMAINS } from '../components/reconciliation/domainRollup.js'
 import { screenForNode } from '../components/reconciliation/rootMapNav.js'
 
@@ -310,5 +311,28 @@ describe('buildStructureIssues — submissions indistinguishable by content (T29
     const rows = issues.filter((i) => i.sourceKind === 'unattributed-camper')
     expect(rows).toHaveLength(2)
     for (const row of rows) expect(row.why).not.toMatch(/same answers/i)
+  })
+})
+
+describe('a held-back event question that can be answered here (UX audit A1)', () => {
+  it('becomes an add-for-all-groups row: the question in plain words, no area tag', () => {
+    const { model, decisionsById } = openDecisionsToModel([{
+      id: 'fixed_events:flag', entity_type: 'fixed_events', kind: 'confirm_value', domain_key: 'Scheduling',
+      child_key: 'fixed_events', entity_name: 'Flag', reason: 'old', can_add_for_all_groups: 1,
+    }])
+    const [row] = buildAttentionList({ model, decisionsById })
+    expect(row).toMatchObject({
+      id: 'fixed_events:flag', addForAllGroups: true, domainTag: null,
+      why: 'Flag was in your file for only some groups or days. Add it for every group?',
+    })
+  })
+  it('a question with no event to add keeps its reason and area tag', () => {
+    const { model, decisionsById } = openDecisionsToModel([{
+      id: 'fixed_events:old', entity_type: 'fixed_events', kind: 'confirm_value', domain_key: 'Scheduling',
+      child_key: 'fixed_events', entity_name: 'Old', reason: 'why', can_add_for_all_groups: 0,
+    }])
+    const [row] = buildAttentionList({ model, decisionsById })
+    expect(row.addForAllGroups).toBeUndefined()
+    expect(row).toMatchObject({ why: 'why', domainTag: 'Scheduling' })
   })
 })

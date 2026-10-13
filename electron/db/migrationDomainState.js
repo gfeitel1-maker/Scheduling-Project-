@@ -354,6 +354,9 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // v97 (director test 2026-10-12) creates last_import_undo, one device-local row holding the last import's
   // undo record. Schema-only: created empty, no appendOp, no backfill, never modeled into the document.
   97,
+  // v98 (UX audit A1) adds open_reconciliation_decisions.payload, NULL on every existing row, on a
+  // device-local table. Schema-only: no appendOp, no backfill.
+  98,
 ])
 
 /** True if applying `version` can change what the camp means. */

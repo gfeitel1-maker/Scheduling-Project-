@@ -20,6 +20,7 @@ vi.mock('../localClient', () => ({
     latestOpSeq: vi.fn(),
     listOpenReconciliationDecisions: vi.fn(() => Promise.resolve([])),
     dismissOpenReconciliationDecisions: vi.fn(() => Promise.resolve({ ok: true, dismissed: 0 })),
+    addHeldEventForAllGroups: vi.fn(() => Promise.resolve({ created: 1 })),
     attributeSubject: vi.fn(),
   },
 }))
@@ -588,5 +589,45 @@ describe('T306 — naming an unnamed submission from the Roots home', () => {
     await waitFor(() => expect(screen.queryByText(/not an unattributed subject/i)).not.toBeNull())
     // And the dialog stays open, because nothing was saved.
     expect(screen.queryByLabelText(/Camper.s name/i)).not.toBeNull()
+  })
+})
+
+describe('RootsHomeScreen — a held-back event question (UX audit A1)', () => {
+  const heldFlag = {
+    id: 'fixed_events:flag', camp_id: CAMP_ID, entity_type: 'fixed_events', kind: 'confirm_value',
+    domain_key: 'Scheduling', child_key: 'fixed_events', entity_name: 'Flag', reason: 'old wording',
+    can_add_for_all_groups: 1,
+  }
+  beforeEach(() => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+    localClient.listOpenReconciliationDecisions.mockReset().mockResolvedValue([heldFlag])
+    localClient.addHeldEventForAllGroups.mockReset().mockResolvedValue({ created: 1 })
+    localClient.dismissOpenReconciliationDecisions.mockReset().mockResolvedValue({ ok: true, dismissed: 1 })
+  })
+
+  it('asks in plain words, with no area tag, and adds the event for every group', async () => {
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={vi.fn()} />)
+    await waitFor(() => expect(screen.queryByText('Flag was in your file for only some groups or days. Add it for every group?')).not.toBeNull())
+    expect(screen.queryByText('Scheduling')).toBeNull()
+    expect(screen.queryByText('Dismiss')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Add for all groups' }))
+    await waitFor(() => expect(localClient.addHeldEventForAllGroups).toHaveBeenCalledWith('fixed_events:flag'))
+    await waitFor(() => expect(screen.queryByText(/Flag was in your file for only some/)).toBeNull())
+  })
+
+  it('"Leave as is" sets the question aside', async () => {
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Leave as is' }))
+    await waitFor(() => expect(localClient.dismissOpenReconciliationDecisions).toHaveBeenCalledWith(['fixed_events:flag']))
+    expect(localClient.addHeldEventForAllGroups).not.toHaveBeenCalled()
+  })
+
+  it('says so when the event could not be added, and keeps the question', async () => {
+    localClient.addHeldEventForAllGroups.mockRejectedValue(new Error('boom'))
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add for all groups' }))
+    await waitFor(() => expect(screen.queryByText(/Could not add this event/)).not.toBeNull())
+    expect(screen.queryByText(/Flag was in your file for only some/)).not.toBeNull()
   })
 })

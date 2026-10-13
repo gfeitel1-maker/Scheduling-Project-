@@ -487,7 +487,8 @@ describe('heldBackDecisions (audit 714 item 1)', () => {
     expect(out.map((d) => d.id)).toEqual(['a'])
   })
   it('includes unanswered fixed events', () => {
-    expect(heldBackDecisions([cv('f', { entity: 'fixed_events' })], {}).map((d) => d.id)).toEqual(['f'])
+    const fe = { name: 'f', time_block: 'b', days: ['Mon'] }
+    expect(heldBackDecisions([cv('f', { entity: 'fixed_events', timeBlock: 'b', days: ['Mon'] })], {}, [fe]).map((d) => d.id)).toEqual(['f'])
   })
   it('says what the question was when the decision carries no reason', () => {
     const [d] = heldBackDecisions([cv('a', { title: 'Add Carpool as an activity?' })], {})
@@ -496,6 +497,29 @@ describe('heldBackDecisions (audit 714 item 1)', () => {
   it('sends only what the store needs', () => {
     const [d] = heldBackDecisions([cv('a', { evidence: { big: 1 }, reason: 'why' })], {})
     expect(Object.keys(d).sort()).toEqual(['entity', 'entityId', 'entityName', 'id', 'kind', 'reason'])
+  })
+  it('carries the held-back event itself on a fixed-event question (A1: Add for all groups)', () => {
+    const fe = { name: 'Flag', time_block: '9:00-10:00', days: ['Monday'], span_blocks: 2, scope: { is_all_groups: false, groups: ['Bunk 1'] } }
+    const other = { ...fe, days: ['Tuesday'] }
+    const [d] = heldBackDecisions([cv('f', { entity: 'fixed_events', entityName: 'Flag', timeBlock: '9:00-10:00', days: ['Monday'] })], {}, [other, fe])
+    expect(d.fixedEvent).toEqual(fe)
+  })
+  it('finds an event added by an answered "fixed event" card', () => {
+    const fe = { name: 'Flag', time_block: 'b', days: ['Mon'] }
+    const decisions = [
+      { id: 'k', kind: 'name_kind', candidateEvents: [fe] },
+      cv('f', { entity: 'fixed_events', entityName: 'Flag', timeBlock: 'b', days: ['Mon'] }),
+    ]
+    expect(heldBackDecisions(decisions, {}, []).find((d) => d.id === 'f').fixedEvent).toEqual(fe)
+  })
+  it('carries no event for one an unanswered question does not hold back (it imported anyway)', () => {
+    const lunch = { name: 'Lunch', time_block: 'b', days: ['Mon'] }
+    const [d] = heldBackDecisions([cv('f', { entity: 'fixed_events', entityName: 'Lunch', timeBlock: 'b', days: ['Mon'] })], {}, [lunch])
+    expect(d.fixedEvent).toBeUndefined()
+  })
+  it('fails loudly when a fixed-event question has no matching event to carry', () => {
+    expect(() => heldBackDecisions([cv('f', { entity: 'fixed_events', entityName: 'Flag', timeBlock: '9:00-10:00', days: ['Monday'] })], {}, []))
+      .toThrow(/Flag/)
   })
 })
 

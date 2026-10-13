@@ -203,7 +203,7 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
   })
   const answers = Object.fromEntries(report.decisions.map((dec) => [dec.id, answerFor(dec)]).filter(([, a]) => a))
   const folded = foldTriageInputs(baseInputs, report.decisions, answers)
-  const committed = commitIngest(d, { ...common, ...baseInputs, ...folded, openDecisions: heldBackDecisions(report.decisions, answers) })
+  const committed = commitIngest(d, { ...common, ...baseInputs, ...folded, openDecisions: heldBackDecisions(report.decisions, answers, baseInputs.fixedEvents) })
   return { parsed, proposal, placements: folded.placements ?? placements, pinOnly, dualUseNames, dry, report, answers, committed }
 }
 
