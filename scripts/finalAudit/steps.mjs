@@ -693,7 +693,7 @@ export async function run(h) {
     // T381 / docs/adr/2026-10-13-whole-camp-file-save-and-open.md section 7. The native dialogs are invisible to CDP,
     // so each app's main process answers them with this run's file. Needs A running (runs before 13, which quits A),
     // and a build with the feature (the PR from claude/whole-camp-file-adr).
-    featureInBranch('claude/whole-camp-file-adr', 'Whole-camp file', 19)
+    featureInBranch('claude/whole-camp-file-adr', 'Whole-camp file', 20)
     const saved = path.join(h.RUN, 'whole-camp.shoresh-camp')
     fs.rmSync(saved, { force: true })
     const hook = (kind) => `(()=>{const r=process.getBuiltinModule('module').createRequire('/x.js'); const {dialog}=r('electron'); ${kind === 'save'
