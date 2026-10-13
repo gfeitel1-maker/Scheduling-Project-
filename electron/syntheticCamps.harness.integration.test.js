@@ -18,9 +18,9 @@
 // resolution, overlap and span behaviour are read from the product modules.
 //
 // Scope limit: the glue is a hand-written copy of ImportScreen's plan assembly, so a green run says nothing
-// about ImportScreen branches it does not copy: an accepted trip's rule recompute (partlyClaimed), the
-// director's hand edits in the rule editor, and the trip review itself (a fresh camp has no week, so
-// planTripEvents offers nothing; see WHOLE_DAY_FOR_SOME).
+// about ImportScreen branches it does not copy: the director's hand edits in the rule editor, and answers
+// to the trip review other than its defaults (trips and whole days are planned at the detector's default
+// answer against the Week 1 a fresh camp's import creates, as the screen offers them; T379).
 //
 // SYNTHETIC_ONLY=s05 runs one camp (debugging aid; the scorecard then holds only that camp).
 // Scorecard: written ONLY when asked. SHORESH_WRITE_SCORECARD=1 writes the tracked
@@ -40,6 +40,9 @@ import { normalizeName } from '../src/ingest/preview.js'
 import { isMealName } from '../src/ingest/eventKeptWhenUnanswered.js'
 import { parseTextGrid, normalizeTimeLabel } from '../src/ingest/textGrid.js'
 import { extractEntities } from '../src/ingest/extractEntities.js'
+import { detectTripsAndSpecialDays } from '../src/ingest/tripDetection.js'
+import { planTripEvents, planWholeCampDays, applyTripClaims } from '../src/ingest/tripEvents.js'
+import { weeksForImport } from '../src/ingest/defaultWeek.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
 import { settleAmbiguousFromCamp } from '../src/ingest/settleAmbiguousFromCamp.js'
 import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
@@ -85,12 +88,10 @@ const FAITHFUL_ZERO = 'zero answers: every inferred rule admits the file it was 
 const FAITHFUL_ALL = 'confirm all: every inferred rule admits the file it was read from'
 const FILLS_ZERO = 'zero answers: Generate fills the week again (nothing short, no empty cell)'
 const FILLS_ALL = 'confirm all: Generate fills the week again (nothing short, no empty cell)'
-// A whole-day item for SOME groups (a trip, a Games Day) is read as an event only when the camp has a
-// schedule week to bind it to (src/ingest/tripEvents.js planTripEvents), and a camp's first import has
-// none: the name becomes a day-long span activity that the inferred daily fixed events leave no room for.
-const WHOLE_DAY_FOR_SOME = [`s04-by-day-6day-large:${FILLS_ZERO}`, `s04-by-day-6day-large:${FILLS_ALL}`]
+const ALLDAY_NOT_ACTIVITY = 'zero answers: no trip or whole-day item becomes a catalog activity'
+const ALLDAY_NOT_ACTIVITY_ALL = 'confirm all: no trip or whole-day item becomes a catalog activity'
 const KEEP_ASKS_NOTHING = 'Keep re-import after Replace asks no question at all, none to add an existing activity, and writes nothing'
-const KNOWN_FAILING = new Set([...WHOLE_DAY_FOR_SOME])
+const KNOWN_FAILING = new Set([])
 
 const results = {}
 const startedAt = Date.now()
@@ -126,8 +127,23 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
     activities: d.prepare('SELECT name, catalog_role FROM activities WHERE camp_id = ?').all(id),
     fixedEvents: d.prepare('SELECT name FROM fixed_events WHERE camp_id = ?').all(id),
   })
-  const fixedEvents = [...inferredEvents, ...settled.settledFixed]
-  const pinOnly = new Set([...derivePinOnlyActivityNames(inferredEvents, dualUseNames), ...settled.settledFixedNames.map(normalizeName)])
+  // As ImportScreen does (F3/F4 slices 2-3b): trips and whole days for some groups are offered against the
+  // week the import binds to (a fresh camp's Week 1, which the commit creates), at the detector's default
+  // answer; an accepted one's cells leave fixed-event and activity inference (T379).
+  const weeks = d.prepare('SELECT id FROM schedule_weeks WHERE camp_id = ?').all(id)
+  const importWeeks = weeksForImport(weeks, id)
+  const tripWeekId = importWeeks.length === 1 ? importWeeks[0].id : null
+  const detections = detectTripsAndSpecialDays({ pages: parsed.pages }, proposal)
+  const tripPlan = planTripEvents({ detections, weekId: tripWeekId, hasWeeks: importWeeks.length > 0, allGroupNames: proposal.entities.groups ?? [] })
+  const wholePlan = planWholeCampDays({ detections, weekId: tripWeekId, hasWeeks: importWeeks.length > 0 })
+  const tripEvents = [...tripPlan.fixedEvents, ...wholePlan.fixedEvents]
+  const tripClaims = applyTripClaims({
+    parsed: { pages: parsed.pages }, proposal, claims: new Map([...tripPlan.claims, ...wholePlan.claims]),
+    fixedEvents: inferredEvents, textSpans: inferTextSpans({ pages: parsed.pages }, proposal).spans,
+  })
+  const fullyClaimed = new Set(tripClaims.fullyClaimedNames.map(normalizeName))
+  const fixedEvents = [...tripClaims.fixedEvents, ...tripEvents, ...settled.settledFixed]
+  const pinOnly = new Set([...derivePinOnlyActivityNames(inferredEvents, dualUseNames), ...settled.settledFixedNames.map(normalizeName), ...fullyClaimed])
   const { placements } = capturePlacements({ pages: parsed.pages }, proposal)
   const fixedEventNames = fixedEvents.filter((e) => e.kind === 'fixed').map((e) => e.name)
   const statedUnits = proposal.groupUnits ?? {}
@@ -146,11 +162,22 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
     proposal.entities.days_of_operation.length, proposal.entities.groups, pinOnly,
     inferTextSpans({ pages: parsed.pages }, proposal).spans,
   )
+  // As ImportScreen does: a name only an accepted trip printed carries no rule, and a name the file also
+  // prints elsewhere has its rule recomputed from those other cells.
+  const partlyClaimed = proposal.entities.activities.filter((name) =>
+    !fullyClaimed.has(normalizeName(name)) && tripEvents.some((fe) => normalizeName(fe.name) === normalizeName(name)))
+  const recomputed = partlyClaimed.length
+    ? inferActivityRules(partlyClaimed, tripClaims.activityPages, tripClaims.seenCounts,
+      proposal.entities.days_of_operation.length, proposal.entities.groups, [], tripClaims.textSpans)
+    : new Map()
   // inferActivityRules returns a Map; ImportScreen sends commitIngest a plain object keyed by activity name.
   const activityRules = {}
   for (const name of proposal.entities.activities) {
+    if (fullyClaimed.has(normalizeName(name))) continue
     const rule = rules.get(name)
     if (!rule) continue
+    const re = recomputed.get(name)
+    if (re) { rule.min_per_week = re.min_per_week; rule.max_per_week = re.max_per_week; rule.min_from_file = re.min_from_file }
     activityRules[name] = {
       eligible_group_names: rule.eligible_group_names ?? null,
       min_per_week: rule.min_per_week,
@@ -176,7 +203,8 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
     fixedEvents,
     activityRules,
     pinOnlyActivityNames: [...pinOnly],
-    seenCounts: proposal.seenCounts ?? null,
+    seenCounts: tripClaims.seenCounts ?? null,
+    wholeCampDays: wholePlan.wholeCampDays,
     electiveHeaderFindings: proposal.electiveHeaderFindings ?? [],
     activityPeriods: proposal.activityPeriods ?? {},
     // As ImportScreen sends them: the fold marks elective cells on these, and
@@ -225,7 +253,12 @@ function scheduleInput(d, id) {
   const rowsByEntity = {}
   for (const entity of SCHEDULE_INPUT_ENTITIES) rowsByEntity[entity] = d.prepare(`SELECT * FROM ${entity}`).all()
   const { cohorts: _c, ...flat } = normalizeScheduleInputs(rowsByEntity, id)
-  return { ...flat, activities: resolvePriorityForGeneration(flat.activities), campId: id, replacedDayIds: [] }
+  // As the schedule screen does, Generate runs for a week: the camp's one week when it has one (the Week 1
+  // an import that binds a trip creates). Without it a week-bound trip event is filtered out, and the
+  // day it takes fills with ordinary activities (T379's Red Hat finding).
+  const weeks = d.prepare('SELECT id FROM schedule_weeks WHERE camp_id = ?').all(id)
+  const weekId = weeks.length === 1 ? weeks[0].id : null
+  return { ...flat, activities: resolvePriorityForGeneration(flat.activities), campId: id, replacedDayIds: [], weekId }
 }
 
 function safe(fn) {
@@ -683,6 +716,13 @@ async function safe2(fn) {
   try { return { ok: true, ...(await fn()) } } catch (err) { return { ok: false, error: String(err?.message ?? err).slice(0, 300) } }
 }
 
+// T379: a trip or a whole day (the manifest's 'trip' and 'allday' events) is an event, never a catalog
+// activity: a regular activity row (catalog_role NULL, or anything but the event's pinned marker) with its name.
+function dayItemsAsActivity(m, d, id) {
+  const catalog = new Set(d.prepare("SELECT name FROM activities WHERE camp_id = ? AND (catalog_role IS NULL OR catalog_role <> 'pinned_event')").all(id).map((a) => normalizeName(a.name)))
+  return (m.events ?? []).filter((e) => (e.kind === 'allday' || e.kind === 'trip') && catalog.has(normalizeName(e.name))).map((e) => e.name)
+}
+
 async function runCamp(m) {
   const rec = { slug: m.slug, layout: m.layout, traits: m.traits, stages: {} }
   const text = fs.readFileSync(path.join(DIR, m.file), 'utf8')
@@ -693,6 +733,7 @@ async function runCamp(m) {
   rec.stages.zeroAnswers = z.ok ? { ok: true, cpuMs: Math.round((process.cpuUsage(t0).user + process.cpuUsage(t0).system) / 1000), held: z.value.committed.held } : { ok: false, error: z.error }
   if (z.ok) {
     rec.zeroAnswers = evaluateImport(m, zero.d, zero.id, z.value)
+    rec.alldayAsActivity = dayItemsAsActivity(m, zero.d, zero.id)
     rec.faithful = evaluateFaithful(m, zero.d, zero.id, z.value)
     rec.generate = evaluateGenerate(m, zero.d, zero.id, z.value)
     rec.manual = await evaluateManual(m, zero.d, zero.id, z.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
@@ -732,6 +773,7 @@ async function runCamp(m) {
   rec.stages.confirmAll = a.ok ? { ok: true, held: a.value.committed.held } : { ok: false, error: a.error }
   if (a.ok) {
     rec.confirmAll = evaluateImport(m, all.d, all.id, a.value)
+    rec.confirmAllDayItemsAsActivity = dayItemsAsActivity(m, all.d, all.id)
     rec.confirmAllFaithful = evaluateFaithful(m, all.d, all.id, a.value)
     rec.confirmAllGenerate = evaluateGenerate(m, all.d, all.id, a.value)
     rec.confirmAllManual = await evaluateManual(m, all.d, all.id, a.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
@@ -824,6 +866,43 @@ describe('a double-period elective imports as one span (T219)', () => {
 // PRNG seeded by the camp id, so one seed passing proves little: the r9 week left an Otters minimum short
 // on 136 of 200 seeds because the repair could not move a span that took the wrong pair of blocks.
 // Every seed must come out with nothing still needed and nothing unfillable.
+// T379: s04's Games Day is a whole Friday for 8 of 25 groups. Read as a 9-block activity with a weekly
+// minimum, no seed could ever place it; read as the event it is, the week fits on every seed.
+describe('a whole day for some groups is an event, and the week fills on every seed (T379)', () => {
+  it('s04: 0 still needed and 0 unfillable for camp ids seed-0..seed-49', () => {
+    const m = MANIFEST.camps.find((c) => c.slug === 's04-by-day-6day-large')
+    const { d, id } = seedCamp('t379')
+    importFile(d, id, fs.readFileSync(path.join(DIR, m.file), 'utf8'))
+    // The classifier's output: Games Day is an event for its 8 groups, and not also an activity.
+    const gamesEvents = d.prepare("SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ? AND name = 'Games Day'").get(id).c
+    const gamesActivities = d.prepare("SELECT catalog_role FROM activities WHERE camp_id = ? AND name = 'Games Day'").all(id)
+    expect(gamesEvents).toBeGreaterThan(0)
+    // Its one activity row is the event's pinned marker; a regular activity (catalog_role NULL) fails.
+    expect(gamesActivities.map((a) => a.catalog_role)).toEqual(['pinned_event'])
+    const input = scheduleInput(d, id)
+    // The event is one Generate sees: it fills every block of Friday for each of its 8 groups.
+    const friday = input.days.find((x) => /friday/i.test(x.label ?? x.name ?? x.day_of_week ?? ''))
+    const gamesIds = new Set(input.fixedEvents.filter((f) => f.name === 'Games Day').map((f) => f.id))
+    const firstGen = buildSchedule({ ...input, campId: 'seed-0' }).slots
+    const gamesGroups = m.events.find((e) => e.name === 'Games Day').groups
+    for (const gName of gamesGroups) {
+      const g = input.groups.find((x) => x.name === gName)
+      const cells = firstGen.filter((x) => x.groupId === g.id && x.dayId === friday.id && x.type !== 'unavailable')
+      expect(cells.length, gName).toBeGreaterThan(0)
+      expect(cells.every((x) => gamesIds.has(x.fixedEventId)), gName).toBe(true)
+    }
+    const short = []
+    for (let i = 0; i < 50; i++) {
+      const { slots, findings } = buildSchedule({ ...input, campId: `seed-${i}` })
+      const under = (findings ?? []).filter((f) => f.kind === 'UNDERSERVED').length
+      const unfillable = slots.filter((s) => s.flags?.UNFILLABLE).length
+      if (under || unfillable) short.push(`seed-${i}: ${under} still needed, ${unfillable} unfillable`)
+    }
+    expect(short).toEqual([])
+    d.close()
+  }, 300_000)
+})
+
 describe('a fitting week with a double period is filled again on every seed (T378)', () => {
   it('r9: 0 still needed and 0 unfillable for camp ids seed-0..seed-199', () => {
     const { d, id } = seedCamp('t378')
@@ -1044,6 +1123,8 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
       expect(r.confirmAllGenerate.error).toBeUndefined()
       expect(r.confirmAllGenerate.errorFindings).toEqual([])
     })
+    hard(ALLDAY_NOT_ACTIVITY, (r) => { expect(r.alldayAsActivity).toEqual([]) })
+    hard(ALLDAY_NOT_ACTIVITY_ALL, (r) => { expect(r.confirmAllDayItemsAsActivity).toEqual([]) })
     hard(FAITHFUL_ZERO, (r) => { expect(r.faithful?.first).toEqual([]) })
     hard(FAITHFUL_ALL, (r) => { expect(r.confirmAllFaithful?.first).toEqual([]) })
     hard(FILLS_ZERO, (r) => { expect(fillsAgain(r.generate)).toEqual({ stillNeeded: 0, unfillable: 0 }) })
