@@ -19,7 +19,14 @@ import { isHighWaterStore } from './punchGossip.js'
 // authenticated punch-signal stream - there is no path that dials without it. dial(multiaddrString)
 // is the libp2p dial; emit(name, fields) is the connectivity emitter.
 // Resolves { ok: true, candidate } or { ok: false, reason }; never throws.
-export async function attemptRung2({ peerDeviceId, readEntries, signaling, bindChannel, dial, highWater, emit = () => {} }) {
+//
+// A real hole punch loses packets, so a single failed dial is weak evidence: each candidate gets ONE retry
+// after a short jittered pause. The whole attempt is bounded by RUNG2_BUDGET_MS — every dial is handed the
+// remaining budget as its timeout, and no dial or retry starts once the budget is spent.
+export const RUNG2_BUDGET_MS = 20_000
+export const RUNG2_RETRY_DELAY_MS = 250
+const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+export async function attemptRung2({ peerDeviceId, readEntries, signaling, bindChannel, dial, highWater, emit = () => {}, now = Date.now, sleep = sleepMs, random = Math.random }) {
   if (!isHighWaterStore(highWater)) return { ok: false, reason: 'no-high-water-store' }
   let entries
   try {
@@ -38,12 +45,18 @@ export async function attemptRung2({ peerDeviceId, readEntries, signaling, bindC
   if (typeof bindChannel !== 'function') return { ok: false, reason: 'no-signal-channel' }
   if (!(await signaling.hasRoute(peerDeviceId))) return { ok: false, reason: 'no-signal-route' }
   bindChannel(signaling.channelTo(peerDeviceId))
+  const deadline = now() + RUNG2_BUDGET_MS
   for (const candidate of entry.candidates) {
-    try {
-      await dial(`${candidate}/p2p/${entry.peerId}`)
-      return { ok: true, candidate }
-    } catch {
-      // try the next published candidate
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await sleep(RUNG2_RETRY_DELAY_MS + Math.floor(random() * RUNG2_RETRY_DELAY_MS))
+      const remaining = deadline - now()
+      if (remaining <= 0) return { ok: false, reason: 'dial-failed' }
+      try {
+        await dial(`${candidate}/p2p/${entry.peerId}`, { timeoutMs: remaining, signal: AbortSignal.timeout(remaining) })
+        return { ok: true, candidate }
+      } catch {
+        // retry this candidate once, then try the next published candidate
+      }
     }
   }
   return { ok: false, reason: 'dial-failed' }

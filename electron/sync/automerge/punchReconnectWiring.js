@@ -120,7 +120,7 @@ export async function wirePunchReconnect({
         readEntries: (hw) => readReflexive(getDoc(), { campId, registry, highWater: hw }),
         signaling,
         bindChannel: (ch) => channel.bind(ch),
-        dial: (addr) => node.dial(addr),
+        dial: (addr, options) => node.dial(addr, { signal: options?.signal }),
         highWater,
         emit,
       })
