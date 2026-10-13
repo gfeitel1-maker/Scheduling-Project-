@@ -169,7 +169,7 @@ describe('useDeviceMode: sessionEndedReason (T87 fix round — director-facing e
 
     await waitFor(() => expect(result.current.phase).toBe('login'))
     expect(result.current.sessionEndedReason).toMatch(/removed|revoked/i)
-    expect(result.current.sessionEndedReason).toMatch(/director|admin/i)
+    expect(result.current.sessionEndedReason).toBe('This computer was removed from the camp.')
   })
 
   it('sets a device-revoked explanation on 4403 too', async () => {
@@ -182,7 +182,7 @@ describe('useDeviceMode: sessionEndedReason (T87 fix round — director-facing e
     authRejectedCallback(4403)
 
     await waitFor(() => expect(result.current.phase).toBe('login'))
-    expect(result.current.sessionEndedReason).toMatch(/director|admin/i)
+    expect(result.current.sessionEndedReason).toBe('This computer was removed from the camp.')
   })
 
   it('sets a benign, non-technical explanation on 4401 without leaking the close code', async () => {

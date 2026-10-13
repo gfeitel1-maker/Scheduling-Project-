@@ -47,4 +47,5 @@ export const safeStorage = {
 }
 export const Menu = { setApplicationMenu: noop, buildFromTemplate: () => ({}) }
 export const powerMonitor = { on: noop }
-export default { app, BrowserWindow, ipcMain, contextBridge, ipcRenderer, dialog, shell, safeStorage, Menu, powerMonitor }
+export const session = { defaultSession: { clearStorageData: () => Promise.resolve() } }
+export default { app, BrowserWindow, ipcMain, contextBridge, ipcRenderer, dialog, shell, safeStorage, Menu, powerMonitor, session }

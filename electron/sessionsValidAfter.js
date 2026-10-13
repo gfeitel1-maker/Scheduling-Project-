@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { setSessionsValidAfter } from './auth/localAuth.js'
 
-const FILE = 'sessions-valid-after.json'
+export const FILE = 'sessions-valid-after.json'
 
 // Records "now" and applies it in this process at once.
 export function endAllSessions(userDataDir, now = Date.now()) {

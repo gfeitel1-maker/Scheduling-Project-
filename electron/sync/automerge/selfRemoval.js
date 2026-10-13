@@ -60,6 +60,21 @@ export function clearRemovedFromCamp(db) {
   }
 }
 
+/**
+ * The gate for destructive local actions. authority_cache and the removed mark can both be set by one forged, unsigned
+ * entry plus a bare refusal, so neither is enough: applied_authority_log is written only for entries that passed
+ * isEntryTrusted, so a verified revoke row naming this device is required too. Revoked-then-re-granted keeps its revoke
+ * row, which is why the cache must still say revoked.
+ */
+export function isLocallyRemoved(db, deviceId) {
+  if (!isRemovedFromCamp(db) || !isRevokedByOwnAuthority(db, deviceId)) return false
+  try {
+    return !!db.prepare("SELECT 1 FROM applied_authority_log WHERE kind = 'revoke' AND target_device_id = ?").get(deviceId)
+  } catch {
+    return false
+  }
+}
+
 /** A removal that this device's own authority state no longer backs (a re-grant superseded the revoke) is over. True when it just cleared. */
 export function healRemovedMark(db, deviceId) {
   if (!isRemovedFromCamp(db) || isRevokedByOwnAuthority(db, deviceId)) return false

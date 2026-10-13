@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { S, useEnterTransition } from '../styles/shared'
 import { WarningTriangleIcon, InfoIcon, ClockIcon } from '../components/icons'
+import StartFreshOnThisComputer from '../components/StartFreshOnThisComputer'
 import treeArt from '../assets/brand/tree-full-wide-login.png'
 
 function formatMMSS(ms) {
@@ -97,6 +98,8 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
             <span>{notice}</span>
           </div>
         )}
+
+        <StartFreshOnThisComputer notice={notice} />
 
         {status === 'error' && (
           <div style={S.authErrorBox}>

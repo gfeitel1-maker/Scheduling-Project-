@@ -1,5 +1,5 @@
 import { recoverFromRendererGone, wireActivate } from './windowLifecycle.js'
-import { app, BrowserWindow, ipcMain, dialog, safeStorage, Menu, shell, powerMonitor } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, safeStorage, Menu, shell, powerMonitor, session as electronSession } from 'electron'
 import { createWillQuitHandler, createQuitFlush, wireSessionEndFlush } from './willQuit.js'
 import path from 'node:path'
 import os from 'node:os'
@@ -97,7 +97,9 @@ import { createAtRestDisableRunner, boundedSyncStop } from './atRestDisableRunne
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled, latchEncryptionIfKeyPresent } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
-import { isRemovedFromCamp, clearRemovedFromCamp } from './sync/automerge/selfRemoval.js'
+import { isRemovedFromCamp, clearRemovedFromCamp, isLocallyRemoved } from './sync/automerge/selfRemoval.js'
+import { runLocalReset, recoverInterruptedLocalReset, describeOtherCamps } from './db/localReset.js'
+import { createLocalResetRunner } from './localResetRunner.js'
 import { codeForAuthRejectedReason } from './authRejectedSender.js'
 import { mintJoinSecret, formatJoinCode } from './sync/joinCode.js'
 import { startJoinSession } from './sync/automerge/joinSession.js'
@@ -172,6 +174,12 @@ let currentMainWindowGetter = () => null
 let atRestDisableRunner = null
 let atRestDisableInFlight = false
 export function setAtRestDisableRunner(fn) { atRestDisableRunner = fn }
+
+// "Start fresh on this computer" (docs/adr/2026-10-13-revoked-device-local-reset.md): same seam as the disable runner.
+// Never released once a reset starts: every outcome of the runner restarts the app.
+let localResetRunner = null
+let localResetInFlight = false
+export function setLocalResetRunner(fn) { localResetRunner = fn; localResetInFlight = false }
 
 // The exact authorize() denial reasons that mean this session/device can no
 // longer act at all — identity or trust is gone, not just this one call.
@@ -936,7 +944,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   }
 
   function getSyncStatus() {
-    const status = { ...computeSyncStatus(), removedFromCamp: isRemovedFromCamp(db) }
+    const status = { ...computeSyncStatus(), removedFromCamp: isRemovedFromCamp(db), startFreshAvailable: isLocallyRemoved(db, deviceId) }
     // During Pair again the persistent node is stopped on purpose: the footer must not offer a retry.
     return activeJoin && activeJoinIsRejoin ? { ...status, pairingAgain: true } : status
   }
@@ -2505,6 +2513,26 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     }
   }
 
+  // Offered and executable ONLY on a device whose own signed authority state says it was removed: no token (a removed
+  // device is signed out; the revoke is the gate). Healthy devices are refused before anything is touched.
+  async function startFreshOnThisComputerHandler({ confirm } = {}) {
+    if (confirm !== 'START_FRESH') return { ok: false, error: 'confirmation_mismatch' }
+    if (!isLocallyRemoved(db, deviceId)) return { ok: false, error: 'not_removed' }
+    if (!localResetRunner) return { ok: false, error: 'unavailable' }
+    if (localResetInFlight) return { ok: false, error: 'in_progress' }
+    localResetInFlight = true
+    return await localResetRunner()
+  }
+
+  // Read-only, gated like the action itself: the other camps on this computer the confirm step must name.
+  function startFreshPreviewHandler() {
+    if (!isLocallyRemoved(db, deviceId)) return { ok: false, error: 'not_removed' }
+    return {
+      ok: true,
+      camps: describeOtherCamps({ userDataDir: handlersUserDataPath, currentDbPath: dbPath, recentProjects: readRecentProjects(handlersUserDataPath) }),
+    }
+  }
+
   function deleteWeekHandler({ token, weekId } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // ADMIN-ONLY, deliberately '.delete' not '.write': deleteWeek() is a
@@ -3399,6 +3427,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     duplicateWeek: duplicateWeekHandler,
     deleteWeek: deleteWeekHandler,
     disableAtRestEncryption: disableAtRestEncryptionHandler,
+    startFreshOnThisComputer: startFreshOnThisComputerHandler,
+    startFreshPreview: startFreshPreviewHandler,
     attributeSubject: attributeSubjectHandler,
     saveCampFile: saveCampFileHandler,
     pickCampFile: pickCampFileHandler,
@@ -3623,6 +3653,10 @@ if (isElectronEntryPoint()) {
   // place an Electron app opens its resources anyway.
   await app.whenReady()
 
+  // Start fresh on this computer: a wipe that was started is finished first of all, so nothing below ever sees the old
+  // key or database (docs/adr/2026-10-13-revoked-device-local-reset.md).
+  recoverInterruptedLocalReset({ userDataDir: userDataPath })
+
   // T345: finish or undo a disable that was killed part-way, BEFORE the key is read or any db is opened,
   // so the device is fully encrypted or fully plain by the time anything depends on it.
   {
@@ -3743,6 +3777,8 @@ if (isElectronEntryPoint()) {
     handle('shoresh:get-port-mapping-status', () => handlers.getPortMappingStatus())
     handle('shoresh:retry-sync', () => handlers.retrySync())
     handle('shoresh:disable-at-rest-encryption', (_event, args) => handlers.disableAtRestEncryption(args))
+    handle('shoresh:start-fresh-preview', () => handlers.startFreshPreview())
+    handle('shoresh:start-fresh-on-this-computer', (_event, args) => handlers.startFreshOnThisComputer(args))
     handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
     handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))
     handle('shoresh:ingest-undo', (_event, args) => handlers.ingestUndo(args))
@@ -4196,6 +4232,18 @@ if (isElectronEntryPoint()) {
     listDbPaths: () => dataPathsForKey().filter((p) => fs.existsSync(p)),
     disable: ({ dbPaths }) => disableAtRestEncryption({ userDataDir: userDataPath, dbPaths, safeStorage, Database: encryptingDatabaseCtor() }),
     endSessions: () => endAllSessions(userDataPath),
+    restart: (ms) => setTimeout(() => { app.relaunch(); app.exit(0) }, ms),
+  }))
+  setLocalResetRunner(createLocalResetRunner({
+    flushDoc: flushAutomergeDoc,
+    shutdownSync: () => boundedSyncStop(() => syncStarterHolder.close(), 10000),
+    suspendDocSaves: suspendAutomergeDocSaves,
+    // Read at call time: db/deviceId are swapped by a project switch or restore.
+    stillRemoved: () => isLocallyRemoved(db, deviceId),
+    closeDb: () => db.close(),
+    listProjectDbPaths: () => dataPathsForKey(),
+    reset: ({ extraDbPaths }) => runLocalReset({ userDataDir: userDataPath, extraDbPaths }),
+    clearRendererStorage: () => electronSession.defaultSession.clearStorageData(),
     restart: (ms) => setTimeout(() => { app.relaunch(); app.exit(0) }, ms),
   }))
   const initialHandlers = makeHandlers(db, deviceId, {
