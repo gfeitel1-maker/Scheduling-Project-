@@ -48,8 +48,11 @@ Full harness file: 359 passed, 1 skipped.
 A manifest whole-day item is assumed to be printed only on its own day; one also printed on other days would
 be partly claimed and keep a catalog activity, and the invariant would then need to allow it.
 
-## Remaining
+## Multi-week camps (board ruling 2026-10-13)
 
-With several schedule weeks and none open, `planTripEvents` leaves a trip pending and its cells import as
-they did before, so a whole day for some groups can still become an activity on a re-import into a
-multi-week camp. That is a product decision (which week to bind to) and is not changed here.
+With several schedule weeks and none open, a trip used to stay pending and import as an activity. It now
+binds to the open week, else the camp's first week by sort order (`tripDefaultWeekId` in
+`src/ingest/defaultWeek.js`), which ImportScreen and the harness both use. The review says where it went in one
+line ("Games Day placed on Week 1 · Change week") and asks nothing new. Pinned by
+`src/ingest/defaultWeek.test.js`, `src/screens/ImportScreen.tripWeek.test.jsx`, and the harness test "a whole
+day for some groups binds to the first week in a multi-week camp with none open".

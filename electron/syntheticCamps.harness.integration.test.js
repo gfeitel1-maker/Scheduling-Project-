@@ -42,7 +42,7 @@ import { parseTextGrid, normalizeTimeLabel } from '../src/ingest/textGrid.js'
 import { extractEntities } from '../src/ingest/extractEntities.js'
 import { detectTripsAndSpecialDays } from '../src/ingest/tripDetection.js'
 import { planTripEvents, planWholeCampDays, applyTripClaims } from '../src/ingest/tripEvents.js'
-import { weeksForImport } from '../src/ingest/defaultWeek.js'
+import { weeksForImport, tripDefaultWeekId } from '../src/ingest/defaultWeek.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
 import { settleAmbiguousFromCamp } from '../src/ingest/settleAmbiguousFromCamp.js'
 import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
@@ -130,9 +130,10 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
   // As ImportScreen does (F3/F4 slices 2-3b): trips and whole days for some groups are offered against the
   // week the import binds to (a fresh camp's Week 1, which the commit creates), at the detector's default
   // answer; an accepted one's cells leave fixed-event and activity inference (T379).
-  const weeks = d.prepare('SELECT id FROM schedule_weeks WHERE camp_id = ?').all(id)
+  const weeks = d.prepare('SELECT id, name, sort_order, is_archived FROM schedule_weeks WHERE camp_id = ?').all(id)
   const importWeeks = weeksForImport(weeks, id)
-  const tripWeekId = importWeeks.length === 1 ? importWeeks[0].id : null
+  // No week is open in the harness: the trip binds to the first week, as the screen's default does.
+  const tripWeekId = tripDefaultWeekId(importWeeks, null)
   const detections = detectTripsAndSpecialDays({ pages: parsed.pages }, proposal)
   const tripPlan = planTripEvents({ detections, weekId: tripWeekId, hasWeeks: importWeeks.length > 0, allGroupNames: proposal.entities.groups ?? [] })
   const wholePlan = planWholeCampDays({ detections, weekId: tripWeekId, hasWeeks: importWeeks.length > 0 })
@@ -901,6 +902,25 @@ describe('a whole day for some groups is an event, and the week fills on every s
     expect(short).toEqual([])
     d.close()
   }, 300_000)
+})
+
+// Board ruling 2026-10-13: with several weeks and none open, a trip binds to the camp's first week by sort
+// order (tripDefaultWeekId), so it is still an event and never a catalog activity.
+describe('a whole day for some groups binds to the first week in a multi-week camp with none open', () => {
+  it('s04: Games Day is an event in the first week, not an activity', () => {
+    const m = MANIFEST.camps.find((c) => c.slug === 's04-by-day-6day-large')
+    const { d, id } = seedCamp('trip-first-week')
+    // Listed out of order, so "first" has to mean sort order, not the list's.
+    for (const [wid, name, order] of [['wk-3', 'Week 3', '2'], ['wk-1', 'Week 1', '0'], ['wk-2', 'Week 2', '1']]) {
+      d.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, ?, 0)').run(wid, id, name, order)
+    }
+    importFile(d, id, fs.readFileSync(path.join(DIR, m.file), 'utf8'))
+    const rows = d.prepare("SELECT DISTINCT schedule_week_id FROM fixed_events WHERE camp_id = ? AND name = 'Games Day'").all(id)
+    expect(rows.map((r) => r.schedule_week_id)).toEqual(['wk-1'])
+    expect(d.prepare("SELECT catalog_role FROM activities WHERE camp_id = ? AND name = 'Games Day'").all(id).map((a) => a.catalog_role)).toEqual(['pinned_event'])
+    expect(dayItemsAsActivity(m, d, id)).toEqual([])
+    d.close()
+  })
 })
 
 describe('a fitting week with a double period is filled again on every seed (T378)', () => {
