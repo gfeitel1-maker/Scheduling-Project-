@@ -398,6 +398,77 @@ export async function run(h) {
     return note
   })
 
+  await step(14, 'Drag swap + undo count: two filled cells swap, Placed unchanged, Undo restores both; a span refuses with a note', async () => {
+    // Needs a generated schedule. Standalone (--only=14) on a fresh camp, import campB and generate first.
+    await nav('Generated Schedule')
+    if (await ev(`return /still needed before you can build|Seed your camp/.test(__main())`)) {
+      await importFile(CAMPB); await done(); await nav('Generated Schedule')
+    }
+    if (await ev(`return !!__btn('Generate a schedule', true)`)) await click('Generate a schedule', true)
+    await waitFor(STATS, 120000, 'Generate stats')
+    await click('Daily View', true, 10000).catch(() => {})
+    await sleep(800)
+    const cellInfo = `const cells=[...document.querySelectorAll('[role=gridcell][data-cell-key]')].filter(__vis).map(c=>{const r=c.getBoundingClientRect(); const [g,d,b]=c.dataset.cellKey.split('|'); return {key:c.dataset.cellKey, g, d, b, x:r.left+r.width/2, y:r.top+r.height/2, text:c.innerText.trim(), span:Number(c.getAttribute('aria-rowspan')||1), plain:!c.hasAttribute('data-elective')&&!c.hasAttribute('data-event')&&!c.hasAttribute('data-drop-disabled')&&!!c.querySelector('.cell-inner')&&!c.querySelector('.cell-inner--anchor')}}).filter(c=>c.text);`
+    const textAt = (key) => ev(`return document.querySelector('[data-cell-key="'+${JSON.stringify(key)}+'"]')?.innerText.trim() ?? null`)
+    const placed = async () => (await waitFor(STATS, 15000, 'stats')).placed
+    // A real pointer drag (dnd-kit needs > 5px of movement before it starts).
+    const drag = async (a, b) => {
+      const send = (type, x, y) => h.app().send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 })
+      await send('mousePressed', a.x, a.y)
+      for (let i = 1; i <= 12; i++) { await send('mouseMoved', a.x + (b.x - a.x) * i / 12, a.y + (b.y - a.y) * i / 12); await sleep(25) }
+      await sleep(150); await send('mouseReleased', b.x, b.y); await sleep(1200)
+    }
+    const cells = await ev(cellInfo + 'return cells')
+    // Two plain single-block cells in the same block, holding different activities.
+    const plain = cells.filter(c => c.plain && c.span === 1)
+    let pair = null
+    for (const a of plain) { const b = plain.find(o => o.b === a.b && o.d === a.d && o.key !== a.key && o.text !== a.text); if (b) { pair = [a, b]; break } }
+    if (!pair) throw new Error(`no two plain single-block cells with different activities in one block (${plain.length} plain cells)`)
+    const [A, B] = pair
+    const p0 = await placed()
+    await drag(A, B)
+    const [a1, b1, p1] = [await textAt(A.key), await textAt(B.key), await placed()]
+    await click('Undo', true, 10000).catch(async () => ev(`document.querySelector('[aria-label=Undo]')?.click(); return true`))
+    await sleep(1200)
+    const [a2, b2, p2] = [await textAt(A.key), await textAt(B.key), await placed()]
+    const swapped = a1 === B.text && b1 === A.text
+    const restored = a2 === A.text && b2 === B.text
+    let note = `swap "${A.text}" (${A.key}) onto "${B.text}" (${B.key}): ${swapped ? 'swapped' : `NOT swapped (now "${a1}" / "${b1}")`}, Placed ${p0} -> ${p1}; Undo: ${restored ? 'both restored' : `NOT restored ("${a2}" / "${b2}")`}, Placed ${p2}`
+    let ok = swapped && restored && p1 === p0 && p2 === p0
+    // Refused case: a plain cell dropped on a multi-block cell.
+    let after = await ev(cellInfo + 'return cells')
+    let span = after.find(c => c.span > 1)
+    if (!span) {
+      // campB's week has no multi-block cell: load the double-period elective sample (r9), whose Monday
+      // holds a two-block elective, so the refused case is always exercised.
+      const R9 = SYN('repro/r9-double-period-elective.txt')
+      if (!fs.existsSync(R9)) throw new Error(`${note}; refused case needs ${R9} (pull main)`)
+      await importFile(R9, { replace: true }); await done()
+      await nav('Generated Schedule')
+      if (await ev(`return !!__btn('Generate a schedule', true)`)) await click('Generate a schedule', true)
+      else await click('Rebuild', true)
+      if (await ev(`return !!__btn('Rebuild it', true)`)) await click('Rebuild it', true)
+      await waitFor(STATS, 120000, 'Generate stats (r9)')
+      await click('Monday', true, 10000).catch(() => {})
+      await sleep(800)
+      after = await ev(cellInfo + 'return cells')
+      span = after.find(c => c.span > 1)
+    }
+    const src = span && after.find(c => c.plain && c.span === 1 && c.d === span.d && c.text !== span.text)
+    if (!span || !src) throw new Error(`${note}; refused case: no multi-block cell even after loading r9`)
+    {
+      const [s0, t0, p3] = [await textAt(src.key), await textAt(span.key), await placed()]
+      await drag(src, span)
+      const said = await ev(`return (__main().match(/Can.t swap[^\\n]*/)||[null])[0]`)
+      const [s1, t1, p4] = [await textAt(src.key), await textAt(span.key), await placed()]
+      const unchanged = s1 === s0 && t1 === t0 && p4 === p3
+      note += `; refused case "${src.text}" onto 2-block "${span.text}": note ${said ? `"${said}"` : 'MISSING'}, ${unchanged ? 'nothing changed' : `CHANGED ("${s1}" / "${t1}", Placed ${p3} -> ${p4})`}`
+      ok = ok && Boolean(said) && unchanged
+    }
+    if (!ok) throw new Error(note)
+    return note
+  })
+
   // Like featureIn, for work that has a branch but no PR number yet: in the build iff a MERGED PR from
   // that branch has its merge commit in the build. --force=<step> runs the step anyway (to check the
   // harness against a build without the feature, where the step is expected to FAIL).
@@ -477,60 +548,7 @@ export async function run(h) {
     }
   })
 
-  await step(14, 'Drag swap + undo count: two filled cells swap, Placed unchanged, Undo restores both; a span refuses with a note', async () => {
-    // Needs a generated schedule. Standalone (--only=14) on a fresh camp, import campB and generate first.
-    await nav('Generated Schedule')
-    if (await ev(`return /still needed before you can build|Seed your camp/.test(__main())`)) {
-      await importFile(CAMPB); await done(); await nav('Generated Schedule')
-    }
-    if (await ev(`return !!__btn('Generate a schedule', true)`)) await click('Generate a schedule', true)
-    await waitFor(STATS, 120000, 'Generate stats')
-    await click('Daily View', true, 10000).catch(() => {})
-    await sleep(800)
-    const cellInfo = `const cells=[...document.querySelectorAll('[role=gridcell][data-cell-key]')].filter(__vis).map(c=>{const r=c.getBoundingClientRect(); const [g,d,b]=c.dataset.cellKey.split('|'); return {key:c.dataset.cellKey, g, d, b, x:r.left+r.width/2, y:r.top+r.height/2, text:c.innerText.trim(), span:Number(c.getAttribute('aria-rowspan')||1), plain:!c.hasAttribute('data-elective')&&!c.hasAttribute('data-event')&&!c.hasAttribute('data-drop-disabled')&&!!c.querySelector('.cell-inner')&&!c.querySelector('.cell-inner--anchor')}}).filter(c=>c.text);`
-    const textAt = (key) => ev(`return document.querySelector('[data-cell-key="'+${JSON.stringify(key)}+'"]')?.innerText.trim() ?? null`)
-    const placed = async () => (await waitFor(STATS, 15000, 'stats')).placed
-    // A real pointer drag (dnd-kit needs > 5px of movement before it starts).
-    const drag = async (a, b) => {
-      const send = (type, x, y) => h.app().send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 })
-      await send('mousePressed', a.x, a.y)
-      for (let i = 1; i <= 12; i++) { await send('mouseMoved', a.x + (b.x - a.x) * i / 12, a.y + (b.y - a.y) * i / 12); await sleep(25) }
-      await sleep(150); await send('mouseReleased', b.x, b.y); await sleep(1200)
-    }
-    const cells = await ev(cellInfo + 'return cells')
-    // Two plain single-block cells in the same block, holding different activities.
-    const plain = cells.filter(c => c.plain && c.span === 1)
-    let pair = null
-    for (const a of plain) { const b = plain.find(o => o.b === a.b && o.d === a.d && o.key !== a.key && o.text !== a.text); if (b) { pair = [a, b]; break } }
-    if (!pair) throw new Error(`no two plain single-block cells with different activities in one block (${plain.length} plain cells)`)
-    const [A, B] = pair
-    const p0 = await placed()
-    await drag(A, B)
-    const [a1, b1, p1] = [await textAt(A.key), await textAt(B.key), await placed()]
-    await click('Undo', true, 10000).catch(async () => ev(`document.querySelector('[aria-label=Undo]')?.click(); return true`))
-    await sleep(1200)
-    const [a2, b2, p2] = [await textAt(A.key), await textAt(B.key), await placed()]
-    const swapped = a1 === B.text && b1 === A.text
-    const restored = a2 === A.text && b2 === B.text
-    let note = `swap "${A.text}" (${A.key}) onto "${B.text}" (${B.key}): ${swapped ? 'swapped' : `NOT swapped (now "${a1}" / "${b1}")`}, Placed ${p0} -> ${p1}; Undo: ${restored ? 'both restored' : `NOT restored ("${a2}" / "${b2}")`}, Placed ${p2}`
-    let ok = swapped && restored && p1 === p0 && p2 === p0
-    // Refused case: a plain cell dropped on a multi-block cell.
-    const after = await ev(cellInfo + 'return cells')
-    const span = after.find(c => c.span > 1)
-    const src = span && after.find(c => c.plain && c.span === 1 && c.d === span.d && c.text !== span.text)
-    if (!span || !src) note += '; refused case: no multi-block cell on this day, not tested'
-    else {
-      const [s0, t0, p3] = [await textAt(src.key), await textAt(span.key), await placed()]
-      await drag(src, span)
-      const said = await ev(`return (__main().match(/Can.t swap[^\\n]*/)||[null])[0]`)
-      const [s1, t1, p4] = [await textAt(src.key), await textAt(span.key), await placed()]
-      const unchanged = s1 === s0 && t1 === t0 && p4 === p3
-      note += `; refused case "${src.text}" onto 2-block "${span.text}": note ${said ? `"${said}"` : 'MISSING'}, ${unchanged ? 'nothing changed' : `CHANGED ("${s1}" / "${t1}", Placed ${p3} -> ${p4})`}`
-      ok = ok && Boolean(said) && unchanged
-    }
-    if (!ok) throw new Error(note)
-    return note
-  })
+
 }
 
 function listBackups(ud) {
