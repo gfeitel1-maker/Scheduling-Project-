@@ -59,7 +59,7 @@ How to run your camp's schedule in Shoresh, step by step. Bold words are exactly
    - Works with .xlsx, .xls, .csv and .txt. You can pick several files at once.
    - Scanned images won't work.
 
-[shot: import/drop-zone]
+![Import last year, with the Drop schedule here area, the Choose a file button and Download worksheet](img/import/drop-zone.png)
 
 ### Check what was found
 
@@ -72,7 +72,7 @@ How to run your camp's schedule in Shoresh, step by step. Bold words are exactly
    - **Replace them** — clears your setup in every Program, and clears **Manual Build** and **Generated Schedule**.
 6. Click **Review N records** (or **Replace with N records**).
 
-[shot: import/preview]
+![The import preview: what Shoresh found in the file, before Replace with records](img/import/preview.png)
 
 ### Import a file again
 
@@ -104,7 +104,7 @@ You can import the same file, or an updated copy of it, onto a camp that already
 5. Changed your mind? Click **Undo this import** (not offered after **Replace them**). See [Undo this import](#undo-this-import).
 6. Click **Continue**.
 
-[shot: reconcile/questions]
+![The import questions, under Needs your attention, with how many are answered](img/reconcile/questions.png)
 
 ### Importance and how often
 
@@ -222,7 +222,7 @@ Quick way: type a name in the **Add Activity** box at the bottom and click **+ A
 2. Click **Generate a schedule**. (Admins only.)
 3. Wait for **Generating…** to finish. The week fills in.
 
-[shot: generated/first-week]
+![Generated Schedule after Generate a schedule, the week filled in with the Placed, Unfillable and Still needed counts](img/generated/first-week.png)
 
 ### Unfillable cells
 
@@ -238,7 +238,7 @@ A cell that says **Unfillable** couldn't be filled. Hover it to see why:
 
 Click **Review all** to see everything in **Still to place**. Click **Accept** to hide a flag you're fine with.
 
-[shot: generated/unfillable-hover]
+![Unfillable cells on the Generated Schedule, with Still to place listing each one and its reason, such as Weekly max reached](img/generated/unfillable-hover.png)
 
 ### Drag to adjust
 
@@ -272,7 +272,7 @@ Your Generated schedule is untouched. Switch between the two any time from the s
 3. Drag it onto an **Open** cell.
 4. Watch the count next to each activity. When it turns red, that activity has hit its weekly max.
 
-[shot: manual-build/dragging]
+![Manual Build while dragging an activity from the Activities panel onto an Open cell](img/manual-build/dragging.png)
 
 ### The overlap mark
 
@@ -283,7 +283,7 @@ A small coloured dot in a cell means **Check this cell** — too many groups for
 
 It's a warning, not a block. The **Overlapping** count at the top shows how many are left.
 
-[shot: manual-build/overlap-dot]
+![Manual Build with a small dot on cells where too many groups share one activity](img/manual-build/overlap-dot.png)
 
 ---
 
@@ -300,7 +300,7 @@ It's a warning, not a block. The **Overlapping** count at the top shows how many
 2. Click **Import** to load offerings from a spreadsheet, or use **Add Offering** to pick activities one by one.
 3. Set **Capacity** and **Minimum** if you need them.
 
-[shot: elective-set/offerings]
+![An elective set opened, with its offerings, Capacity and Minimum, and Add Offering](img/elective-set/offerings.png)
 
 ### Put it on the week
 
@@ -313,7 +313,7 @@ From the grid you can reach a set two ways. Use either one.
 
 The **Elective sets** section only shows once you have at least one set.
 
-[shot: schedule/elective-sets-in-rail]
+![The Activities panel on Manual Build, with the Elective sets section](img/schedule/elective-sets-in-rail.png)
 
 **From the cell:**
 
@@ -323,7 +323,7 @@ The **Elective sets** section only shows once you have at least one set.
 
 Either way the cell shows the set name and count, e.g. "Chugim (4)".
 
-[shot: schedule/cell-editor-elective-sets]
+![A schedule cell being edited, its suggestions listing the Elective sets](img/schedule/cell-editor-elective-sets.png)
 
 Shortcut: type `Chugim: Archery, Drama` and press Enter to make a new set and place it in one go.
 
@@ -392,7 +392,7 @@ A special day only shows on your schedule once you place it on a week and a day.
 - A replaced day isn't counted in the schedule's totals, flags or overlap marks.
 - Exports and printouts show the special day's grid for that day too.
 
-[shot: generated/replaced-day]
+![The Generated Schedule with Friday replaced by the special day, shown as its own lane](img/generated/replaced-day.png)
 
 You can place the same special day on more than one week and day.
 
@@ -441,8 +441,6 @@ If you see **Backup saved — camp document not included**, the database was bac
 2. Choose a backup file from the `backups` folder. Pick the `.db` file; Shoresh finds the camp document saved beside it.
 3. Read the confirmation. It names the backup's date and says it replaces this camp's data. Check the date, then click **Restore**. (**Cancel** leaves everything as it was.) Shoresh first saves a copy of your current data, then restores.
 4. Wait for **Restored from backup.**
-
-[shot: sidebar/restore-confirmation]
 
 Restoring rebuilds *this computer* from the backup, then syncs. If other computers in the camp hold newer changes, those changes sync back to this computer. A restore does not roll back the other computers.
 
@@ -551,9 +549,6 @@ Fix it from the laptop that shows the flag, and one other camp computer. Both mu
 8. Wait for **Getting your camp…**.
 9. You'll see **Back in** and your camp's name, with "Your changes from this device are merged in." Click **Continue**.
 
-[shot: sidebar/cant-reach-the-camp-flag]
-[shot: pair-again/code-screen]
-
 - Your changes on the laptop are kept.
 - If the camp deleted a record while the laptop was away, the delete stays. Your offline edits to that record don't bring it back.
 - A message that says **Update Shoresh on this device first** (or on the camp device) means the two have different versions. Update, then try again.
@@ -563,7 +558,7 @@ Fix it from the laptop that shows the flag, and one other camp computer. Both mu
 
 On **Devices**, right under the **Devices** title, Shoresh sometimes shows one small grey line with a short explanation. It's about your router. It lets camp computers that are on other networks connect to this one directly. It is information only. There is nothing to click.
 
-[shot: devices/router-flag]
+![Devices, with the router line under the title: Devices on this Wi-Fi connect normally](img/devices/router-flag.png)
 
 It appears only when cross-network reconnect is on. If your copy of Shoresh doesn't use it, you'll never see this line, and that's normal. Computers on the same Wi-Fi never need it. When the router opening works, nothing shows.
 
@@ -631,7 +626,7 @@ Do this **before** you clear choices. A camper with no choices is not in the fil
 
 No camper is added twice and none is removed.
 
-[shot: electives/camper-import-preview]
+![A camper preference sheet being read: its columns matched to Camper name, Camper ID, Division and each Rank](img/electives/camper-import-preview.png)
 
 ### Then: clear elective choices
 

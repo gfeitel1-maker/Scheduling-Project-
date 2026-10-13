@@ -108,7 +108,7 @@ async function guideShot(name, show = null) {
   if (guideTaken.has(name)) return
   await app.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false })
   await sleep(400)
-  if (show) await ev(`const t=${JSON.stringify(show)}; const el=[...document.querySelectorAll('button,label,input,h1,h2,h3,h4,p,div,span')].filter(__vis).find(e=>e.children.length===0&&((e.innerText||'').includes(t)||(e.value||'')===t)); if(el) el.scrollIntoView({block:'center'}); return !!el`).catch(() => false)
+  if (show) await ev(`const t=${JSON.stringify(show)}; const el=[...document.querySelectorAll('button,label,input,h1,h2,h3,h4,p,div,span')].filter(__vis).find(e=>e.children.length===0&&((e.innerText||'').toLowerCase().includes(t.toLowerCase())||(e.value||'')===t)); if(el) el.scrollIntoView({block:'center'}); return !!el`).catch(() => false)
   await sleep(600)
   const f = path.join(REPO, 'docs/guide/img', `${name}.png`)
   fs.mkdirSync(path.dirname(f), { recursive: true })
@@ -204,9 +204,10 @@ async function adopt(timeoutMs = 120000) {
 // like the main one; stopped and its userData removed by stop() or at finish.
 const peers = []
 const peerData = [] // every peer's userData; removed at finish only when no step failed
-async function launchPeer(label, port) {
+// `reuse`: an earlier peer's userData, to relaunch the same device (e.g. so it re-authenticates).
+async function launchPeer(label, port, { reuse = null } = {}) {
   for (const p of [port, port + 1]) if (await portBusy(p)) throw new Error(`peer ${label}: port ${p} is already in use`)
-  const ud = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'shoresh-pkg-smoke-'))
+  const ud = reuse ?? fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'shoresh-pkg-smoke-'))
   const out = fs.openSync(path.join(RUN, `app-${label}.log`), 'a')
   const child = spawn(APP, [`--remote-debugging-port=${port}`], { env: { ...process.env, SHORESH_SMOKE_USERDATA: ud }, detached: true, stdio: ['ignore', out, out] })
   child.unref()
@@ -224,7 +225,7 @@ async function launchPeer(label, port) {
   peerData.push({ label, ud })
   conn = await connect(port, 120000)
   const shotPeer = async (name) => { const f = path.join(SHOTS, `${String(results.length + 1).padStart(2, '0')}-${label}-${name}.png`); try { await conn.shot(f) } catch (e) { log(`  peer screenshot failed: ${e.message}`) } }
-  return { label, pid: child.pid, ud, stop, shot: shotPeer, ...ctxFor(() => conn) }
+  return { label, pid: child.pid, ud, stop, shot: shotPeer, send: (m, p) => conn.send(m, p), shotTo: (f) => { fs.mkdirSync(path.dirname(f), { recursive: true }); return conn.shot(f) }, ...ctxFor(() => conn) }
 }
 
 // Quit the main instance (SIGTERM) and wait for it to exit; later steps then have no main app.
