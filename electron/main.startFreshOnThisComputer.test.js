@@ -183,10 +183,15 @@ describe('startFreshOnThisComputer: refusals touch nothing', () => {
     await expectUntouched(before, await handlers.startFreshOnThisComputer({ confirm: 'START_FRESH' }))
   })
 
-  it('PLANT: an unsigned entry targeting this device plus a bare refusal sets both old halves, yet the gate refuses and touches nothing', async () => {
+  it('PLANT: an unsigned entry targeting this device plus a bare refusal, even with both old halves forced true, does not open the gate', async () => {
     const lone = genesis(createEmptyDoc(), 'founder', founder.peerId)
     doc = signedEntry(lone, 'revoke', founder.db, 'founder', deviceId, {}, { sign: false })
     projectAll(db, doc)
+    // Since #1019 the projector no longer marks an unsigned entry's target revoked at all.
+    expect(db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(deviceId)?.status).not.toBe('revoked')
+    // The gate must not rest on that fix: force the two old halves true (what the pre-#1019 projector plus a bare
+    // refusal produced). With no VERIFIED revoke in applied_authority_log, it still refuses and touches nothing.
+    db.prepare("INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, 'revoked', ?) ON CONFLICT(device_id) DO UPDATE SET status = 'revoked'").run(deviceId, new Date().toISOString())
     markRemovedFromCamp(db, { peerId: 'peer-x', reason: 'device_revoked' })
     expect(db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(deviceId).status).toBe('revoked')
     expect(isRemovedFromCamp(db)).toBe(true)
