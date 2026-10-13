@@ -2,10 +2,10 @@
 title: "Whole-camp file: Save whole camp, and Open a saved camp into a brand-new camp"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 implementation_state: not-started
 date: 2026-10-13
-decided: "Direction ruled by the owner 2026-10-13 ('Second device + camp file (Recommended)'); the mechanism below is the architect's recommendation and is not accepted until the open questions are answered"
+decided: "Direction ruled by the owner 2026-10-13 ('Second device + camp file (Recommended)'). Mechanism accepted 2026-10-13 by the board keeper under the owner's delegated authority, with the architect's recommendation on every open question (see Acceptance)"
 deciders: [product-owner]
 program: data-durability
 governing_docs:
@@ -32,6 +32,18 @@ affects:
 ---
 
 # ADR: Whole-camp file
+
+## Acceptance (2026-10-13)
+
+Board keeper, under the owner's delegated authority: "ADR accepted, under the owner's delegated authority, with your
+recommendations on all four". Recorded answers:
+
+1. **Campers and elective assignment runs are excluded.** The file is unencrypted, so no children's names go in it. The
+   save dialog says plainly that camper lists and elective choices are not included and need re-importing.
+2. **Extension `.shoresh-camp`.**
+3. **Caps:** the values below are proposals; the final values are set from a measured fixture with headroom and recorded
+   here.
+4. **Never merged into a non-fresh camp in v1.**
 
 ## Problem (evidence)
 
@@ -109,7 +121,7 @@ Included: everything the owner listed, plus `camp_maps`, `week_*_exclusions`, `e
 
 Excluded (never written to the file): `users`, `tombstones`, `camp_authority_log`, `device_roster`, `conflicts`, `camps.signing_secret` and `signing_public_key`, and every device-local table (`devices`, `host_signing_key`, `host_handoff*`, `device_identity*`, `operations`, `audit_events`, `authority_cache`, `roster_cache`, `applied_authority_log`, `punch_*`, `peer_*`, `last_import_undo`, `projection_failures`, `login_attempts`). A guard test enumerates the schema and fails on any table that is neither exported nor on this exclusion list, so a future table cannot be silently left out or silently leaked.
 
-**Campers, camper identity keys and elective assignment runs are EXCLUDED in v1 (recommendation, not a decision).** They are children's names and personal data; the owner's list does not name them; and the file is unencrypted by ruling. The cost: a director who restores onto a new computer re-imports the camper list and re-runs elective assignment. That is flagged as Open question 1 so it is not decided silently. If the owner says include, the format already supports it (the entities are in `PROJECTIONS`); the dialog wording would then need to say the file contains children's names.
+**Campers, camper identity keys and elective assignment runs are EXCLUDED in v1 (accepted; Acceptance 1).** They are children's names and personal data; the owner's list does not name them; and the file is unencrypted by ruling. The cost: a director who restores onto a new computer re-imports the camper list and re-runs elective assignment. The save dialog says so ("Camper lists and elective choices aren't included; import them again after opening."). The format could carry them later (the entities are in `PROJECTIONS`), but including them would put children's names in an unencrypted file and needs a new owner ruling.
 
 ### 5. Validation and hostile input
 
