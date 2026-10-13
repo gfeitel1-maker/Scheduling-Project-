@@ -13,16 +13,15 @@ const DEFAULT_HOST_PORT = 7777
 // message. Every other code (4401, 4402, unknown) is treated as benign so
 // close-code numbers never leak into UI copy.
 const DEVICE_REVOKED_CODES = new Set([4403, 4404])
-const DEVICE_REVOKED_REASON =
-  "This device's access was removed. Ask your director or admin to re-approve it, then sign in again."
+export const DEVICE_REVOKED_REASON = 'This computer was removed from the camp.'
 const BENIGN_SESSION_ENDED_REASON = 'Your session ended. Please sign in again.'
 
 // 4405 (peer_identity_mismatch, T162 — docs/adr/2026-09-14-device-identity-and-token-binding.md
 // §3) is deliberately excluded from DEVICE_REVOKED_CODES rather than folded into it. The same
 // screen is shown to a confused director whose device legitimately drifted its bound identity AND
 // to an attacker sitting at a stolen laptop with a copied credential — and this device cannot tell
-// those two apart. DEVICE_REVOKED_REASON's "re-approve it" instruction is exactly how an attacker
-// gets re-admitted; printing it here would hand them the playbook. The legitimate case is meant to
+// those two apart. Any remedy printed here (a re-approve instruction, a "Start fresh" button) would hand the attacker
+// the playbook; the removed-device screen's button is driven by the device's own signed removal, never by a close code. The legitimate case is meant to
 // reach that remedy through a human (the director) who can verify who is actually asking, not
 // through self-service copy on this screen. Do not "improve" this by merging it into the revoked
 // set or adding recovery steps — that is the mistake this comment exists to prevent.

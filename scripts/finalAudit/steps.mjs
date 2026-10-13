@@ -640,15 +640,12 @@ export async function run(h) {
     featureIn(prs[0].number, what)
   }
 
-  await step(19, 'A removed device learns it: pair B, Revoke B on A, relaunch B on its own data; B shows it was removed within 90s, A stays signed in', async () => {
-    featureIn(1013, 'A removed device learns its removal (#1013)')
-    const devicesScreen = async () => {
-      await openDevices()
-      await waitFor(`return /Add a device|Stop adding devices/.test(__main())`, 20000, 'Devices')
-    }
-    const B = await h.launchPeer('R', h.PORT + 70)
-    try {
-      // Pair B exactly as step 13 does: camp code on A, join on B, Approve on A, sign in on B.
+  const devicesScreen = async () => {
+    await openDevices()
+    await waitFor(`return /Add a device|Stop adding devices/.test(__main())`, 20000, 'Devices')
+  }
+  // Pair peer B onto A exactly as step 13 does: camp code on A, join on B, Approve on A, sign in on B.
+  const pairPeer = async (B) => {
       await devicesScreen()
       if (!await ev(`return /Stop adding devices/.test(__main())`)) await click('Add a device', true, 10000)
       const code = await waitFor(`const m=__main().match(/\\b([A-Z0-9]{4,6}-[A-Z0-9]{4,6})\\b/); return m && m[1]`, 30000, 'camp code')
@@ -663,6 +660,13 @@ export async function run(h) {
       await sleep(300); await B.click('Sign in', true, 10000)
       await B.waitFor(`return __click('Continue', true) || document.body.innerText.includes('Log out')`, 120000, 'R: camp arrived')
       await B.waitFor(`return document.body.innerText.includes('Log out')`, 60000, 'R: signed in')
+  }
+
+  await step(19, 'A removed device learns it: pair B, Revoke B on A, relaunch B on its own data; B shows it was removed within 90s, A stays signed in', async () => {
+    featureIn(1013, 'A removed device learns its removal (#1013)')
+    const B = await h.launchPeer('R', h.PORT + 70)
+    try {
+      await pairPeer(B)
       // Revoke B on A. The only Revoke button is B's row: the host's own row never has one.
       await devicesScreen()
       await waitFor(`const b=[...document.querySelectorAll('button')].filter(__vis).find(b=>b.innerText.trim()==='Revoke'&&!b.disabled); if(!b) return false; b.click(); return true`, 30000, 'Revoke for R on A')
@@ -678,13 +682,64 @@ export async function run(h) {
           await sleep(300); await B2.click('Sign in', true, 10000).catch(() => {})
         }
         const t0 = Date.now()
-        const seen = await B2.waitFor(`const t=document.body.innerText; return (t.includes('removed from this camp') && 'sidebar flag "removed from this camp"') || (t.includes("This device's access was removed") && 'sign-in screen "This device\\'s access was removed"')`, 90000, 'R2 shows it was removed')
+        const seen = await B2.waitFor(`const t=document.body.innerText; return (t.includes('removed from this camp') && 'sidebar flag "removed from this camp"') || (t.includes('This computer was removed from the camp.') && 'sign-in screen "This computer was removed from the camp."')`, 90000, 'R2 shows it was removed')
         const learnedS = ((Date.now() - t0) / 1000).toFixed(1)
         await B2.shot('removed')
         // A is unaffected: still signed in, not shown the removed state.
-        const aOk = await ev(`const t=document.body.innerText; return t.includes('Log out') && !t.includes("This device's access was removed") && !t.includes('removed from this camp')`)
+        const aOk = await ev(`const t=document.body.innerText; return t.includes('Log out') && !t.includes('This computer was removed from the camp.') && !t.includes('removed from this camp')`)
         if (!aOk) throw new Error(`R learned its removal (${seen}, ${learnedS}s) but A is no longer fine`)
         return `R removed on A; after relaunch R showed the ${seen} within ${learnedS}s; A stayed signed in`
+      } finally { await B2.stop() }
+    } finally { await B.stop().catch(() => {}) }
+  })
+
+  await step('19b', 'Start fresh on a removed computer: R learns it was removed, Start fresh clears it, R relaunches empty, joins again by code, A approves, R sees a change made on A', async () => {
+    featureInBranch('claude/start-fresh', 'Start fresh on this computer', '19b')
+    const B = await h.launchPeer('S', h.PORT + 80)
+    try {
+      await pairPeer(B)
+      await devicesScreen()
+      await waitFor(`const b=[...document.querySelectorAll('button')].filter(__vis).find(b=>b.innerText.trim()==='Revoke'&&!b.disabled); if(!b) return false; b.click(); return true`, 30000, 'Revoke for S on A')
+      await waitFor(`return /Revoked|No longer allowed/.test(__main())`, 30000, 'A lists S as revoked')
+      const ud = B.ud
+      await B.stop()
+      const B2 = await h.launchPeer('S2', h.PORT + 80, { reuse: ud })
+      try {
+        await B2.waitFor(`return /Log out|Sign in/.test(document.body.innerText)`, 120000, 'S2: up')
+        await B2.waitFor(`return [...document.querySelectorAll('button')].some(b=>b.innerText.trim()==='Start fresh on this computer')`, 90000, 'S2 offers Start fresh')
+        await B2.shot('start-fresh-offered')
+        await B2.click('Start fresh on this computer', true, 10000)
+        await B2.waitFor(`return /clears Shoresh on this computer only/.test(document.body.innerText)`, 10000, 'S2 confirm text')
+        if (await B2.ev(`return document.body.innerText.includes('Join with a camp code')`)) throw new Error('Start fresh acted on the first click')
+        await B2.click('Yes, start fresh', true, 10000)
+        const ms = await B2.adopt()
+        await B2.waitFor(`return document.body.innerText.includes('Join with a camp code')`, 120000, 'S2: empty, back on mode-select')
+        const leftover = fs.readdirSync(ud).filter((n) => /^(\.reset-|local-reset\.journal)/.test(n))
+        if (leftover.length) throw new Error(`the wipe left ${JSON.stringify(leftover)} in S's userData`)
+        await B2.shot('after-start-fresh')
+        // Join again by code as a brand-new device.
+        await devicesScreen()
+        if (!await ev(`return /Stop adding devices/.test(__main())`)) await click('Add a device', true, 10000)
+        const code = await waitFor(`const m=__main().match(/\\b([A-Z0-9]{4,6}-[A-Z0-9]{4,6})\\b/); return m && m[1]`, 30000, 'camp code')
+        await B2.click('Join with a camp code', false)
+        await B2.waitFor(`const i=__inp('input[placeholder$="K4P7-2MRQ"]'); if(!i) return false; __set(i, ${JSON.stringify(code)}); return true`, 15000, 'S2: code field')
+        await sleep(300); await B2.click('Continue', true, 10000)
+        await waitFor(`return [...document.querySelectorAll('button')].filter(__vis).some(b=>b.innerText.trim()==='Approve'&&!b.disabled)`, 90000, "S2's new pairing request on A")
+        await ev(`[...document.querySelectorAll('button')].filter(__vis).find(b=>b.innerText.trim()==='Approve'&&!b.disabled).click(); return true`)
+        await B2.waitFor(`return !!__inp('#join-name')`, 90000, 'S2: sign-in after approval')
+        await B2.ev(`__set(__inp('#join-name'), ${JSON.stringify(h.ADMIN)}); __set(__inp('#join-pin'), ${JSON.stringify(h.PIN)}); return true`)
+        await sleep(300); await B2.click('Sign in', true, 10000)
+        await B2.waitFor(`return __click('Continue', true) || document.body.innerText.includes('Log out')`, 120000, 'S2: camp arrived')
+        await B2.waitFor(`return document.body.innerText.includes('Log out')`, 60000, 'S2: signed in')
+        // A change made on A reaches the fresh S2.
+        const probe = `Fresh Start ${Date.now().toString(36)}`
+        await nav('Locations')
+        await waitFor(`const i=__inp('input[placeholder$="Pool"]'); if(!i) return false; __set(i, ${JSON.stringify(probe)}); return true`, 15000, 'Locations add row')
+        await sleep(200); await click('+ Add', true, 10000)
+        await waitFor(`return __main().includes(${JSON.stringify(probe)})`, 15000, 'probe added on A')
+        await B2.nav('Locations')
+        await B2.waitFor(`return __main().includes(${JSON.stringify(probe)})`, 90000, 'S2 sees the change made on A')
+        return `S removed on A; Start fresh needed two clicks; relaunched empty in ${(ms / 1000).toFixed(1)}s; rejoined by code as a new device and saw "${probe}" made on A`
       } finally { await B2.stop() }
     } finally { await B.stop().catch(() => {}) }
   })
@@ -775,7 +830,7 @@ export async function run(h) {
     // unrelated camp on the same LAN is the everyday case at a shared site: both hosts advertise, discover each
     // other, and must refuse each other quietly. Runs before 13, which quits A.
     const X = await h.launchPeer('X', h.PORT + 30)
-    const lost = `return document.body.innerText.includes("This device's access was removed") || !document.body.innerText.includes('Log out')`
+    const lost = `return document.body.innerText.includes('This computer was removed from the camp.') || !document.body.innerText.includes('Log out')`
     try {
       await X.waitFor(`return document.body.innerText.includes('Start a new camp')`, 120000, 'X: mode-select')
       await X.click('Start a new camp', false)
@@ -870,7 +925,7 @@ export async function run(h) {
     }
     // Timeline for diagnosis (T376 host self-sign-out): the instant A shows it lost access is logged.
     let signedOutAt = null
-    const watch = setInterval(() => { if (!signedOutAt) ev(`return document.body.innerText.includes("This device's access was removed")`).then((v) => { if (v && !signedOutAt) { signedOutAt = new Date().toISOString(); h.log(`[t13] ${signedOutAt} A: shows "access was removed"`) } }).catch(() => {}) }, 500)
+    const watch = setInterval(() => { if (!signedOutAt) ev(`return document.body.innerText.includes('This computer was removed from the camp.')`).then((v) => { if (v && !signedOutAt) { signedOutAt = new Date().toISOString(); h.log(`[t13] ${signedOutAt} A: shows "removed from the camp"`) } }).catch(() => {}) }, 500)
     h.log(`[t13] ${new Date().toISOString()} launching peers B and C`)
     const B = await h.launchPeer('B', h.PORT + 10), C = await h.launchPeer('C', h.PORT + 20)
     h.log(`[t13] ${new Date().toISOString()} peers B and C up`)

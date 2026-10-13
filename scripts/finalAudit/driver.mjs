@@ -213,11 +213,12 @@ async function launchPeer(label, port, { reuse = null } = {}) {
   child.unref()
   log(`peer ${label} launched pid=${child.pid} port=${port} userData=${ud}`)
   let conn = null
+  let curPid = child.pid
   const stop = async () => {
     try { conn?.close() } catch {}
-    try { process.kill(child.pid, 'SIGTERM') } catch {}
-    const t = Date.now(); while (Date.now() - t < 15000) { try { process.kill(child.pid, 0) } catch { break } await sleep(250) }
-    try { process.kill(child.pid, 'SIGKILL') } catch {}
+    try { process.kill(curPid, 'SIGTERM') } catch {}
+    const t = Date.now(); while (Date.now() - t < 15000) { try { process.kill(curPid, 0) } catch { break } await sleep(250) }
+    try { process.kill(curPid, 'SIGKILL') } catch {}
     // userData is NOT removed here: finish() removes it only when every step passed, so a failure's
     // databases can be inspected.
   }
@@ -225,7 +226,23 @@ async function launchPeer(label, port, { reuse = null } = {}) {
   peerData.push({ label, ud })
   conn = await connect(port, 120000)
   const shotPeer = async (name) => { const f = path.join(SHOTS, `${String(results.length + 1).padStart(2, '0')}-${label}-${name}.png`); try { await conn.shot(f) } catch (e) { log(`  peer screenshot failed: ${e.message}`) } }
-  return { label, pid: child.pid, ud, stop, shot: shotPeer, mainEval: (expr) => mainEval(expr, port + 1), send: (m, p) => conn.send(m, p), shotTo: (f) => { fs.mkdirSync(path.dirname(f), { recursive: true }); return conn.shot(f) }, ...ctxFor(() => conn) }
+  // The peer restarted ITSELF (app.relaunch keeps argv, so the port is unchanged): wait for the old process to exit,
+  // find the new one, re-attach. Same shape as adopt() above, for a peer.
+  const adoptPeer = async (timeoutMs = 120000) => {
+    const t = Date.now(); try { conn?.close() } catch {}
+    while (Date.now() - t < timeoutMs) { try { process.kill(curPid, 0) } catch { break } await sleep(250) }
+    const { execFileSync } = await import('node:child_process')
+    let next = null
+    while (!next && Date.now() - t < timeoutMs) {
+      try { next = execFileSync('pgrep', ['-n', '-f', '--', `${path.basename(APP)} --remote-debugging-port=${port}`], { encoding: 'utf8' }).trim().split('\n').map(Number).find((n) => n && n !== curPid) } catch {}
+      if (!next) await sleep(500)
+    }
+    if (!next) throw new Error(`peer ${label}: no relaunched process on port ${port} within ${timeoutMs / 1000}s`)
+    log(`peer ${label} adopted relaunched pid=${next} (was ${curPid})`); curPid = next
+    conn = await connect(port, timeoutMs)
+    return Date.now() - t
+  }
+  return { label, pid: child.pid, ud, stop, adopt: adoptPeer, shot: shotPeer, mainEval: (expr) => mainEval(expr, port + 1), send: (m, p) => conn.send(m, p), shotTo: (f) => { fs.mkdirSync(path.dirname(f), { recursive: true }); return conn.shot(f) }, ...ctxFor(() => conn) }
 }
 
 // Quit the main instance (SIGTERM) and wait for it to exit; later steps then have no main app.

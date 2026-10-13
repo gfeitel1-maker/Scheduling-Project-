@@ -119,6 +119,8 @@ contextBridge.exposeInMainWorld('shoresh', {
   retrySync: () => ipcRenderer.invoke('shoresh:retry-sync'),
   // T345 — admin-only, confirm-phrase gated; decrypts this device and restarts it.
   disableAtRestEncryption: (args) => ipcRenderer.invoke('shoresh:disable-at-rest-encryption', args),
+  // Token-free: only a device whose own signed authority state says it was removed can run it.
+  startFreshOnThisComputer: (args) => ipcRenderer.invoke('shoresh:start-fresh-on-this-computer', args),
   ingestCommit: (args) => ipcRenderer.invoke('shoresh:ingest-commit', args),
   ingestReconcile: (args) => ipcRenderer.invoke('shoresh:ingest-reconcile', args),
   ingestUndo: (args) => ipcRenderer.invoke('shoresh:ingest-undo', args),

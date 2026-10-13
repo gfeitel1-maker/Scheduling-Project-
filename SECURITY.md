@@ -429,6 +429,15 @@ document is not supported: older builds cannot read either. The ruling is no dow
   Older user backups made while encrypted cannot be opened afterwards. See
   `docs/adr/2026-09-28-at-rest-encryption-disable-control.md` and
   `docs/adr/2026-10-08-at-rest-encryption-sticky-no-ambient-disable.md`.
+- **A removed device can clear itself ("Start fresh on this computer").** Offered and executable only when
+  this device's own signed authority state says it was removed (`isLocallyRemoved`: the removed mark and a
+  verified `authority_cache` revoke, re-checked on the quiesced database before anything moves). It clears
+  only this device's data inside the user-data directory (the list is `LOCAL_RESET_FILES` in
+  `electron/db/localReset.js`; the sealed `db.key.enc` is the first thing moved and the first thing
+  deleted), crash-safely: targets are renamed into `.reset-<stamp>/` under a durable journal and the next
+  launch finishes the deletion before any database is opened. It never touches anything outside the
+  user-data directory, never the app-wide OS "Safe Storage" keychain item, and never anything about the
+  camp on other devices. See `docs/adr/2026-10-13-revoked-device-local-reset.md`.
 - **Headless tools need a director-granted authorization.** The MCP server and CLIs reach an encrypted DB
   only through the Electron unlock helper (`electron/unlockDbKey.js`), which releases the key to a tool
   only if it presents a live, non-revoked per-tool secret (`SHORESH_TOOL_SECRET` or `--secret-stdin`,

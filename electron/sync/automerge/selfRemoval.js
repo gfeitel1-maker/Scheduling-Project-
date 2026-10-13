@@ -60,6 +60,11 @@ export function clearRemovedFromCamp(db) {
   }
 }
 
+/** The gate for destructive local actions: this device's own signed authority state AND its removed mark both say removed. */
+export function isLocallyRemoved(db, deviceId) {
+  return isRemovedFromCamp(db) && isRevokedByOwnAuthority(db, deviceId)
+}
+
 /** A removal that this device's own authority state no longer backs (a re-grant superseded the revoke) is over. True when it just cleared. */
 export function healRemovedMark(db, deviceId) {
   if (!isRemovedFromCamp(db) || isRevokedByOwnAuthority(db, deviceId)) return false

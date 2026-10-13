@@ -7,9 +7,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-const RECENT_PROJECTS_FILE = 'recent-projects.json'
-const CURRENT_PROJECT_FILE = 'current-project.json'
-const BACKUP_DIR_NAME = 'backups'
+export const RECENT_PROJECTS_FILE = 'recent-projects.json'
+export const CURRENT_PROJECT_FILE = 'current-project.json'
+export const BACKUP_DIR_NAME = 'backups'
 const MAX_BACKUPS = 10
 const MAX_RECENT = 5
 
