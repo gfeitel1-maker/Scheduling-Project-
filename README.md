@@ -48,10 +48,10 @@ syncs directly between them.
 
 ### Getting started
 
-Download v1.0.0 from the [release page](https://github.com/gfeitel1-maker/Scheduling-Project-/releases/tag/v1.0.0):
+Download v1.0.1 from the [release page](https://github.com/gfeitel1-maker/Scheduling-Project-/releases/tag/v1.0.1):
 
-- **macOS:** **Shoresh-1.0.0-macOS.zip**. Unzip it and drag **Shoresh** to Applications. It is an Intel build that also runs on Apple Silicon Macs (through Rosetta).
-- **Windows:** **Shoresh Setup 1.0.0.exe**, a 64-bit installer that needs no admin rights.
+- **macOS:** **Shoresh-1.0.1-macOS.zip**. Unzip it and drag **Shoresh** to Applications. It is an Intel build that also runs on Apple Silicon Macs (through Rosetta).
+- **Windows:** **Shoresh Setup 1.0.1.exe**, a 64-bit installer that needs no admin rights.
 
 You can also build either from this repository (next section).
 
@@ -173,7 +173,7 @@ model: [SECURITY.md](SECURITY.md).
 
 ## Status
 
-v1.0.0 is released (see **Getting started**). There are no further updates planned for v1; each camp forks and maintains its own copy. Open work is tracked as tickets under
+v1.0.1 is released (see **Getting started**). There are no further updates planned for v1; each camp forks and maintains its own copy. Open work is tracked as tickets under
 [docs/work](docs/work/README.md), governed by
 [docs/governance/GOVERNANCE_INDEX.md](docs/governance/GOVERNANCE_INDEX.md).
 
