@@ -456,6 +456,9 @@ export function currentRevokedDeviceIds(automerge, doc, { founderDeviceId, isEnt
     if (!isCompleteEntry(row)) continue
     const entry = { id, ...row }
     if (entry.kind !== 'genesis' && !isEntryTrusted(entry)) continue
+    // A signed revoke counts only if its signer was an admin at the entry's own causal position (the same test stateAt
+    // applies to votes); a signature alone proves who wrote it, not that they were entitled to.
+    if (entry.kind !== 'genesis' && !ctx.isValidAdminAt(entry.signer_device_id, ctx.entryChangeHash.get(id))) continue
     if (entry.target_device_id) everyTargetDeviceId.add(entry.target_device_id)
   }
   return [...everyTargetDeviceId].filter((id) => !grantedSet.has(id)).sort()

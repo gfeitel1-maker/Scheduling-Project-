@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   // numeric close code. _Prior: this comment described the shape as mirroring
   // ~~onTokenRenewed~~, which was removed as an orphaned channel with no sender._
   onAuthRejected: (callback) => ipcRenderer.on('shoresh:auth-rejected', (_event, data) => callback(data.code)),
+  onAccessRestored: (callback) => ipcRenderer.on('shoresh:access-restored', () => callback()),
   // §9 project-file lifecycle
   getCurrentProject: () => ipcRenderer.invoke('shoresh:get-current-project'),
   // T27 — read-only status, plus a push so it does not go stale. A value read
