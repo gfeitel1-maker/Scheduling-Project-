@@ -3,7 +3,7 @@ title: "Whole-camp file: Save whole camp, and Open a saved camp into a brand-new
 document_type: adr
 authority: normative
 status: accepted
-implementation_state: not-started
+implementation_state: phase-2-built
 date: 2026-10-13
 decided: "Direction ruled by the owner 2026-10-13 ('Second device + camp file (Recommended)'). Mechanism accepted 2026-10-13 by the board keeper under the owner's delegated authority, with the architect's recommendation on every open question (see Acceptance)"
 deciders: [product-owner]
@@ -82,7 +82,17 @@ One JSON file, extension `.shoresh-camp`:
 - `entities` keys are the modeled entity names from `PROJECTIONS` (`electron/ops/projections.js`), in no particular order; the importer sorts by `DOMAIN_SNAPSHOT_ORDER` (`electron/ops/campScopedEntities.js`). Each row holds the entity's `key` plus its declared `fields`, and nothing else. No new data model: the registry is the schema.
 - `learned.tables` reuses the `{tables, counts}` shape that host handoff already serializes and validates (`electron/auth/hostHandoff.js`) for the seven host-local tables (`source_aliases`, `compound_cell_decisions`, `location_word_decisions`, `declined_two_row_splits`, `import_decisions`, `import_evidence`, `open_reconciliation_decisions`). The replicated `camp_seedlings` rides in `entities`.
 - `schema_snapshots` slots stay a JSON string, as stored.
-- Plain JSON, not zip: setup data is small. **Size bound:** 64 MiB hard cap checked on the file's byte length before any parse, plus per-entity row caps (default 200,000 rows per entity, 1,000,000 rows total) checked as the structure is walked. The cap values are a tuning constant, not a promise; the ticket sets them from a measured large fixture (the audit camp times ten).
+- Plain JSON, not zip: setup data is small. **Size bound (final, measured 2026-10-13):** 64 MiB hard cap checked on the file's byte length (a `stat` before the file is read into memory, then again inside the validator) before any parse, plus per-entity row caps (**30,000** rows per entity, **50,000** rows total) checked as the structure is walked.
+
+  Measured with CPU time (`process.cpuUsage`), not wall clock, on synthetic camps written through the validator and loaded through the real write paths into a fresh camp:
+
+  | Camp | Rows | File bytes | Load CPU | Validate CPU |
+  |---|---|---|---|---|
+  | Audit-size: 40 groups, 60 activities, 10 blocks, 10 saved versions | 4,184 | 8.4 MB | 3.9 s (1,873 ops) | 0.24 s |
+  | Largest the app can schedule: 99 groups (the 5,000-slot bulk-replace limit per schedule), 150 activities, 10 versions | 10,233 | 20.8 MB | 7.7 s (3,909 ops) | 0.52 s |
+  | The same with 30 saved versions | 10,253 | 52.8 MB | 12.0 s | 0.92 s |
+
+  "The audit camp times ten" is not reachable: `MAX_BULK_REPLACE_ROWS` (5,000 rows per template) already stops a camp near 100 groups, which is an existing system limit the file correctly inherits (`too_large`). The caps therefore rest on the largest camp the app can hold: file cap 64 MiB is 7.6x the audit camp and 3.1x the largest camp with 10 versions (it refuses a largest-size camp holding more than about 35 saved versions, with a plain "too big" message); row caps are about 12x the audit camp and 4.9x the largest camp, and a hostile file at the row cap costs on the order of 40 s of load CPU, not an hour. Saved versions are the size driver (each is a full copy of the slots).
 - The save path writes the temp file then renames, so a crash never leaves a truncated `.shoresh-camp` that looks complete; the envelope carries per-entity `counts` and the reader verifies them (truncation check, not tamper protection: the file is unauthenticated by owner ruling).
 
 ### 2. Identity: new camp, derived ids re-derived, random ids kept
@@ -102,7 +112,7 @@ Snapshots: `schedule_snapshots.slots` is JSON embedding group/day/block/activity
 
 ### 3. Load path: through the real write paths
 
-New admin-gated IPC, `camp:loadFromFile`, available only while the camp is "freshly bootstrapped and empty" (no groups, activities, schedule slots; checked server-side, not by the renderer). The renderer flow is: start screen -> file picker -> choose PIN -> existing `bootstrapCamp` -> login -> call `camp:loadFromFile` with the file bytes -> `refreshCamp`. All validation happens in the main process.
+New admin-gated IPC, `shoresh:load-camp-file`, available only while the camp is "freshly bootstrapped and empty" (no groups, activities, schedule slots; checked server-side, not by the renderer). The renderer flow, as built: start screen -> `shoresh:pick-camp-file` (native dialog, `stat` size check before the read, full validation, all in the main process; the parsed file is held there, single-use, and only a basename, the camp name and counts go back) -> camp name, admin name and PIN form (the normal bootstrap form, prefilled) -> existing `bootstrapCamp` -> login -> `shoresh:load-camp-file` (no file argument; it consumes the held pick) -> `refreshCamp`. **The file is picked and validated BEFORE the camp is bootstrapped**, so a bad file never leaves a half-made camp; the "Try another file" action exists only for failures before bootstrap, and a failure after it (the load itself) offers only "Start over". All validation happens in the main process; the renderer never holds the file or its path.
 
 Order and primitives:
 
@@ -111,7 +121,7 @@ Order and primitives:
 3. Learned answers: `camp_seedlings` is an ordinary entity; the seven host-local tables are written by a handoff-style replace with the new camp id substituted, reusing the handoff validator (which currently checks `r.camp_id === campId`; the loader passes the new camp id after rewriting, it does not relax the check).
 4. Run the parity assertions the projector already has, then emit one `camp.loaded` audit event with per-entity counts.
 
-**Atomicity.** The camp is fresh, so the failure policy can be blunt: run steps 2 and 3 inside a single SQLite transaction where the writers allow it (`appendBulkReplaceOp` already does its own, so the outer transaction nests via savepoints). The document mirror is the part a SQLite rollback cannot undo, so on any failure the loader does not try to compensate row by row. It **marks the camp "load incomplete"** (a device-local flag, set before step 2 and cleared after step 4) and the UI offers one action: "Start over", which discards the profile data and returns to the start screen. A camp whose flag is set cannot be used for anything else, so a half-loaded camp never reaches a director as if it were whole. The renderer shows what failed in plain words (section 5 error shape).
+**Atomicity.** The camp is fresh, so the failure policy can be blunt: run steps 2 and 3 inside a single SQLite transaction where the writers allow it (`appendBulkReplaceOp` already does its own, so the outer transaction nests via savepoints). The document mirror is the part a SQLite rollback cannot undo, so on any failure the loader does not try to compensate row by row. It **marks the camp "load incomplete"** (a device-local flag, set before step 2 and cleared after step 4) and the UI offers one action: "Start over", which switches to a brand-new empty profile file beside the current one (`shoresh:start-over-camp-file`, the same `reinitialize` that create-project uses) and returns to the start screen. It deletes nothing: the abandoned profile stays on disk, unreferenced. It is refused (`not_applicable`) for a camp that holds real setup data and has no incomplete-load marker. `shoresh:get-camp` reports `loadIncomplete`. A camp whose flag is set cannot be used for anything else, so a half-loaded camp never reaches a director as if it were whole. The renderer shows what failed in plain words (section 5 error shape).
 
 **Op-log cost.** Every field is an op, so a large camp writes tens of thousands of operations; `docs/current` notes import write cost was previously fixed (T309) by batching. The loader uses the same batched-transaction path ingest uses, and the ticket must measure CPU time (not wall clock) on a ten-times audit camp before the cap values in section 1 are fixed. If the measured cost is unacceptable, the fallback is bulk-replace for more entities, not a bypass of the op log.
 
@@ -153,7 +163,7 @@ There is no existing every-table comparison helper; the ticket adds one (in test
 
 Hostile-input tests: one per rejection reason in section 5, plus a prototype-pollution file, a file at cap+1 byte, a file with a dangling reference, a file carrying a `users` entity, and a mid-load failure injected after N rows (asserts "load incomplete" flag and that Start over leaves a clean profile).
 
-### 7. Final-audit step 18 outline
+### 7. Final-audit step 19 outline (step 18 is the guide-screens step)
 
 In `scripts/finalAudit/steps.mjs`, following step 15 (bootstrapping a camp on a peer) and `launchPeer()` (`scripts/finalAudit/driver.mjs`, fresh userData): build the audit camp through the real UI, click **Save whole camp**, record Generated and Manual placement counts, event count and the Locations list; launch a peer on a **new userData**, choose **Start from a saved camp file**, set a PIN, open the file; assert that Generate and Manual counts, events and Locations match, that both schedules open without a "load incomplete" state, that a regenerated schedule still places (derived ids resolve), and that no PIN or device from the first camp exists in the second. Evidence: screenshots of the dialog warning text, the start-screen card and both schedules, per `feedback_show_me_the_running_ui`.
 
@@ -172,7 +182,7 @@ Save and open are async with multi-second states. Per DESIGN_STANDARD section 5 
 
 ## Consequences
 
-- One new file format and one new IPC pair (`camp:saveToFile`, `camp:loadFromFile`); no schema change in v1 (the "load incomplete" flag lives in existing device-local settings storage; if none fits, the ticket adds one device-local row and runs `npm run schema:check`).
+- One new file format and four IPC channels (`shoresh:save-camp-file`, `shoresh:pick-camp-file`, `shoresh:load-camp-file`, `shoresh:start-over-camp-file`); no schema change in v1 (the "load incomplete" flag lives in existing device-local settings storage; if none fits, the ticket adds one device-local row and runs `npm run schema:check`).
 - The `PROJECTIONS` registry gains a second consumer. Adding a replicated field then changes the file automatically; the schema-enumeration guard makes adding a table without deciding "exported or excluded" a failing test.
 - The file is unencrypted; the director can email it. That is the owner's accepted tradeoff, stated in the dialog.
 - Docs: a new subsection after "Restoring from a backup" in the director's guide, owned by this work (title: "Moving your camp to a new computer"); a separate worker changes the Restore copy and the guide's backup paragraphs. `docs/current/WHERE_DATA_LIVES.md` gains a line that the camp file is an export of replicated and learned data and is not a sync or backup mechanism. `SECURITY.md` gets a short entry for the unprotected file.

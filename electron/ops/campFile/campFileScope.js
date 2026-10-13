@@ -23,12 +23,13 @@ export const CAMP_FILE_FORMAT = 'shoresh-camp'
 export const CAMP_FILE_VERSION = 1
 export const CAMP_FILE_EXTENSION = '.shoresh-camp'
 
-// PROVISIONAL, measured in phase 2 (ADR section 1 / Acceptance 3): the size and row caps are tuning constants,
-// not promises. Phase 2 sets the final values from a measured large fixture and records them in the ADR.
+// Set from measurement (ADR section 1 / Acceptance 3). A 40-group camp with 10 saved versions is 8.4 MB / 4,184 rows;
+// the largest camp the app can schedule (99 groups, the 5,000-slot bulk-replace limit) is 20.8 MB / 10,233 rows. They
+// are tuning constants, not promises.
 export const CAMP_FILE_CAPS = Object.freeze({
   MAX_FILE_BYTES: 64 * 1024 * 1024,
-  MAX_ROWS_PER_ENTITY: 200_000,
-  MAX_ROWS_TOTAL: 1_000_000,
+  MAX_ROWS_PER_ENTITY: 30_000,
+  MAX_ROWS_TOTAL: 50_000,
   MAX_ID_LENGTH: 1024,
   MAX_TEXT_LENGTH: 100_000,
   MAX_SNAPSHOT_SLOTS_LENGTH: 8_000_000,

@@ -2,6 +2,7 @@ import { APP_VERSION } from '../../appVersion'
 import { useState, useCallback, useRef, useEffect, forwardRef } from 'react'
 
 import RestoreControl from './RestoreControl'
+import SaveCampControl from './SaveCampControl'
 import { NAV_SECTIONS, ROOTS_ITEM, ADMIN_MENU_ITEMS, ADMIN_ONLY_MENU_ITEMS } from './navSections'
 import { getSetupGaps } from '../../engine/readiness'
 import { loadSidebarState, saveSidebarState, sectionRollup, nextFoldStateAfterAnswer, syncStatusLabel, setupStillOpen } from './sidebarState'
@@ -491,6 +492,7 @@ export default function Sidebar({
           </button>
         )}</div>}
         {role === 'admin' && <RestoreControl />}
+        {role === 'admin' && <SaveCampControl />}
         {/* Ungated: staff and directors both see what Shoresh has learned from their import
             answers. Text only, no count: a footer entry that never asks for attention. */}
         <button

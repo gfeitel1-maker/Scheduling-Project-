@@ -5,6 +5,8 @@ import { CloseIcon, WarningTriangleIcon } from './components/icons'
 import ModeSelectScreen from './screens/ModeSelectScreen'
 import JoinByCodeScreen from './screens/JoinByCodeScreen'
 import CampBootstrapScreen from './screens/CampBootstrapScreen'
+import OpenSavedCampScreen from './screens/OpenSavedCampScreen'
+import LoadIncompleteScreen from './screens/LoadIncompleteScreen'
 import LoginScreen from './screens/LoginScreen'
 import CampScreen from './screens/CampScreen'
 import ImportScreen from './screens/ImportScreen'
@@ -818,7 +820,23 @@ export default function App() {
   }
 
   if (device.phase === 'mode-select') {
-    return <ModeSelectScreen onChooseHost={device.chooseHost} onChooseJoin={device.chooseJoin} />
+    return <ModeSelectScreen onChooseHost={device.chooseHost} onChooseJoin={device.chooseJoin} onChooseOpenFile={device.chooseOpenFile} />
+  }
+
+  if (device.phase === 'open-file') {
+    return (
+      <OpenSavedCampScreen
+        onBack={device.cancelOpenFile}
+        onPick={device.pickCampFile}
+        onOpen={device.bootstrapFromCampFile}
+        onFinish={device.finishOpenFile}
+        onStartOver={device.startOver}
+      />
+    )
+  }
+
+  if (device.phase === 'load-incomplete') {
+    return <LoadIncompleteScreen onStartOver={device.startOver} />
   }
 
   if (device.phase === 'bootstrap') {

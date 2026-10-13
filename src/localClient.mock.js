@@ -2047,7 +2047,20 @@ export const mockShoresh = {
     opConflictListeners.forEach((cb) => cb(msg))
   },
   async getCamp() {
-    return loadState().camp
+    const camp = loadState().camp
+    return camp ? { ...camp, loadIncomplete: false } : camp
+  },
+  async saveCampFile() {
+    return { ok: true, fileName: 'Mock Camp.shoresh-camp', counts: { groups: 12, activities: 20, locations: 8, events: 4, template_slots: 240, schedule_snapshots: 2 }, total: 286 }
+  },
+  async pickCampFile() {
+    return { ok: true, fileName: 'Mock Camp.shoresh-camp', campName: 'Mock Camp', counts: { groups: 12, activities: 20 } }
+  },
+  async loadCampFile() {
+    return { ok: true, counts: { groups: 12, activities: 20 } }
+  },
+  async startOverCampFile() {
+    return { ok: true }
   },
   // Mirrors electron/main.js's 'shoresh:camp-has-setup-data' handler — same
   // required-area table set (docs/adr/2026-08-28-stage-aware-nav-landing.md

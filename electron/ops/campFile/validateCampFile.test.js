@@ -298,3 +298,16 @@ describe('the reasons the loader owns', () => {
     ].concat(['bad_type']).sort())
   })
 })
+
+// Measured in phase 2 (docs/adr/2026-10-13-whole-camp-file-save-and-open.md section 1): a 40-group camp with 10 saved
+// versions is 8.4 MB / 4,184 rows / 3.9 s load CPU; the largest camp the app can schedule (99 groups, the 5,000-slot
+// bulk-replace limit) is 20.8 MB / 10,233 rows / 7.7 s. Each cap keeps at least 3x headroom over the largest measured
+// camp and stays low enough that a hostile file at the cap costs seconds to a minute, not an hour.
+describe('caps were set from measurement', () => {
+  it('the row caps leave headroom over the largest measured camp but stay far below a runaway file', () => {
+    expect(CAMP_FILE_CAPS.MAX_ROWS_TOTAL).toBe(50_000)
+    expect(CAMP_FILE_CAPS.MAX_ROWS_PER_ENTITY).toBe(30_000)
+    expect(CAMP_FILE_CAPS.MAX_ROWS_TOTAL).toBeGreaterThanOrEqual(3 * 10_233)
+    expect(CAMP_FILE_CAPS.MAX_FILE_BYTES).toBeGreaterThanOrEqual(3 * 20_819_893)
+  })
+})

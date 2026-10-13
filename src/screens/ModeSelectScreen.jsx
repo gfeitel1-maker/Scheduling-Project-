@@ -1,8 +1,8 @@
 import { S, useEnterTransition } from '../styles/shared'
 import AuthWatermark from '../components/AuthWatermark'
-import { StarIcon, SyncIcon, ChevronIcon } from '../components/icons'
+import { StarIcon, SyncIcon, ChevronIcon, CampFileIcon } from '../components/icons'
 
-export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
+export default function ModeSelectScreen({ onChooseHost, onChooseJoin, onChooseOpenFile }) {
   const enterStyle = useEnterTransition('liftFade')
   return (
     <div style={{ ...S.authPage, position: 'relative', overflow: 'hidden' }}>
@@ -41,6 +41,22 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
             <div style={S.authChoiceTitle}>Join with a camp code</div>
             <div style={S.authChoiceDesc}>
               This device gets its own full copy.
+            </div>
+          </div>
+          <div style={S.authChoiceChevron}><ChevronIcon size={14} style={{ transform: 'rotate(-90deg)' }} /></div>
+        </button>
+
+        <button
+          style={S.authChoiceCard}
+          onClick={onChooseOpenFile}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.boxShadow = '0 2px 10px rgba(0,0,0,0.06)' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none' }}
+        >
+          <div style={S.authChoiceIcon}><CampFileIcon /></div>
+          <div style={{ flex: 1 }}>
+            <div style={S.authChoiceTitle}>Open a saved camp</div>
+            <div style={S.authChoiceDesc}>
+              Start from a saved camp file
             </div>
           </div>
           <div style={S.authChoiceChevron}><ChevronIcon size={14} style={{ transform: 'rotate(-90deg)' }} /></div>

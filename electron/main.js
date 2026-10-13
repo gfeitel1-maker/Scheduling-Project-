@@ -65,6 +65,10 @@ import { setElectivePreference, removeElectivePreference } from './ops/setElecti
 import { getElectiveRun } from './ops/getElectiveRun.js'
 import { getElectiveRunOuterSchedule } from './ops/getElectiveRunOuterSchedule.js'
 import { campHasSetupData } from './ops/campHasSetupData.js'
+import { saveCampFileToDisk, pickCampFileFromDisk } from './ops/campFile/campFileIo.js'
+import { loadCampFile as loadCampFileIntoCamp } from './ops/campFile/loadCampFile.js'
+import { CAMP_FILE_EXTENSION } from './ops/campFile/campFileScope.js'
+import { readCampStatus, canStartOver, freshProjectPath } from './ops/campFile/campFileLifecycle.js'
 import { PROJECTIONS } from './ops/projections.js'
 import { createCampDataRecordWriter } from './campDataRecord.js'
 import { smokeBootstrapRequested, runSmokeBootstrap, SMOKE_SYNC_MARKER } from './smokeBootstrap.js'
@@ -374,7 +378,7 @@ const SEAT_FIELDS = [
   'source', 'is_locked', 'solver_generation',
 ]
 
-export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, safeStorage: injectedSafeStorage, getAutomergeSyncNode, getAutomergeStartupAttempted, getRelayReservationRefused, getPortMappingStatus, onCampBootstrapped, onCampJoined, retrySync, stopSync } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, safeStorage: injectedSafeStorage, getAutomergeSyncNode, getAutomergeStartupAttempted, getRelayReservationRefused, getPortMappingStatus, onCampBootstrapped, onCampJoined, retrySync, stopSync, campFileDialogs } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
@@ -2428,6 +2432,69 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     try { return await atRestDisableRunner() } finally { atRestDisableInFlight = false }
   }
 
+  // T381 (docs/adr/2026-10-13-whole-camp-file-save-and-open.md). The native dialogs are injected so a test drives the
+  // handlers without Electron; the default shows the real ones. The file path never crosses IPC: the renderer only
+  // ever receives a basename.
+  const campFileDialogsFn = campFileDialogs || {
+    showSaveDialog: (defaultName) => dialog.showSaveDialog(getMainWindow?.() ?? undefined, {
+      title: 'Save whole camp',
+      defaultPath: path.join(app.getPath('documents'), defaultName),
+      filters: [{ name: 'Shoresh camp', extensions: [CAMP_FILE_EXTENSION.slice(1)] }],
+      buttonLabel: 'Save',
+    }),
+    showOpenDialog: () => dialog.showOpenDialog(getMainWindow?.() ?? undefined, {
+      title: 'Open a saved camp',
+      filters: [{ name: 'Shoresh camp', extensions: [CAMP_FILE_EXTENSION.slice(1)] }],
+      properties: ['openFile'],
+    }),
+  }
+  // The one validated file waiting for the new camp to exist: picked BEFORE bootstrap so a bad file never leaves a
+  // half-made camp, consumed once by loadCampFile after the director has signed in.
+  let pickedCampFile = null
+  let campFileLoadInFlight = false
+
+  async function saveCampFileHandler({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'camp.save_file' })
+    const camp = db.prepare('SELECT id, name FROM camps LIMIT 1').get()
+    if (!camp) throw new Error('no camp')
+    const result = await saveCampFileToDisk({ db, camp, showSaveDialog: campFileDialogsFn.showSaveDialog })
+    if (result.ok) {
+      try {
+        recordAuditEvent(db, { campId: camp.id, actorUserId: userId, deviceId, action: 'camp.saved', targetType: 'camp', targetId: camp.id, outcome: 'allow', metadata: { total: result.total } })
+      } catch { /* an audit failure must not turn a finished save into a failed one */ }
+    }
+    return result
+  }
+
+  // No token: it runs before the camp (and so any admin) exists. It reads only a file the director chose in the
+  // native dialog, and is refused outright once a camp exists on this device.
+  async function pickCampFileHandler() {
+    pickedCampFile = null
+    if (db.prepare('SELECT COUNT(*) AS n FROM camps').get().n > 0) return { ok: false, reason: 'camp_not_empty' }
+    const picked = await pickCampFileFromDisk({ showOpenDialog: campFileDialogsFn.showOpenDialog })
+    if (!picked.ok) return picked
+    pickedCampFile = picked.file
+    return { ok: true, fileName: picked.fileName, campName: picked.file.camp.name, counts: picked.file.counts }
+  }
+
+  function loadCampFileHandler({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'camp.load_file' })
+    if (!pickedCampFile) return { ok: false, reason: 'no_file_picked' }
+    if (campFileLoadInFlight) return { ok: false, reason: 'in_progress' }
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) throw new Error('no camp')
+    campFileLoadInFlight = true
+    try {
+      const result = loadCampFileIntoCamp(db, { file: pickedCampFile, campId: camp.id, author_user_id: userId, device_id: deviceId })
+      if (result.ok) pickedCampFile = null
+      return result.ok ? { ok: true, counts: result.counts } : result
+    } finally {
+      campFileLoadInFlight = false
+    }
+  }
+
   function deleteWeekHandler({ token, weekId } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // ADMIN-ONLY, deliberately '.delete' not '.write': deleteWeek() is a
@@ -3323,6 +3390,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     deleteWeek: deleteWeekHandler,
     disableAtRestEncryption: disableAtRestEncryptionHandler,
     attributeSubject: attributeSubjectHandler,
+    saveCampFile: saveCampFileHandler,
+    pickCampFile: pickCampFileHandler,
+    loadCampFile: loadCampFileHandler,
     deleteElectiveSet: deleteElectiveSetHandler,
     deleteElectiveRun: deleteElectiveRunHandler,
     purgeElectiveSeason: purgeElectiveSeasonHandler,
@@ -3679,6 +3749,9 @@ if (isElectronEntryPoint()) {
     'shoresh:duplicate-week',
     'shoresh:delete-week',
     'shoresh:attribute-subject',
+    'shoresh:save-camp-file',
+    'shoresh:pick-camp-file',
+    'shoresh:load-camp-file',
   ]
 
   function registerHandlers(handlers, currentDb) {
@@ -3703,7 +3776,7 @@ if (isElectronEntryPoint()) {
     // get-camp is pre-auth (called before a session exists to decide the
     // bootstrap-vs-join phase). See the note in the original registration
     // block for the full justification.
-    ipcMain.handle('shoresh:get-camp', () => currentDb.prepare('SELECT id, name FROM camps LIMIT 1').get())
+    ipcMain.handle('shoresh:get-camp', () => readCampStatus(currentDb))
     // Stage-aware landing (docs/adr/2026-08-28-stage-aware-nav-landing.md
     // Decision 1) — pre-auth like get-camp above (called before a session
     // exists, inside useDeviceMode's init effect). A single cheap existence
@@ -3791,6 +3864,9 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:duplicate-week', (_event, args) => handlers.duplicateWeek(args))
     ipcMain.handle('shoresh:delete-week', (_event, args) => handlers.deleteWeek(args))
     ipcMain.handle('shoresh:attribute-subject', (_event, args) => handlers.attributeSubject(args))
+    ipcMain.handle('shoresh:save-camp-file', (_event, args) => handlers.saveCampFile(args))
+    ipcMain.handle('shoresh:pick-camp-file', () => handlers.pickCampFile())
+    ipcMain.handle('shoresh:load-camp-file', (_event, args) => handlers.loadCampFile(args))
     ipcMain.handle('shoresh:delete-elective-set', (_event, args) => handlers.deleteElectiveSet(args))
     ipcMain.handle('shoresh:delete-special-day', (_event, args) => handlers.deleteSpecialDay(args))
     ipcMain.handle('shoresh:bind-special-day', (_event, args) => handlers.bindSpecialDay(args))
@@ -4081,6 +4157,20 @@ if (isElectronEntryPoint()) {
       })
     } finally {
       releaseSwitch()
+    }
+  })
+
+  // Start over, after a camp file could not be opened: switch to a brand-new empty profile file beside the current one
+  // (the same reinitialize create-project uses; the renderer reloads onto the start screen). Nothing is deleted: the
+  // abandoned half-made profile stays on disk, unreferenced. Refused for a camp that holds real setup data.
+  ipcMain.handle('shoresh:start-over-camp-file', async () => {
+    if (!canStartOver(db)) return { ok: false, reason: 'not_applicable' }
+    try {
+      await reinitialize(freshProjectPath(dbPath))
+      return { ok: true }
+    } catch (err) {
+      if (err.code === 'project_switch_in_progress') return { ok: false, reason: err.code }
+      return { ok: false, reason: 'start_over_failed', message: err.message }
     }
   })
 

@@ -124,6 +124,8 @@ computer it cannot be read. Options considered: a backup key wrapped by the admi
 is open to offline guessing), a recovery key shown once at camp creation (rejected: reintroduces "lose it = lose the
 camp"), a decrypted portable backup (rejected: contradicts "no plaintext local backup"). **Ruling (owner,
 2026-10-13, "Second device + camp file"):** keep backups device-bound and say so plainly at restore and in the
-Director's Guide; protection against losing the computer is a second paired device, or a whole-camp file the director keeps
-somewhere private that opens as a fresh camp on any computer (built separately; its own ADR). See
+Director's Guide; protection against losing the computer is a second paired device, or **Save whole camp**, a file the director keeps
+somewhere private that **Open a saved camp** turns into a fresh camp on any computer (decided and built under
+`docs/adr/2026-10-13-whole-camp-file-save-and-open.md`). The file is deliberately not encrypted and leaves out camper lists
+and elective choices. See
 `docs/current/KEY_RECOVERY_STORY.md`.
