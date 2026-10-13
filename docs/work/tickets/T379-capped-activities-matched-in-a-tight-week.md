@@ -77,3 +77,11 @@ CPU per build (`process.cpuUsage`, old and new interleaved, 12 seeds x 3 repetit
 s02 139 -> 26 ms, s06 306 -> 106 ms, s12 67 -> 19 ms, s15 179 -> 48 ms (the repair no longer burns its budget);
 campB 33 -> 31, b3 58 -> 60, s04 280 -> 277, s13 118 -> 124, s09 61 -> 63, every other camp within 1-2 ms
 (not tight, so unchanged).
+
+## Round 2 (Red Hat) dispositions
+
+- Priority starvation: not reproduced as stated (a high-priority uncapped minimum was never short in 100 seeds), but the same fixture exposed a real defect: 12/100 seeds short on main, 16/100 on the first T379 commit. The matching ordered groups by spare cells that counted cells the matching had already passed over. Fixed: pressure is now cells in this slot and later less scarce sessions still owed, and activities owed as many sessions as they have seats left (urgency 1) are matched first. 0/100 now. The priority contract is not preserved inside a tight week: scarce activities of either priority are matched before greedy placement, because honouring it would make the week unfillable; stated in the ADR amendment.
+- Spare-of-1 cliff: probed (9 cells, 8 capped activities, seeds 0..99): nothing underserved with the gate as is; test added as a guard, gate unchanged.
+- Shared-location caps: real. Fixture of 8 activities on two locations of capacity 4: 18/100 short on main, 28/100 on the first commit, 2/100 now (location headroom checked while matching, plus a fallback to the group's next candidate). Residual 2/100 pinned as an upper bound in the test.
+- Harness: sweep errors are caught per sweep and fail the invariant, default seeds 25 -> 50, and a non-vacuity test asserts all 30 camp variants were swept.
+- determinism pin (buildScheduleDeterminism.pin.test.js) re-captured: its fixture is an unfittable week, the tight matching now spreads Swim one session per group; same four shortfalls.

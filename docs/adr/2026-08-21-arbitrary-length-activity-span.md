@@ -498,3 +498,5 @@ those activities, then the greedy singles, `repair`, `minRepair`, `fillRepair`. 
 matching: a span needs a free run over several slots, so they stay first, and they are placed before the
 matching so it cannot spend their runs. Detail and evidence: `docs/work/tickets/T379-capped-activities-matched-in-a-tight-week.md`.
 
+
+> 2026-10-13 (T379 round 2): the matching orders groups by cells left in this slot and later less scarce sessions owed, matches urgency-1 activities first, checks shared-location headroom, and does not honour priority between scarce activities and greedy ones inside a tight week.

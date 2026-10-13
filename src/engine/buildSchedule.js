@@ -863,7 +863,6 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, mat
     if (Math.min(...spareCells().values()) > 0) return
     // Low-priority spans are placed now too, ahead of the matching: it spends the free runs a span needs.
     placeSpansFirst(slotsToFill, 'low')
-    const spare = spareCells()
     const matchRand = mulberry32(matchSeed)
     const tie = new Map([...scarce.map(a => a.id), ...groups.map(g => g.id)].map(id => [id, matchRand()]))
     const owed = (act, groupId) => {
@@ -882,8 +881,18 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, mat
         for (const g of groups) if (eligibility.get(a.id)?.has(g.id)) owedTotal += Math.max(0, owed(a, g.id))
         return [a.id, owedTotal / (a.max_groups_per_slot * (periods.length - p))]
       }))
+      // A group with no cell to spare for the activities the matching leaves to the greedy rounds (this slot
+      // and later ones, less the scarce sessions still owed; a cell the matching passed over is behind it) must be matched in every remaining slot: first in line.
+      const cellsLeft = new Map()
+      for (let q = p; q < periods.length; q++) for (const s of periods[q]) if (!assigned.has(keyOf(s))) cellsLeft.set(s.groupId, (cellsLeft.get(s.groupId) ?? 0) + 1)
+      const slack = new Map(groups.map(g => {
+        const cells = cellsLeft.get(g.id) ?? 0
+        let need = 0
+        for (const a of scarce) if (eligibility.get(a.id)?.has(g.id)) need += Math.max(0, owed(a, g.id))
+        return [g.id, cells - need]
+      }))
       const free = periods[p].filter(s => !assigned.has(keyOf(s)))
-        .sort((x, y) => spare.get(x.groupId) - spare.get(y.groupId) || tie.get(x.groupId) - tie.get(y.groupId))
+        .sort((x, y) => slack.get(x.groupId) - slack.get(y.groupId) || tie.get(x.groupId) - tie.get(y.groupId))
       const candidates = new Map()
       for (const s of free) {
         candidates.set(s.groupId, scarce
@@ -893,13 +902,23 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, mat
       }
       const holders = new Map() // activity id -> group ids matched to it in this slot
       const roomOf = (a, s) => a.max_groups_per_slot - (activityUsage.get(`${a.id}|${s.dayId}|${s.blockId}`) || 0)
+      // A shared location's capacity is a limit across activities, which a seat count per activity cannot see.
+      const locationHasRoom = (a, s) => {
+        const loc = a.location_id ?? null
+        if (loc == null || !locationCapById.has(loc)) return true
+        let n = (placeUsage.get(`${loc}|${s.dayId}|${s.blockId}`) || []).length
+        for (const [actId, gs] of holders) if (activityById.get(actId).location_id === loc) n += gs.length
+        return n < locationCapById.get(loc)
+      }
       const slotOf = new Map(free.map(s => [s.groupId, s]))
+      let critical = null
       const assign = (groupId, seen) => {
         for (const a of candidates.get(groupId)) {
+          if (critical && !critical.has(a.id)) continue
           if (seen.has(a.id)) continue
           seen.add(a.id)
           const held = holders.get(a.id) ?? []
-          if (held.length < roomOf(a, slotOf.get(groupId))) { holders.set(a.id, [...held, groupId]); return true }
+          if (held.length < roomOf(a, slotOf.get(groupId)) && locationHasRoom(a, slotOf.get(groupId))) { holders.set(a.id, [...held, groupId]); return true }
           for (let i = 0; i < held.length; i++) {
             if (assign(held[i], seen)) {
               const now = holders.get(a.id) ?? []
@@ -910,12 +929,21 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, mat
         }
         return false
       }
-      for (const s of free) assign(s.groupId, new Set())
+      // An activity owed as many sessions as the week has seats left for it (urgency 1) is lost for good if
+      // any seat goes empty, so those are matched first; an augmenting path never unmatches an activity's
+      // seat, so the second pass over everything cannot take that coverage back.
+      critical = new Set(scarce.filter(a => urgency.get(a.id) >= 1 - 1e-9).map(a => a.id))
+      const matched = new Set()
+      if (critical.size) for (const s of free) if (assign(s.groupId, new Set())) matched.add(s.groupId)
+      critical = null
+      for (const s of free) if (!matched.has(s.groupId)) assign(s.groupId, new Set())
       const pick = new Map()
       for (const [actId, gs] of holders) for (const g of gs) pick.set(g, activityById.get(actId))
       for (const s of free) {
-        const a = pick.get(s.groupId)
-        if (a && canPlace(a, s.groupId, s.dayId, s.blockId)) place(a, s.groupId, s.dayId, s.blockId)
+        // A pick can have lost its place to a shared location filled by another pick: the group's
+        // next candidate takes it instead.
+        const a = [pick.get(s.groupId), ...candidates.get(s.groupId)].find(x => x && canPlace(x, s.groupId, s.dayId, s.blockId))
+        if (a) place(a, s.groupId, s.dayId, s.blockId)
       }
     }
   }

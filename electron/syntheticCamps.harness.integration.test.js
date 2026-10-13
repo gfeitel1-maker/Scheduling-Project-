@@ -267,7 +267,7 @@ function scheduleInput(d, id) {
 // Generate draws its choices from a PRNG seeded by the camp id, so one stable id proving a week fills proves
 // little (T379: s02 came out clean on 13 of 50 seeds). The sweep re-runs Generate under SEEDS camp ids.
 // SEED_SWEEP_OUT=<file> appends one JSON line per sweep (the before/after evidence); a plain run writes nothing.
-const SEEDS = Number(process.env.SYNTHETIC_SEEDS ?? 25)
+const SEEDS = Number(process.env.SYNTHETIC_SEEDS ?? 50)
 function seedSweep(d, id, label) {
   const input = scheduleInput(d, id)
   const out = { label, seeds: SEEDS, shortSeeds: 0, stillNeeded: 0, unfillable: 0, findings: 0, cpuMs: 0, firstShort: [], byActivity: {} }
@@ -292,7 +292,13 @@ function seedSweep(d, id, label) {
   if (process.env.SEED_SWEEP_OUT) fs.appendFileSync(process.env.SEED_SWEEP_OUT, JSON.stringify(out) + '\n')
   return out
 }
-const fillsOnEverySeed = (faithful, sweep) => (faithful.count === 0 ? { shortSeeds: sweep.shortSeeds, firstShort: sweep.firstShort } : null)
+// null when the camp's own inferred rules reject its file: those weeks may not fit, so no promise is made.
+const fillsOnEverySeed = (faithful, sweep) => {
+  if (faithful.count !== 0) return null
+  if (!sweep.ok) return { sweepError: sweep.error }
+  return { shortSeeds: sweep.value.shortSeeds, firstShort: sweep.value.firstShort }
+}
+const SWEPT_FLOOR = 30
 
 function safe(fn) {
   try { return { ok: true, value: fn() } } catch (err) { return { ok: false, error: String(err?.message ?? err).slice(0, 300) } }
@@ -769,7 +775,7 @@ async function runCamp(m) {
     rec.alldayAsActivity = dayItemsAsActivity(m, zero.d, zero.id)
     rec.faithful = evaluateFaithful(m, zero.d, zero.id, z.value)
     rec.generate = evaluateGenerate(m, zero.d, zero.id, z.value)
-    rec.seedSweepZero = seedSweep(zero.d, zero.id, `${m.slug}:zero`)
+    rec.seedSweepZero = safe(() => seedSweep(zero.d, zero.id, `${m.slug}:zero`))
     rec.manual = await evaluateManual(m, zero.d, zero.id, z.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
     rec.specialDayFiles = await evaluateSpecialDayFiles(m, zero.d, zero.id).catch((e) => [{ error: String(e?.message ?? e).slice(0, 300) }])
 
@@ -810,7 +816,7 @@ async function runCamp(m) {
     rec.confirmAllDayItemsAsActivity = dayItemsAsActivity(m, all.d, all.id)
     rec.confirmAllFaithful = evaluateFaithful(m, all.d, all.id, a.value)
     rec.confirmAllGenerate = evaluateGenerate(m, all.d, all.id, a.value)
-    rec.seedSweepAll = seedSweep(all.d, all.id, `${m.slug}:all`)
+    rec.seedSweepAll = safe(() => seedSweep(all.d, all.id, `${m.slug}:all`))
     rec.confirmAllManual = await evaluateManual(m, all.d, all.id, a.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
     // Owner, 2026-10-12: the review never asks what a schedule file cannot say (priority, frequency).
     rec.confirmAllPriorityOrFrequencyFlags = a.value.report.unknownFields ?? null
@@ -1091,7 +1097,7 @@ describe('the owner\'s camp and its variants fill again', () => {
       for (const [key, answerFor] of [['zero', undefined], ['all', CONFIRM_ALL]]) {
         const { d, id } = seedCamp(`${slug}:${key}`)
         const imp = importFile(d, id, text, answerFor ? { answerFor } : {})
-        rec[key] = { faithful: evaluateFaithful(m, d, id, imp), generate: evaluateGenerate(m, d, id, imp), sweep: seedSweep(d, id, `${slug}:${key}`) }
+        rec[key] = { faithful: evaluateFaithful(m, d, id, imp), generate: evaluateGenerate(m, d, id, imp), sweep: safe(() => seedSweep(d, id, `${slug}:${key}`)) }
         d.close()
       }
       realResults[slug] = rec
@@ -1236,6 +1242,21 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
     hard('re-import with Replace completes', (r) => {
       expect(r.reimportReplace?.ok).toBe(true)
     })
+  })
+
+  // The seed sweep promises nothing for a camp whose inferred rules reject its own file, so it must
+  // not quietly turn into a pass for every camp.
+  it('the seed sweep is not vacuous: most camp variants satisfy their own rules and were swept', () => {
+    const swept = []
+    const skipped = []
+    for (const [slug, r] of Object.entries(results)) {
+      for (const [key, f, sw] of [['zero', r.faithful, r.seedSweepZero], ['all', r.confirmAllFaithful, r.seedSweepAll]]) {
+        if (fillsOnEverySeed(f ?? { count: 1 }, sw ?? { ok: false }) && !fillsOnEverySeed(f, sw).sweepError) swept.push(`${slug}:${key}`)
+        else skipped.push(`${slug}:${key}`)
+      }
+    }
+    console.log(`seed sweep (${SEEDS} seeds): ${swept.length} variants swept, skipped: ${skipped.join(', ') || 'none'}`)
+    expect(swept.length).toBeGreaterThanOrEqual(SWEPT_FLOOR)
   })
 
   // The orphanMarkers invariant is only meaningful if markers exist to be checked.
