@@ -3362,19 +3362,61 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
 
 // T372: what each captureInverse commit created/changed, held in the main process. Undo reads this
 // instead of the renderer's copy, so a caller can name only a run, never a row or a field snapshot.
-// Lives for the process (the grace window is a same-session affordance), bounded per db.
+// Held in memory, bounded per db; the LAST run is also kept in last_import_undo (persistLastRun) so it
+// can be undone after a restart, until the next import replaces it (director test 2026-10-12).
 const UNDOABLE_RUNS_MAX = 20
 const undoableRuns = new WeakMap()
 function recordUndoableRun(db, runId, invertibleOps, createdEntityIds) {
   if (!undoableRuns.has(db)) undoableRuns.set(db, new Map())
   const runs = undoableRuns.get(db)
   const prev = runs.get(runId)
+  // Only the last import can be undone: a new run retires every earlier one, in memory as in the db.
+  if (!prev) runs.clear()
   runs.delete(runId)
   runs.set(runId, structuredClone({
     invertibleOps: [...(prev?.invertibleOps ?? []), ...invertibleOps],
     createdEntityIds: [...(prev?.createdEntityIds ?? []), ...createdEntityIds],
   }))
   while (runs.size > UNDOABLE_RUNS_MAX) runs.delete(runs.keys().next().value)
+  persistLastRun(db, runId)
+}
+
+// The last import's record, stored in the encrypted db (one row). Written whenever its record changes;
+// committed_at and file_name keep their first values for the run.
+// The import has already landed when this runs, so a failure here is logged, never thrown: reporting
+// the import as failed would invite a retry that imports everything twice.
+function persistLastRun(db, runId) {
+  const rec = undoableRuns.get(db)?.get(runId)
+  if (!rec) return
+  try { writeLastRun(db, runId, rec) } catch (err) { console.error('[import] could not store the undo for this import:', err?.message) }
+}
+
+function writeLastRun(db, runId, rec) {
+  const prev = db.prepare('SELECT import_run_id, file_name, committed_at FROM last_import_undo WHERE id = 1').get()
+  const same = prev?.import_run_id === runId
+  db.prepare(`INSERT INTO last_import_undo (id, import_run_id, file_name, committed_at, record) VALUES (1, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET import_run_id = excluded.import_run_id, file_name = excluded.file_name, committed_at = excluded.committed_at, record = excluded.record`)
+    .run(runId, (same ? prev.file_name : null) ?? rec.fileName ?? null, same ? prev.committed_at : new Date().toISOString(), JSON.stringify(rec))
+}
+
+/** Any import starts by retiring the previous import's undo: only the latest import can be undone. */
+export function clearLastImportUndo(db) {
+  undoableRuns.get(db)?.clear()
+  try { db.prepare('DELETE FROM last_import_undo WHERE id = 1').run() } catch (err) { console.error('[import] could not retire the previous undo:', err?.message) }
+}
+
+/** The file the run imported, shown on Roots ("Undo last import: campB.txt"). */
+export function recordRunFile(db, runId, fileName) {
+  const rec = undoableRuns.get(db)?.get(runId)
+  if (!rec || typeof fileName !== 'string') return
+  rec.fileName = fileName
+  try { db.prepare('UPDATE last_import_undo SET file_name = ? WHERE id = 1 AND import_run_id = ?').run(fileName, runId) } catch (err) { console.error('[import] could not name the undoable import:', err?.message) }
+}
+
+/** The import that can still be undone on this device, or null. */
+export function lastImportUndo(db) {
+  const row = db.prepare('SELECT import_run_id, file_name, committed_at FROM last_import_undo WHERE id = 1').get()
+  return row ? { importRunId: row.import_run_id, fileName: row.file_name ?? null, committedAt: row.committed_at } : null
 }
 
 // The "Imported from X" versions an import saved (materializeImportedVersion, called by the commit
@@ -3385,6 +3427,7 @@ export function recordRunVersion(db, runId, id, name) {
   const rec = undoableRuns.get(db)?.get(runId)
   if (!rec || typeof id !== 'string') return
   rec.ownSnapshots = [...(rec.ownSnapshots ?? []).filter((v) => v.id !== id), { id, name }]
+  persistLastRun(db, runId)
 }
 
 // T219: a row the version step created after the commit (an imported double period's elective
@@ -3398,6 +3441,7 @@ export function recordRunCreated(db, runId, entity, entity_id) {
     fieldSnapshot[field] = latest ? latest.seq : null
   }
   rec.createdEntityIds = [...rec.createdEntityIds.filter((e) => !(e.entity === entity && e.entity_id === entity_id)), { entity, entity_id, fieldSnapshot }]
+  persistLastRun(db, runId)
 }
 
 /**
@@ -3406,15 +3450,24 @@ export function recordRunCreated(db, runId, entity, entity_id) {
  * captureInverse here, or the process restarted) undoes nothing and throws, so the caller keeps its undo affordance and shows an error.
  */
 export function undoImportRun(db, { importRunId, author_user_id, device_id, client_write_id }) {
-  const rec = typeof importRunId === 'string' ? undoableRuns.get(db)?.get(importRunId) : null
-  if (!rec) throw new Error('This import cannot be undone from here: its record is no longer held (the app restarted or the project was switched).')
-  return ingestUndo(db, {
+  let rec = typeof importRunId === 'string' ? undoableRuns.get(db)?.get(importRunId) : null
+  // After a restart the memory is empty; the last import's record is still in the db.
+  if (!rec && typeof importRunId === 'string') {
+    const row = db.prepare('SELECT record FROM last_import_undo WHERE id = 1 AND import_run_id = ?').get(importRunId)
+    if (row) rec = JSON.parse(row.record)
+  }
+  if (!rec) throw new Error('This import cannot be undone from here: only the last import can be undone, and this one has been replaced by a newer import or already undone.')
+  const result = ingestUndo(db, {
     invertibleOps: structuredClone(rec.invertibleOps),
     createdEntityIds: structuredClone(rec.createdEntityIds),
     ownSnapshots: structuredClone(rec.ownSnapshots ?? []),
     importRunId,
     author_user_id, device_id, client_write_id,
   })
+  // Undone: there is no longer anything to undo for this run.
+  undoableRuns.get(db)?.delete(importRunId)
+  db.prepare('DELETE FROM last_import_undo WHERE id = 1 AND import_run_id = ?').run(importRunId)
+  return result
 }
 
 // Deterministic per-row client_write_id for one entry of an ingestUndo call,

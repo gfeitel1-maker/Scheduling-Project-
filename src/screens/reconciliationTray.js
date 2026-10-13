@@ -200,7 +200,8 @@ export function commitTrayState({ notices = [], undoCapable = false, undoState =
         receipt: null,
       }
     }
-    const note = secondsLeft != null ? `${secondsLeft}s left` : 'for the next few minutes'
+    // The button here expires; the undo does not — Roots keeps it until the next import (director test).
+    const note = secondsLeft != null ? `${secondsLeft}s left here, then on Roots` : 'here, or later from Roots'
     return {
       hint: importedHint,
       primary,

@@ -26,6 +26,7 @@ export const PURGE_WIPED_TABLES = [
   'import_decisions',
   'open_reconciliation_decisions',
   'device_health_events',
+  'last_import_undo',
   'projection_failures',
   'source_aliases',
   'compound_cell_decisions',

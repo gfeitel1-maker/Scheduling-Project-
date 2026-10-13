@@ -35,7 +35,7 @@
 //      WHOLE-DEVICE rebuild. It reprojects ONLY the modeled, document-replicated entities — every
 //      non-modeled, host-only table on this device (PURGE_WIPED_TABLES in purgeCollateral.js:
 //      conflicts, import_evidence, import_decisions, open_reconciliation_decisions,
-//      device_health_events, projection_failures, source_aliases,
+//      device_health_events, last_import_undo, projection_failures, source_aliases,
 //      compound_cell_decisions, location_word_decisions, declined_two_row_splits,
 //      fixed_event_identity_gaps (T267 — the fixed-event backfill's unresolved-name worklist), plus
 //      the camps.signing_secret column) is wiped along with it, camp-wide, not just for the purged

@@ -429,6 +429,21 @@ CREATE TABLE IF NOT EXISTS device_health_events (
 CREATE INDEX IF NOT EXISTS idx_device_health_events_unresolved
   ON device_health_events(kind, occurred_at) WHERE resolved_at IS NULL;
 
+-- last_import_undo (v97, director test 2026-10-12) — the undo record of the LAST import on this device,
+-- so "Undo last import" survives a restart and stays on Roots until the next import replaces it. One row
+-- (id = 1). Device-local, never replicated, no PROJECTIONS entry: the record names what THIS device's
+-- import wrote (invertibleOps, created rows with their field-seq snapshots, its own saved versions) and
+-- undo re-checks every row against the op log before touching it, so a late undo keeps anything edited
+-- since. Held in this (encrypted) database rather than a file next to it: the record carries camp
+-- field values. Cleared by a successful undo; replaced by the next import.
+CREATE TABLE IF NOT EXISTS last_import_undo (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  import_run_id TEXT NOT NULL,
+  file_name TEXT,
+  committed_at TEXT NOT NULL,
+  record TEXT NOT NULL
+);
+
 -- op_id has NO foreign key to operations(id) (2026-09-17 addendum below): a
 -- store='document-replay' failure (a document-native row that cannot be
 -- projected during full-document replay, electron/automerge/projector.js) has

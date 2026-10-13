@@ -538,7 +538,7 @@ device's entire SQLite file and reprojects only the entities the Automerge docum
 Every table this device keeps that is **not** document-replicated is wiped **camp-wide** in the
 same stroke — confirmed against the schema, this is `conflicts`, `import_evidence`,
 `import_decisions`, `open_reconciliation_decisions`,
-`device_health_events`, `projection_failures`, `source_aliases`, `compound_cell_decisions`,
+`device_health_events`, `last_import_undo`, `projection_failures`, `source_aliases`, `compound_cell_decisions`,
 `location_word_decisions`, `declined_two_row_splits`, and `fixed_event_identity_gaps` (T267 — the
 fixed-event backfill's unresolved-name worklist) — plus `camps.signing_secret` (the retired
 legacy HMAC field, never read, whose loss is inert). (`schedule_snapshots` and every other

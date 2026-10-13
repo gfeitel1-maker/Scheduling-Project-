@@ -99,13 +99,13 @@ describe('commitTrayState', () => {
     expect(tray.hint.toLowerCase()).not.toMatch(/always/)
   })
 
-  it('says "for the next few minutes" with more than 60s left', () => {
+  it('says the undo is here, or later from Roots, with more than 60s left', () => {
     const tray = commitTrayState({
       notices: [],
       undoCapable: true,
       undoState: { status: 'live', isLive: true, isPending: false, total: 1, secondsLeft: null },
     })
-    expect(tray.secondary.note).toBe('for the next few minutes')
+    expect(tray.secondary.note).toBe('here, or later from Roots')
     expect(tray.hint).toBe('Imported 1 record from the file.')
   })
 
@@ -115,7 +115,7 @@ describe('commitTrayState', () => {
       undoCapable: true,
       undoState: { status: 'live', isLive: true, isPending: false, total: 40, secondsLeft: 42 },
     })
-    expect(tray.secondary.note).toBe('42s left')
+    expect(tray.secondary.note).toBe('42s left here, then on Roots')
   })
 
   it('shows "Undoing…" with the note hidden while an undo is in flight', () => {

@@ -120,6 +120,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   ingestCommit: (args) => ipcRenderer.invoke('shoresh:ingest-commit', args),
   ingestReconcile: (args) => ipcRenderer.invoke('shoresh:ingest-reconcile', args),
   ingestUndo: (args) => ipcRenderer.invoke('shoresh:ingest-undo', args),
+  lastImportUndo: (args) => ipcRenderer.invoke('shoresh:last-import-undo', args),
   // S1b — confirm that an imported label means an existing entity, so the next
   // import recognizes it without re-asking (docs/adr/2026-08-09-s1b-host-local-aliases.md).
   confirmAlias: (args) => ipcRenderer.invoke('shoresh:confirm-alias', args),

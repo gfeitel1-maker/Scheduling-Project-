@@ -241,6 +241,7 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'roster_cache', column: 'peer_id', reason: 'a libp2p peer id, not a U2-deletable entity — the peer the Host bound the device to in its signed roster entry (T376)' },
   { table: 'open_reconciliation_decisions', column: 'entity_id', reason: 'polymorphic (entity_type varies), schema.sql documents "not a FK" — mirrors source_aliases.entity_id' },
   { table: 'open_reconciliation_decisions', column: 'cohort_id', reason: 'host-local journal metadata (never synced); a stale pointer after undo makes a row not match on the next import, not a corrupted live record — mirrors source_aliases.cohort_id' },
+  { table: 'last_import_undo', column: 'import_run_id', reason: 'names the commitIngest run whose undo is kept on this device, not an entity pointer — mirrors import_evidence.import_run_id' },
   { table: 'open_reconciliation_decisions', column: 'import_run_id', reason: 'groups rows from one commitIngest call, not an entity pointer — mirrors import_evidence.import_run_id' },
 
   // -- documented dead column --
