@@ -285,6 +285,25 @@ It's a warning, not a block. The **Overlapping** count at the top shows how many
 
 ![Manual Build with a small dot on cells where too many groups share one activity](img/manual-build/overlap-dot.png)
 
+### Rainy day
+
+When it rains, switch one day's outdoor activities to their rain plans in one step. This works on either schedule.
+
+**First, give outdoor activities a rain plan.** On **Activities**, open an activity marked **Outdoor activity** and pick an indoor activity under **Rain plan** ("Used on a rainy day instead of this outdoor activity"). If some outdoor activities on the schedule have none, the schedule toolbar says how many, with **Set them** to go to Activities.
+
+**Then, on the day:**
+
+1. Open **Generated Schedule** or **Manual Build**.
+2. Click **Rainy day…** in the toolbar and pick the day.
+3. Shoresh first saves the week as a version named **Before rainy** and the day (for example **Before rainy Monday**), then moves that day's outdoor activities to their rain plans.
+4. A short note says what happened: how many switched, how many were full, how many had no rain plan, and how many were longer than one block and were left as they are.
+
+**Rain plan full.** If the rain plan has no room at that time (too many groups for the activity or its place), the cell keeps its outdoor activity and shows a small mark: **Rain plan full: choose another**. Put something else there by hand.
+
+**To undo it,** click **Undo** in the note, or the toolbar's undo button, right away. Later, open **Versions** and restore **Before rainy** and the day.
+
+<!-- shot: rainy-day -->
+
 ---
 
 ## 6. Electives
@@ -529,7 +548,7 @@ Keep the host computer on, with **Add a device** open, until the new computer sh
 
 **If a device is lost or stolen, remove it from Devices right away; until you do, it can still sync.** Shoresh no longer cuts off a device on its own after a day, so removing it is the only way to stop it.
 
-**Removing a device** works the same way: remove it from any computer that was made an admin (it does not have to be the host): open Settings gear, **LAN & Devices**, and press **Revoke** on the device's row. Every computer that hears about the removal stops syncing with it. A computer that has not heard yet, because it has been off or out of range, keeps syncing with the removed one until it does. Removed devices cannot be added back. To use the same computer again, erase Shoresh's data on it (or reinstall Shoresh) so it gets a new identity, then add it as a new device.
+**Removing a device** works the same way: remove it from any computer that was made an admin (it does not have to be the host): open Settings gear, **Devices**, and press **Revoke** on the device's row. Every computer that hears about the removal stops syncing with it. A computer that has not heard yet, because it has been off or out of range, keeps syncing with the removed one until it does. Removed devices cannot be added back. To use the same computer again, erase Shoresh's data on it (or reinstall Shoresh) so it gets a new identity, then add it as a new device.
 
 ### Moving hosting to another computer
 

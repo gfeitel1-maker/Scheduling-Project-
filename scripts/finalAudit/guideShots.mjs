@@ -49,6 +49,7 @@ const ALT = {
   'pair-again/code-screen': 'The Pair again screen, asking for the camp code',
   'devices/router-flag': 'Devices, with the router line under the title: Devices on this Wi-Fi connect normally',
   'electives/camper-import-preview': 'A camper preference sheet being read: its columns matched to Camper name, Camper ID, Division and each Rank',
+  'rainy-day': 'Rainy day… open on the schedule toolbar with the week\'s days to pick from, and the note after a rainy day saying how many switched to rain plans, with Undo',
 }
 
 // Every shot the guide asks for: placeholders (<!-- shot: x --> or [shot: x]) and images it already links.

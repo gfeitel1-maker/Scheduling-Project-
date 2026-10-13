@@ -39,7 +39,7 @@ syncs directly between them.
 - **Export.** Excel and JSON exports of the schedule. Shoresh also keeps a plain
   workbook of the camp's data in `Documents/Shoresh` that anyone can open.
 - **Several devices, one camp.** Add a device by typing the camp code an admin
-  shows under **LAN & Devices** → Add a device. Edits made on different devices merge.
+  shows under **Devices** → Add a device. Edits made on different devices merge.
   When two people change the same thing, Shoresh shows both versions and asks
   you to choose.
 - **Your data stays protected.** The database on each device is encrypted by
