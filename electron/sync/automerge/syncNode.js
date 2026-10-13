@@ -9,7 +9,8 @@
 // heads advanced, projectAll into SQLite and re-broadcast to every OTHER
 // connected peer (mirrors test-cr4-live.mjs's except-self broadcast, which is
 // what lets a 3+ peer LAN mesh converge without a full connection graph).
-import { isRemovalRefusal, isRemovedFromCamp, markRemovedFromCamp } from './selfRemoval.js'
+import { isRemovedFromCamp, markRemovedFromCamp } from './selfRemoval.js'
+import { collectRevocationEvidence, verifiedEvidenceWrites, isRevokedByOwnAuthority, REVOCATION_REFUSAL_REASONS } from './removalEvidence.js'
 import * as A from '@automerge/automerge'
 import { createJoinTagAdvertiser } from './joinTagDiscovery.js'
 import { startTransport } from './transport.js'
@@ -580,7 +581,10 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
       // Authenticate back, so the admission is mutual without waiting on a re-discovery.
       mutualAuth?.reciprocate(String(fromPeerId))
     }
-    return result.ok ? { ok: true } : { ok: false, reason: result.reason }
+    if (result.ok) return { ok: true }
+    // A revocation refusal carries the signed revoke entries so the refused device can verify it for itself.
+    const evidence = REVOCATION_REFUSAL_REASONS.has(result.reason) ? collectRevocationEvidence(getCurrentDoc(db), msg.device_id) : []
+    return { ok: false, reason: result.reason, ...(evidence.length ? { evidence } : {}) }
   }
 
   // Stage 5d-2b (ADR §1's "first pairing" flow). `onPairingRequest` is injected by
@@ -889,16 +893,25 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   }).catch((err) => {
     console.error(`syncNode: redialTrustedPeers failed (non-fatal, discovery still proceeds): ${err?.message ?? err}`)
   })
-  // A refusal that says THIS device was removed is recorded durably (selfRemoval.js) before the
-  // caller hears about it, so it holds even when the caller's own handling fails. Any other refusal
-  // reason, and every transport error (those never reach onRejected), leaves the state alone.
-  function handleAuthRejected(peerId, reply) {
-    if (isRemovalRefusal(reply)) {
-      if (!markRemovedFromCamp(db, { peerId, reason: reply.reason })) {
-        console.error(`syncNode: peer ${peerId} says this device was removed from the camp, but recording that failed`)
+  // A peer's refusal is never a verdict by itself (selfRemoval.js): this device is removed only when ITS OWN authority
+  // state says so. A revocation refusal's signed evidence is verified and merged first (removalEvidence.js), then
+  // authority_cache is re-read; the removal is recorded durably before the caller hears about it.
+  async function handleAuthRejected(peerId, reply) {
+    if (REVOCATION_REFUSAL_REASONS.has(reply?.reason) && reply.evidence !== undefined) {
+      try {
+        const doc = getCurrentDoc(db)
+        const writes = verifiedEvidenceWrites(doc, deviceId, reply.evidence)
+        if (writes.length) await applyLocalDoc(writes.reduce((d, w) => applyWrite(d, w), doc), 'camp_authority_log')
+      } catch (err) {
+        console.error(`syncNode: could not adopt revocation evidence from ${peerId}: ${err?.message ?? err}`)
       }
     }
-    onAuthRejected?.(peerId, reply)
+    let removed = false
+    if (isRevokedByOwnAuthority(db, deviceId)) {
+      removed = markRemovedFromCamp(db, { peerId, reason: reply?.reason })
+      if (!removed) console.error(`syncNode: this device's own authority state says it was removed, but recording that failed`)
+    }
+    onAuthRejected?.(peerId, reply, { removed })
   }
   // `onlyEntity` scopes the projection to one entity: projectAll delete-reconciles every table, which would drop
   // SQLite rows the document does not hold. A roster write must touch roster state only.
