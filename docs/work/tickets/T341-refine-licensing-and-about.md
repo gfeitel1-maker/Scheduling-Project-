@@ -2,7 +2,7 @@
 ticket: T341
 document_type: ticket
 title: "Refine licensing + About (owner's personal content + user-agreement polish)"
-status: in-progress
+status: completed
 created: 2026-10-03
 archive_when: "the owner's personal About content is in the About & Legal surface, and the user-agreement polish decisions (voice, accept-gate vs view-only, camper-data line, any legal review) are made and reflected"
 task_class: ui-ux-design
@@ -55,4 +55,8 @@ how-to/user guide** — i.e. the end of the owner's current plan. Do not pick it
 - Legal review: none before v1.
 - Version: the About screen and the sidebar footer both read it from `package.json` through `src/appVersion.js`.
 
-Still open: the owner's personal About paragraph, in his own words. The placeholder stays until he sends it.
+Done 2026-10-13: the owner's About text ("About Shoresh") is in the About section, verbatim, replacing the placeholder.
+It lives in `src/screens/aboutShoreshText.js`, generated line for line from his document (title, italic subtitle,
+six section headings, paragraphs, and the closing credit in a muted block), and `src/screens/AboutScreen.test.jsx`
+pins its first, middle and last lines and asserts every line renders in order. The version, user agreement, license
+and attributions are unchanged.

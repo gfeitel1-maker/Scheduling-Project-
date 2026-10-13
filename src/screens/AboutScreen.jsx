@@ -1,10 +1,11 @@
 import { useEnterTransition } from '../styles/shared'
 import { APP_VERSION } from '../appVersion'
+import { ABOUT_TITLE, ABOUT_SUBTITLE, ABOUT_BLOCKS, ABOUT_CREDIT } from './aboutShoreshText.js'
 
 // About & Legal — one co-located surface reached from the sidebar footer,
 // holding everything a director might want to look up but never has to act on:
-// a short About note, the app version, the user agreement, the open-source
-// license, and a pointer to the bundled third-party attributions.
+// the owner's About text (T341, verbatim, in aboutShoreshText.js), the app version, the user agreement,
+// the open-source license, and a pointer to the bundled third-party attributions.
 //
 // Deliberately VIEW-ONLY (owner ruling 2026-10-02: ship minimal + done). There
 // is no first-run "I understand" gate and no stored acceptance state — the
@@ -83,10 +84,16 @@ export default function AboutScreen() {
     <div style={{ ...styles.page, ...enter }}>
       <h1 style={styles.title}>About &amp; Legal</h1>
 
-      {/* About — neutral placeholder. The owner's personal note ("something of
-          me") is added in the follow-up ticket; nothing is invented here. */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>About</h2>
+      {/* The owner's About text (T341), verbatim. Each line is its own heading or paragraph. */}
+      <section style={{ ...styles.section, ...styles.essay }} data-testid="about-shoresh">
+        <h2 style={styles.essayTitle}>{ABOUT_TITLE}</h2>
+        <p style={styles.essaySubtitle}>{ABOUT_SUBTITLE}</p>
+        {ABOUT_BLOCKS.map((block, i) => (block.type === 'heading'
+          ? <h3 key={i} style={styles.essayHeading}>{block.text}</h3>
+          : <p key={i} style={styles.essayBody}>{block.text}</p>))}
+        <div style={styles.essayCredit}>
+          {ABOUT_CREDIT.map((line, i) => <p key={i} style={styles.essayCreditLine}>{line}</p>)}
+        </div>
         <p style={styles.meta}>Version {APP_VERSION}</p>
       </section>
 
@@ -156,6 +163,48 @@ const styles = {
     fontWeight: 600,
     color: 'var(--text)',
     marginBottom: 2,
+  },
+  // The About text reads as prose: a comfortable measure (~640px) and line height.
+  essay: {
+    maxWidth: 640,
+  },
+  essayTitle: {
+    fontSize: 18,
+    fontWeight: 700,
+    color: 'var(--text)',
+    margin: '0 0 6px',
+  },
+  essaySubtitle: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    lineHeight: 1.6,
+    color: 'var(--text-secondary)',
+    margin: '0 0 18px',
+  },
+  essayHeading: {
+    fontSize: 15,
+    fontWeight: 700,
+    lineHeight: 1.4,
+    color: 'var(--text)',
+    margin: '26px 0 10px',
+  },
+  essayBody: {
+    fontSize: 14,
+    lineHeight: 1.7,
+    color: 'var(--text)',
+    margin: '0 0 12px',
+  },
+  essayCredit: {
+    marginTop: 28,
+    paddingTop: 14,
+    borderTop: '1px solid var(--border)',
+  },
+  essayCreditLine: {
+    fontSize: 12,
+    lineHeight: 1.6,
+    color: 'var(--text-secondary)',
+    fontStyle: 'italic',
+    margin: '0 0 8px',
   },
   licenseText: {
     marginTop: 10,
