@@ -30,7 +30,7 @@ export function openDecisionsToModel(rows) {
   for (const row of rows ?? []) {
     if (!row || !row.id) continue
 
-    decisionsById.set(row.id, { reason: row.reason ?? null })
+    decisionsById.set(row.id, { reason: row.reason ?? null, canAddForAllGroups: row.can_add_for_all_groups === 1 || row.can_add_for_all_groups === true })
 
     const domainKey = row.domain_key ?? 'General'
     const childKey = row.child_key ?? 'General'

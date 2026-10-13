@@ -41,7 +41,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 96
+export const CURRENT_SCHEMA_VERSION = 97
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4435,6 +4435,20 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // `< 96` (this repo's standing gotcha).
   if (getSchemaVersion(db) >= 95 && getSchemaVersion(db) < 96) {
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (96, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v97 (UX audit A1) — open_reconciliation_decisions.payload, the held-back event a fixed-event question
+  // is about, so Roots can offer "Add for all groups". Appended LAST (schema.sql declares it last too).
+  // No backfill: fresh camps only; an older question has no payload and is answered by dismissing it.
+  // Guard `>= 96 && < 97`, never a bare `< 97`.
+  if (getSchemaVersion(db) >= 96 && getSchemaVersion(db) < 97) {
+    const cols = db.prepare('PRAGMA table_info(open_reconciliation_decisions)').all().map((c) => c.name)
+    if (cols.length > 0 && !cols.includes('payload')) {
+      db.exec('ALTER TABLE open_reconciliation_decisions ADD COLUMN payload TEXT')
+    }
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (97, ?)').run(
       new Date().toISOString()
     )
   }

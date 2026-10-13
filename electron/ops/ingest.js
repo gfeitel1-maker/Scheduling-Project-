@@ -783,7 +783,7 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
  * that DOES hold returns the normal `{ held: true, conflicts, ... }` shape,
  * with none of these three fields present — same as a real held commit.
  */
-export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents, shortBlockPrints, activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], specialDay = null, wholeCampDays = [], divisionSupport = {}, openDecisions = [] }) {
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents, shortBlockPrints, activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], specialDay = null, wholeCampDays = [], divisionSupport = {}, openDecisions = [], keepOpenDecisions = false }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -833,7 +833,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
   const import_run_id = randomUUID()
   const committed_at = new Date().toISOString()
 
-  const outcome = commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions, import_run_id, committed_at, dryRun, captureInverse, heldBack: openDecisions })
+  const outcome = commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions, import_run_id, committed_at, dryRun, captureInverse, heldBack: openDecisions, keepOpenDecisions })
 
   // D1: these run strictly AFTER commitPlan returns — the dry-run transaction
   // has already rolled back by this point. Computing them earlier, inside the
@@ -902,7 +902,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
  * @param {import('../../src/ingest/buildPlan.js').ReconciliationPlan} plan
  * @param {{ author_user_id: string|null, device_id: string, import_run_id?: string, committed_at?: string, dryRun?: boolean }} actor
  */
-export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [], import_run_id = null, committed_at = null, dryRun = false, captureInverse = false, heldBack = [] }) {
+export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [], import_run_id = null, committed_at = null, dryRun = false, captureInverse = false, heldBack = [], keepOpenDecisions = false }) {
   // B4: a direct commitPlan caller (tests, or any future caller that skips
   // commitIngest) still gets evidence rows minted with a run id/timestamp of
   // their own, rather than writing NOT NULL columns as null.
@@ -3194,7 +3194,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // (rolled back together with everything else on HELD/dryRun/any throw),
     // scoped to every entity_type this plan touched so an untouched type's
     // open rows are never amnestied (§4c).
-    {
+    // A commit made to answer one open question (addHeldEventForAllGroups.js) looked at no other
+    // question, so it leaves the store alone; the caller removes the one it answered.
+    if (!keepOpenDecisions) {
       const openReport = buildReconciliationReport({ planItems: plan.items })
       // Held/identity conflicts (kind:'resolve_conflict') never reach this
       // write step: any op:'conflict' item in the plan trips the

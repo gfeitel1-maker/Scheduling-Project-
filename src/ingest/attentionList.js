@@ -23,6 +23,20 @@ function reconciliationRows(model, decisionsById) {
       for (const entry of child.roster ?? []) {
         if (entry.state !== 'attention' && entry.state !== 'changed') continue
         const decision = entry.decisionId ? decisionsById.get(entry.decisionId) : null
+        // A recurring event only some groups had (UX audit A1): asked as the question it is, with the
+        // answer on the row. No area tag: the question already says what it is about.
+        if (decision?.canAddForAllGroups) {
+          rows.push({
+            id: entry.decisionId,
+            name: entry.name,
+            why: `${entry.name} was in your file for only some groups or days. Add it for every group?`,
+            domainTag: null,
+            childTag: child.key,
+            sourceKind: 'reconciliation',
+            addForAllGroups: true,
+          })
+          continue
+        }
         rows.push({
           id: entry.decisionId ?? `${child.key}:${entry.entityId ?? entry.name}`,
           name: entry.name,

@@ -77,7 +77,7 @@ export function isDecisionResolved(decision, answer) {
 // different days/time-blocks are held/written independently. Mirrors
 // ImportScreen.jsx's (now-removed) fixedEventKey and reconciliationReport.js's
 // fixedEventDecisionId discriminator.
-function fixedEventMatchKey(name, timeBlock, days) {
+export function fixedEventMatchKey(name, timeBlock, days) {
   return `${name ?? ''}|${timeBlock ?? ''}|${(Array.isArray(days) ? days : []).join(',')}`
 }
 

@@ -36,6 +36,7 @@ import { tierForField } from '../src/utils/ruleProvenance.js'
 import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from './ops/deleteRecord.js'
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
 import { listOpenReconciliationDecisions, dismissOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
+import { addHeldEventForAllGroups } from './ops/addHeldEventForAllGroups.js'
 import { commitIngest, undoImportRun, recordRunVersion, recordRunCreated, listImportEvidence, listCompoundCellDecisions, listActivityAliases } from './ops/ingest.js'
 import { materializeImportedVersion, cleanSourceFileName } from './ops/materializeImportedVersion.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
@@ -2365,6 +2366,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // Dismiss = a plain DELETE ... WHERE id = ? (§4b) — a LOCAL WRITE, never
   // an op, never routed to the Host or broadcast, same posture as
   // dismissMigrationReviewsHandler. Any admin on a trusted device (T351), like the list handler.
+  // UX audit A1 — "Add for all groups" on a held-back event question. It is an import of its own
+  // (commitIngest with captureInverse), so it takes the import's gate and the import's undo.
+  function addHeldEventForAllGroupsHandler({ token, decisionId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const session = requireAuthorized(db, { token, action: 'groups.import' })
+    if (!isNonEmptyString(decisionId)) throw new Error('decisionId is required')
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) throw new Error('no camp on this device')
+    const outcome = addHeldEventForAllGroups(db, { campId: camp.id, decisionId, author_user_id: session.userId, device_id: deviceId })
+    return { importRunId: outcome.importRunId, created: outcome.fixedEvents?.created ?? 0 }
+  }
+
   function dismissOpenReconciliationDecisionsHandler({ token, ids } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'open_reconciliation_decisions.dismiss' })
@@ -3291,6 +3304,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     dismissMigrationReviews: dismissMigrationReviewsHandler,
     listOpenReconciliationDecisions: listOpenReconciliationDecisionsHandler,
     dismissOpenReconciliationDecisions: dismissOpenReconciliationDecisionsHandler,
+    addHeldEventForAllGroups: addHeldEventForAllGroupsHandler,
     duplicateWeek: duplicateWeekHandler,
     deleteWeek: deleteWeekHandler,
     disableAtRestEncryption: disableAtRestEncryptionHandler,
@@ -3608,6 +3622,7 @@ if (isElectronEntryPoint()) {
     'shoresh:ingest-commit',
     'shoresh:ingest-reconcile',
     'shoresh:ingest-undo',
+    'shoresh:add-held-event-for-all-groups',
     'shoresh:confirm-alias',
     'shoresh:record-declined-split',
     'shoresh:list-declined-split-names',
@@ -3700,6 +3715,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
     ipcMain.handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))
     ipcMain.handle('shoresh:ingest-undo', (_event, args) => handlers.ingestUndo(args))
+    ipcMain.handle('shoresh:add-held-event-for-all-groups', (_event, args) => handlers.addHeldEventForAllGroups(args))
     ipcMain.handle('shoresh:confirm-alias', (_event, args) => handlers.confirmAlias(args))
     ipcMain.handle('shoresh:record-declined-split', (_event, args) => handlers.recordDeclinedSplit(args))
     ipcMain.handle('shoresh:record-import-decisions', (_event, args) => handlers.recordImportDecisions(args))

@@ -66,9 +66,9 @@ describe('openDecisionsToModel', () => {
     expect(labels).toEqual(['Scheduling', 'Structure'])
   })
 
-  it('builds decisionsById keyed by row id, carrying only { reason }', () => {
+  it('builds decisionsById keyed by row id, carrying { reason, canAddForAllGroups }', () => {
     const { decisionsById } = openDecisionsToModel([row({ id: 'groups:g1', reason: 'Not enough info' })])
-    expect(decisionsById.get('groups:g1')).toEqual({ reason: 'Not enough info' })
+    expect(decisionsById.get('groups:g1')).toEqual({ reason: 'Not enough info', canAddForAllGroups: false })
     expect(decisionsById.get('nope')).toBeUndefined()
   })
 

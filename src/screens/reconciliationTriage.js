@@ -5,7 +5,8 @@
 // docs/adr/2026-08-17-onescreen-reconciliation-projection.md — Seam 3
 // (staged-tray-as-dry-run) and Seam 5 (what replaces HeldResolution).
 
-import { applyResolutions } from './reconciliationResolutions.js'
+import { applyResolutions, fixedEventMatchKey } from './reconciliationResolutions.js'
+import { eventKeptWhenUnanswered } from '../ingest/eventKeptWhenUnanswered.js'
 import { normalizeName } from '../ingest/preview.js'
 import { markElectivePlacements } from '../ingest/capturePlacements.js'
 import { listSetName, listKey, uniqueChoices } from '../ingest/electiveSetName.js'
@@ -379,8 +380,22 @@ export function isDecisionResolvedFor(decision, answers, dismissedGaps = new Set
 // The questions the director left open. applyResolutions holds an unanswered
 // confirm_value out of the commit, so commitPlan never sees it; these ride
 // along so "kept for later" is a record on the camp, not just a label.
-export function heldBackDecisions(decisions, answers) {
+// A fixed-event question also carries the event it holds back (from the file's `fixedEvents`), so
+// Roots can add it for every group later (A1). Every such question comes from an entry in that list;
+// one with no match is a broken input, not an old question to tolerate.
+export function heldBackDecisions(decisions, answers, fixedEvents = []) {
+  // The file's events, plus any an answered "this is a fixed event" card adds (foldTriageInputs).
+  const all = [...(fixedEvents ?? []), ...decisions.flatMap((d) => d.candidateEvents ?? [])]
+  const byKey = new Map(all.map((fe) => [fixedEventMatchKey(fe.name, fe.time_block, fe.days), fe]))
   return decisions
     .filter((d) => d.kind === 'confirm_value' && !isDecisionResolvedFor(d, answers))
-    .map(({ id, kind, entity, entityId, entityName, reason, title }) => ({ id, kind, entity, entityId: entityId ?? null, entityName: entityName ?? null, reason: reason ?? title ?? null }))
+    .map(({ id, kind, entity, entityId, entityName, reason, title, timeBlock, days }) => {
+      const out = { id, kind, entity, entityId: entityId ?? null, entityName: entityName ?? null, reason: reason ?? title ?? null }
+      if (entity !== 'fixed_events') return out
+      const fixedEvent = byKey.get(fixedEventMatchKey(entityName, timeBlock, days))
+      if (!fixedEvent) throw new Error(`heldBackDecisions: the held-back event ${entityName} is not in this import`)
+      // An event an unanswered question does not hold back still imports, so there is nothing to add later.
+      if (eventKeptWhenUnanswered(fixedEvent)) return out
+      return { ...out, fixedEvent }
+    })
 }

@@ -29,7 +29,8 @@ export function listOpenReconciliationDecisions(db, campId) {
   const rows = db
     .prepare(
       `SELECT id, camp_id, entity_type, cohort_id, entity_id, identity_key, kind,
-              domain_key, child_key, entity_name, reason, import_run_id, created_at
+              domain_key, child_key, entity_name, reason, import_run_id, created_at,
+              (entity_type = 'fixed_events' AND payload IS NOT NULL) AS can_add_for_all_groups
          FROM open_reconciliation_decisions WHERE camp_id = ? ORDER BY created_at ASC`
     )
     .all(campId)
@@ -43,6 +44,18 @@ export function listOpenReconciliationDecisions(db, campId) {
       .map((a) => normalizeName(a.name))
   )
   return rows.filter((r) => !(r.id.startsWith('activities:null:create:') && r.kind === 'confirm_value' && pinned.has(normalizeName(r.entity_name ?? ''))))
+}
+
+// The held-back event a fixed-event question carries, or null when it carries none.
+export function readHeldEventPayload(db, campId, decisionId) {
+  if (!hasTable(db)) return { row: null, payload: null }
+  const row = db.prepare('SELECT id, entity_type, payload FROM open_reconciliation_decisions WHERE id = ? AND camp_id = ?').get(decisionId, campId)
+  if (!row || typeof row.payload !== 'string') return { row: row ?? null, payload: null }
+  try {
+    return { row, payload: JSON.parse(row.payload) }
+  } catch {
+    return { row, payload: null }
+  }
 }
 
 // Undoing an import clears the open questions that import itself persisted.
@@ -115,15 +128,15 @@ export function replaceOpenDecisionsForCommit(db, { campId, decisions, touchedEn
   const insert = db.prepare(
     `INSERT INTO open_reconciliation_decisions
        (id, camp_id, entity_type, cohort_id, entity_id, identity_key, kind, domain_key, child_key,
-        entity_name, reason, import_run_id, created_at)
+        entity_name, reason, import_run_id, created_at, payload)
      VALUES (@id, @camp_id, @entity_type, @cohort_id, @entity_id, @identity_key, @kind, @domain_key, @child_key,
-             @entity_name, @reason, @import_run_id, @created_at)
+             @entity_name, @reason, @import_run_id, @created_at, @payload)
      ON CONFLICT(id) DO UPDATE SET
        cohort_id = excluded.cohort_id, entity_id = excluded.entity_id,
        identity_key = excluded.identity_key, kind = excluded.kind,
        domain_key = excluded.domain_key, child_key = excluded.child_key,
        entity_name = excluded.entity_name, reason = excluded.reason,
-       import_run_id = excluded.import_run_id, created_at = excluded.created_at`
+       import_run_id = excluded.import_run_id, created_at = excluded.created_at, payload = excluded.payload`
   )
 
   for (const [entityType, typeDecisions] of byType) {
@@ -148,6 +161,11 @@ export function replaceOpenDecisionsForCommit(db, { campId, decisions, touchedEn
         reason: d.reason ?? null,
         import_run_id: importRunId,
         created_at: createdAt,
+        // A held-back event question keeps the event itself, and the Program its time block belongs to,
+        // so Roots can add it for every group later (addHeldEventForAllGroups.js).
+        payload: entityType === 'fixed_events' && d.fixedEvent && typeof d.fixedEvent === 'object'
+          ? JSON.stringify({ fixedEvent: d.fixedEvent, cohortId: cohortId ?? null })
+          : null,
       })
     }
   }

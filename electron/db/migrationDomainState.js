@@ -351,6 +351,9 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // v96 (T376) creates roster_cache, an empty device-local cache re-derived from the signed device_roster
   // document collection. Schema-only: no appendOp, no backfill, never modeled into the document.
   96,
+  // v97 (UX audit A1) adds open_reconciliation_decisions.payload, NULL on every existing row, on a
+  // device-local table. Schema-only: no appendOp, no backfill.
+  97,
 ])
 
 /** True if applying `version` can change what the camp means. */
