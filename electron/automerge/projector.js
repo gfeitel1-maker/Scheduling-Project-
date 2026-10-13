@@ -32,7 +32,7 @@ import { verifyAuthFields } from '../auth/authSignature.js'
 import { verifyTombstone } from './tombstoneSignature.js'
 import { verifyRosterEntry } from './deviceRosterSignature.js'
 import * as Automerge from '@automerge/automerge'
-import { createAuthorityReplayContext, createVerifiedEntryTrust, isCompleteEntry, AUTHORITY_LOG_ENTITY } from './authorityReplay.js'
+import { createAuthorityReplayContext, createVerifiedEntryTrust, currentRevokedDeviceIds, isCompleteEntry, AUTHORITY_LOG_ENTITY } from './authorityReplay.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { answerPayloadTombstoned, sweepTombstonedAnswerRecords } from '../ops/answerMemory.js'
 import { PROJECTIONS } from '../ops/projections.js'
@@ -415,13 +415,20 @@ function upsertCampAuthorityLogEntity(db, doc) {
   const insertLog = db.prepare(
     'INSERT INTO applied_authority_log (entry_id, kind, target_device_id, signer_device_id, verified_at) VALUES (?, ?, ?, ?, ?)'
   )
-  const everyTargetDeviceId = new Set(grantedSet)
+  // A target gets a status only from an entry that is signed AND whose signer was an admin at the entry's causal position
+  // (currentRevokedDeviceIds' rule, shared with the refusal-evidence gate). An unsigned or non-admin entry naming a device must
+  // write nothing for it: authority_cache 'revoked' is what lets a bare peer refusal mark this device removed.
+  const everyTargetDeviceId = new Set([...grantedSet, ...currentRevokedDeviceIds(Automerge, doc, { isEntryTrusted })])
   for (const id of listRecordIds(doc, AUTHORITY_LOG_ENTITY)) {
     const row = readRecord(doc, AUTHORITY_LOG_ENTITY, id)
     if (!isCompleteEntry(row)) continue
     const entry = { id, ...row }
-    if (entry.target_device_id) everyTargetDeviceId.add(entry.target_device_id)
-    if (entry.kind !== 'genesis' && !isEntryTrusted(entry)) continue
+    const untrusted = entry.kind === 'genesis' ? entry.target_device_id !== ctx.founderDeviceId : !isEntryTrusted(entry)
+    if (untrusted) {
+      const safe = (v, n) => String(v).replace(/[^\w.:-]/g, '?').slice(0, n)
+      console.error(`projector: authority entry ${safe(id, 40)} (${safe(entry.kind, 20)}) ignored: ${entry.kind === 'genesis' ? 'not-the-founder-genesis' : 'signature-not-trusted'}`)
+      continue
+    }
     insertLog.run(id, entry.kind, entry.target_device_id ?? null, entry.signer_device_id ?? null, now)
   }
 

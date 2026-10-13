@@ -455,6 +455,9 @@ export function currentRevokedDeviceIds(automerge, doc, { founderDeviceId, isEnt
     const row = readRecord(doc, AUTHORITY_LOG_ENTITY, id)
     if (!isCompleteEntry(row)) continue
     const entry = { id, ...row }
+    // Genesis is unsigned, so only the one genesis that names the camp's founder counts; another genesis entry is any
+    // writer's claim and must not put its target in the revoked set.
+    if (entry.kind === 'genesis' && entry.target_device_id !== ctx.founderDeviceId) continue
     if (entry.kind !== 'genesis' && !isEntryTrusted(entry)) continue
     // A signed revoke counts only if its signer was an admin at the entry's own causal position (the same test stateAt
     // applies to votes); a signature alone proves who wrote it, not that they were entitled to.
