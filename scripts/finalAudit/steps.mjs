@@ -583,6 +583,45 @@ export async function run(h) {
     return note
   })
 
+  await step(17, 'Backup now, change something, Restore from backup…: the change is gone and the rest of the camp is intact (same device, encryption on)', async () => {
+    // Restore from backup rejected every encrypted backup as "not a Shoresh backup". The native open dialog
+    // is invisible to CDP, so the main process answers it with the backup this step just made. Runs before 13 (quits A).
+    await nav('Activities')
+    await waitFor(`return document.querySelectorAll('[aria-label^="Edit "][aria-label$=" details"]').length > 0`, 20000, 'activity rows')
+    const activityNames = () => ev(`return [...document.querySelectorAll('[aria-label^="Edit "][aria-label$=" details"]')].map(b=>b.getAttribute('aria-label').slice(5, -8)).sort()`)
+    const original = await activityNames()
+    const dbBackups = () => listBackups(UD).filter((f) => /\.db$/.test(f))
+    const backupsBefore = dbBackups()
+    await click('Backup now', true, 10000)
+    await waitFor(`return /Backup saved/.test(document.body.innerText)`, 30000, 'backup saved')
+    const fresh = dbBackups().filter((f) => !backupsBefore.includes(f))
+    if (fresh.length !== 1) throw new Error(`expected one new backup .db, saw ${JSON.stringify(fresh)}`)
+    const backupFile = path.join(UD, fresh[0])
+
+    const probe = `Restore Probe ${Date.now().toString(36)}`
+    await waitFor(`const b=[...document.querySelectorAll('button')].filter(__vis).find(b=>/^\\+?\\s*Add activity$/i.test(b.innerText.trim())); if(!b) return false; b.click(); return true`, 15000, 'Add activity')
+    await waitFor(`const i=__inp('input[placeholder$="Swim"]'); if(!i) return false; __set(i, ${JSON.stringify(probe)}); i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})); return true`, 10000, 'new activity name')
+    await waitFor(`return !!document.querySelector('[aria-label=${JSON.stringify(`Edit ${probe} details`)}]')`, 15000, 'probe activity added')
+
+    await mainEval(`(()=>{const r=process.getBuiltinModule('module').createRequire('/x.js'); const {dialog}=r('electron'); dialog.showOpenDialog=async()=>({canceled:false,filePaths:[${JSON.stringify(backupFile)}]}); return 'hooked'})()`)
+    await click('Restore from backup…', true, 10000)
+    const picked = await waitFor(`const a=document.querySelector('[role=alertdialog][aria-label="Confirm restore"]'); if(a) return 'confirm'; const m=document.querySelector('[role=alert]'); return m ? 'REFUSED: '+m.innerText : false`, 20000, 'confirm restore or a refusal')
+    if (picked !== 'confirm') throw new Error(`the encrypted backup was not accepted: ${picked}`)
+    await click('Restore', true, 10000)
+    await sleep(3000)
+    await waitFor(`return document.body.innerText.includes('Log out') || !!__inp('#login-name')`, 120000, 'app back after restore')
+    if (!(await ev(`return document.body.innerText.includes('Log out')`))) { await h.signInIfAsked(); await waitFor(`return document.body.innerText.includes('Log out')`, 30000, 'signed in') }
+
+    await nav('Activities')
+    await waitFor(`return document.querySelectorAll('[aria-label^="Edit "][aria-label$=" details"]').length > 0`, 20000, 'activity rows')
+    const after = await activityNames()
+    const gone = !after.includes(probe)
+    const intact = JSON.stringify(after) === JSON.stringify(original)
+    const note = `restored from ${fresh[0]}; "${probe}" ${gone ? 'gone' : 'STILL THERE'}; ${after.length} of ${original.length} original activities ${intact ? 'back unchanged' : 'DIFFER'}`
+    if (!gone || !intact) throw new Error(note)
+    return note
+  })
+
   // Like featureIn, for work that has a branch but no PR number yet: in the build iff a MERGED PR from
   // that branch has its merge commit in the build. --force=<step> runs the step anyway (to check the
   // harness against a build without the feature, where the step is expected to FAIL).
