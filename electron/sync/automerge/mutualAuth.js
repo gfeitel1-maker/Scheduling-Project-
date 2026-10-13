@@ -100,7 +100,7 @@ const DISCOVERY_EMIT_STATE_MAX_SIZE = 500
 // that never purges a camper) gets an empty self-report rather than a crash. syncNode.js is the
 // one production caller that supplies a real one, reading the `tombstones` table. Read fresh on
 // every dial/authenticate attempt, same discipline as getSchemaVersion.
-export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter(), getSchemaVersion = () => CURRENT_SCHEMA_VERSION, getAppliedTombstones = () => [], getRosterEntry = () => null, isSelfRemoved = () => false, reauthAfterDisconnectMs = 1_000 } = {}) {
+export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter(), getSchemaVersion = () => CURRENT_SCHEMA_VERSION, getAppliedTombstones = () => [], getRosterEntry = () => null, getHeads = () => [], isSelfRemoved = () => false, reauthAfterDisconnectMs = 1_000 } = {}) {
   if (typeof isPeerTrusted !== 'function') {
     throw new TypeError(
       'wireMutualAuth requires an isPeerTrusted(peerId) predicate: this seam decides who receives ' +
@@ -188,7 +188,8 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onReje
 
   const rosterEntryField = () => {
     const roster_entry = getRosterEntry()
-    return roster_entry ? { roster_entry } : {}
+    const heads = getHeads()
+    return { ...(roster_entry ? { roster_entry } : {}), ...(heads.length ? { heads } : {}) }
   }
 
   async function tryAuthenticate(peerId) {

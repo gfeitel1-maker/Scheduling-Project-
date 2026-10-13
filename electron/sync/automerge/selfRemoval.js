@@ -10,10 +10,10 @@
 // (T331 revoke entries, re-derived into authority_cache) — says it is revoked. A peer's refusal of ANY kind
 // (device_not_authorized, device_not_found, device_revoked, device_revoked_by_authority) is never a verdict by
 // itself: a joining device that has no roster yet refuses the very host that is approving it, and a hostile peer can
-// claim anything. A refusal is only a reason to re-check own state, and a revocation refusal carries the signed revoke
-// entries so a genuinely removed device — refused by every peer, unable to sync — can verify and merge them first
-// (removalEvidence.js). Unsigned, forged, wrong-camp or non-admin-signed claims verify against nothing and change
-// nothing. Timeouts, dropped streams and offline peers never set this either.
+// claim anything. A refusal is only a reason to re-check own state, and a revocation refusal carries the real
+// Automerge changes that wrote the revoke entries, so a genuinely removed device — refused by every peer, unable to
+// sync — applies them like ordinary sync and derives the removal itself (removalEvidence.js). Wrong-camp, unrelated or
+// non-admin-signed changes are rejected whole and change nothing. Timeouts, dropped streams and offline peers never set this either.
 //
 // _Prior: any refusal with reason device_revoked / device_revoked_by_authority set this, on the premise that the peer
 // had first verified a valid camp token for this device. T376 removed tokens from admission, so any peer could say it._

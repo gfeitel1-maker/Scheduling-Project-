@@ -5,6 +5,7 @@
 // the real Host, except in the forgery cases, where collectRevocationEvidence is overridden to make the Host lie.
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import * as A from '@automerge/automerge'
 
 const lie = vi.hoisted(() => ({ evidence: null, reason: null, db: null }))
 vi.mock('./removalEvidence.js', async (importOriginal) => {
@@ -109,7 +110,7 @@ describe('(b) a revocation claim with no signed revocation', () => {
     const { rig, rejections } = await rigWithWatchingClientA()
     rig.host.db.prepare("UPDATE devices SET revoked_at = ?, pairing_status = 'revoked' WHERE id = ?").run(new Date().toISOString(), rig.clientA.deviceId)
     lie.reason = 'device_revoked_by_authority'
-    lie.evidence = []
+    lie.evidence = { changes: [] }
     await hostEvictsClientA(rig)
     await waitFor(() => rejections.length > 0, 8000)
     expect(isRemovedFromCamp(rig.clientA.db)).toBe(false)
@@ -117,11 +118,11 @@ describe('(b) a revocation claim with no signed revocation', () => {
   }, 60000)
 })
 
-describe('(c) forged, wrong-camp or non-admin-signed revocation evidence', () => {
-  it('is ignored: signature forged, entry re-targeted, signed by a non-admin, signed by another camp\'s admin, oversized list', async () => {
+describe('(c) forged, wrong-camp or unrelated change evidence', () => {
+  it('is ignored: garbage bytes, a foreign camp\'s changes, unrelated genuine changes, an oversized list, a non-list', async () => {
     const { rig, rejections } = await rigWithWatchingClientA()
     await genesisOnEveryone(rig)
-    const { host, clientA, clientB } = rig
+    const { host, clientA } = rig
     rig.host.db.prepare("UPDATE devices SET revoked_at = ?, pairing_status = 'revoked' WHERE id = ?").run(new Date().toISOString(), clientA.deviceId)
 
     const foreignDir = makeTmpDir(); dirs.push(foreignDir)
@@ -129,24 +130,25 @@ describe('(c) forged, wrong-camp or non-admin-signed revocation evidence', () =>
     await foreign.start()
     await foreign.bootstrap({ campName: 'Other Camp' })
 
-    const genuine = signedRevoke(host.db, host.deviceId, clientA.deviceId)
+    const b64 = (changes) => changes.map((c) => Buffer.from(c).toString('base64'))
+    const unrelated = A.getChangesSince(applyWrite(A.clone(host.node.getDoc()), { entity: 'activities', entity_id: randomUUID(), field: 'name', value: 'Smuggled' }), A.getHeads(clientA.node.getDoc()))
     const variants = {
-      forgedSignature: [{ ...genuine, signature: genuine.signature.slice(0, -4) + 'AAAA' }],
-      retargeted: [{ ...signedRevoke(host.db, host.deviceId, clientB.deviceId), target_device_id: clientA.deviceId }],
-      signedByNonAdmin: [signedRevoke(clientB.db, clientB.deviceId, clientA.deviceId)],
-      signedByForeignCampAdmin: [signedRevoke(foreign.db, foreign.deviceId, clientA.deviceId)],
-      unsigned: [{ ...genuine, signature: '' }],
-      oversized: Array.from({ length: 50 }, () => genuine),
-      notAList: { ...genuine },
+      garbage: { changes: ['AAAA', 'not-a-change'] },
+      foreignCamp: { changes: b64(A.getAllChanges(foreign.node.getDoc())) },
+      unrelatedGenuine: { changes: b64(unrelated) },
+      oversized: { changes: Array.from({ length: 3000 }, () => 'AAAA') },
+      notAList: { changes: 'AAAA' },
     }
     for (const [name, evidence] of Object.entries(variants)) {
       lie.reason = 'device_revoked_by_authority'
       lie.evidence = evidence
       const seen = rejections.length
+      const headsBefore = A.getHeads(clientA.node.getDoc())
       await hostEvictsClientA(rig)
       await waitFor(() => rejections.length > seen, 8000)
       expect(isRemovedFromCamp(clientA.db), name).toBe(false)
       expect(rejections.at(-1).info, name).toEqual({ removed: false })
+      expect(A.getHeads(clientA.node.getDoc()), name).toEqual(headsBefore)
       expect(clientA.db.prepare("SELECT 1 FROM authority_cache WHERE device_id = ? AND status = 'revoked'").get(clientA.deviceId), name).toBeUndefined()
       await settleMs(1500)
     }
@@ -172,7 +174,7 @@ describe('(d) a genuinely revoked device learns it from the refusal', () => {
     await hostEvictsClientA(rig)
     await waitFor(() => isRemovedFromCamp(clientA.db), 15000)
     expect(rejections.at(-1).reply.reason).toBe('device_revoked_by_authority')
-    expect(rejections.at(-1).reply.evidence).toHaveLength(1)
+    expect(rejections.at(-1).reply.evidence.changes.length).toBeGreaterThan(0)
     expect(rejections.at(-1).info).toEqual({ removed: true })
     expect(clientA.db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(clientA.deviceId).status).toBe('revoked')
   }, 60000)
@@ -217,15 +219,5 @@ describe('(f) a throwing renderer notification', () => {
     await settleMs(500)
     process.off('unhandledRejection', onUnhandled)
     expect(unhandled).toEqual([])
-  }, 60000)
-})
-
-describe('(g2) evidence unit', () => {
-  it('a grant claim whose signer is not an admin here is not adopted', async () => {
-    const { rig } = await rigWithWatchingClientA()
-    await genesisOnEveryone(rig)
-    const { clientA } = rig
-    const { verifiedEvidenceWrites } = await import('./removalEvidence.js')
-    expect(verifiedEvidenceWrites(clientA.node.getDoc(), clientA.deviceId, [{ id: 'x', kind: 'grant', target_device_id: 'z', signer_device_id: 'nobody', signature: 'sig' }], new Map([['z', 'p']]))).toEqual([])
   }, 60000)
 })

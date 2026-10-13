@@ -1,101 +1,157 @@
-// The evidence a refusal carries, and how the refused device checks it.
+// The evidence a refusal carries, and how the refused device uses it.
 //
 // A genuinely revoked device is refused by every peer, so ordinary sync can never deliver the revocation to it. The
-// refusal itself therefore carries the signed `camp_authority_log` revoke entries that name the refused device. The
-// refused device never takes the peer's word: it accepts an entry only if the signer is an admin in ITS OWN authority
-// state (a signer it has not heard of is proven by the signed grants shipped with the refusal, each checked the same
-// way), the signature verifies against the peer id that own state holds for the signer, and a revoke names this
-// device. Accepted entries are merged into its own document; only if its re-derived authority_cache then says
-// 'revoked' does it record the removal. Wrong-camp, forged, unsigned and non-admin-signed claims verify against
-// nothing and are dropped.
+// refusal therefore carries REAL Automerge changes from the refuser's document: the changes that wrote the revoke
+// entries naming the refused device, plus their causal ancestors the refused device does not hold (the refused device
+// names what it holds by sending its heads in its authenticate frame). Nothing is re-authored. The refused device
+// applies them through the same machinery ordinary sync uses, so authority_cache is derived by authorityReplay, which
+// judges every entry at its OWN causal position: a peer can never make an entry count that would not count via
+// ordinary sync. Only if the device's own derived state then says 'revoked' does it record the removal.
+//
+// A refusal is accepted whole or not at all: the document that results must say, by authorityReplay's own verified
+// derivation, that THIS device is revoked, and nothing may ride along except the revoke entries' causal past and the
+// field writes of the entries themselves.
+//
+// Bounded in both directions: a device missing more history than MAX_EVIDENCE_BYTES learns nothing and stays signed in
+// (the safe direction); changes that are not part of the revoke entries' own causal past are rejected whole.
 import * as A from '@automerge/automerge'
-import { AUTHORITY_LOG_ENTITY, createVerifiedEntryTrust, currentAuthorityState, currentRevokedDeviceIds, resolveAuthorityPeerIds, isCompleteEntry } from '../../automerge/authorityReplay.js'
-import { verifyAuthorityEntry } from '../../automerge/authorityLogSignature.js'
-import { applyWrite, listRecordIds, readRecord } from '../../automerge/campDocument.js'
+import { AUTHORITY_LOG_ENTITY, createVerifiedEntryTrust, currentRevokedDeviceIds, entryChangeHashIndex, isCompleteEntry } from '../../automerge/authorityReplay.js'
+import { sharesGenesis, listRecordIds, readRecord, splitRecordKey } from '../../automerge/campDocument.js'
 
-export const MAX_REVOCATION_EVIDENCE = 8
-const MAX_REVOKES = 4
-const MAX_FIELD_LENGTH = 200
+export const MAX_HEADS = 16
+export const MAX_EVIDENCE_CHANGES = 2000
+export const MAX_EVIDENCE_BYTES = 4 * 1024 * 1024
+const HASH_RE = /^[0-9a-f]{64}$/
 export const REVOCATION_REFUSAL_REASONS = new Set(['device_revoked', 'device_revoked_by_authority'])
-const ENTRY_FIELDS = ['id', 'kind', 'target_device_id', 'signer_device_id', 'signature']
 
-/**
- * Refusing side: the signed revoke entries in `doc` that name `deviceId`, plus the signed admin grants that make each
- * revoking signer an admin (so a device that never heard of that admin can still verify), bounded.
- */
-export function collectRevocationEvidence(doc, deviceId) {
-  if (!doc || typeof deviceId !== 'string' || !deviceId) return []
-  const isTrusted = createVerifiedEntryTrust(A, doc)
-  const entries = []
-  for (const id of listRecordIds(doc, AUTHORITY_LOG_ENTITY).sort()) {
-    const row = readRecord(doc, AUTHORITY_LOG_ENTITY, id)
-    if (!isCompleteEntry(row)) continue
-    const entry = { id, ...row }
-    if (entry.kind === 'genesis' || !isTrusted(entry)) continue
-    entries.push(entry)
+/** The heads this device sends so a refuser can tell which history it already holds. */
+export function ownHeadsForHandshake(doc) {
+  try { return A.getHeads(doc).slice(0, MAX_HEADS) } catch { return [] }
+}
+
+function ancestorClosure(startHashes, metaByHash) {
+  const closure = new Set()
+  const stack = [...startHashes]
+  while (stack.length) {
+    const h = stack.pop()
+    if (closure.has(h) || !metaByHash.has(h)) continue
+    closure.add(h)
+    for (const dep of metaByHash.get(h).deps) stack.push(dep)
   }
-  const pick = (entry) => Object.fromEntries(ENTRY_FIELDS.map((f) => [f, entry[f]]))
-  const out = entries.filter((e) => e.kind === 'revoke' && e.target_device_id === deviceId).slice(0, MAX_REVOKES).map(pick)
-  const wanted = new Set(out.map((e) => e.signer_device_id))
-  const seen = new Set()
-  while (wanted.size && out.length < MAX_REVOCATION_EVIDENCE) {
-    const signer = wanted.values().next().value
-    wanted.delete(signer)
-    if (seen.has(signer)) continue
-    seen.add(signer)
-    for (const grant of entries.filter((e) => e.kind === 'grant' && e.target_device_id === signer)) {
-      if (out.length >= MAX_REVOCATION_EVIDENCE) break
-      out.push(pick(grant))
-      wanted.add(grant.signer_device_id)
-    }
-  }
-  return out
+  return closure
 }
 
 /**
- * Refused side: the document writes for every claimed entry that verifies against `doc` (this device's own
- * document), resolving chains to a fixed point: a revoke naming this device must be signed by an admin, and a grant is
- * adopted only when its signer is already an admin here and it is for a device that is not already known revoked. A
- * grant's target peer id is NEVER taken from the claim (it is not covered by the signature); it comes from
- * `rosterPeerIds`, this device's own verified roster. Entries already held are skipped. Returns [] for anything
- * malformed or unverifiable.
+ * Refusing side: the real changes that wrote the (verified) revoke entries naming `deviceId`, with the ancestors the
+ * refused device lacks. `peerHeads` is whatever the refused device claimed to hold; heads this document does not know
+ * are ignored. Returns null when there is nothing to send or it would exceed the bounds.
  */
-export function verifiedEvidenceWrites(doc, deviceId, evidence, rosterPeerIds = new Map()) {
-  if (!doc || !Array.isArray(evidence) || evidence.length > MAX_REVOCATION_EVIDENCE) return []
-  const pending = evidence.filter((claim) =>
-    claim && typeof claim === 'object' &&
-    ENTRY_FIELDS.every((f) => typeof claim[f] === 'string' && claim[f].length > 0 && claim[f].length <= MAX_FIELD_LENGTH) &&
-    claim.signer_device_id !== deviceId &&
-    ((claim.kind === 'revoke' && claim.target_device_id === deviceId) || claim.kind === 'grant'))
-  const writes = []
-  let working = A.clone(doc)
-  for (let progress = true; progress && pending.length;) {
-    progress = false
-    const peerIdByDevice = resolveAuthorityPeerIds(A, working)
-    if (peerIdByDevice.size === 0) return []
-    const { admins } = currentAuthorityState(A, working)
-    const revoked = new Set(currentRevokedDeviceIds(A, working, { isEntryTrusted: createVerifiedEntryTrust(A, working) }))
-    for (const claim of [...pending]) {
-      if (!admins.has(claim.signer_device_id)) continue
-      const signerPeerId = peerIdByDevice.get(claim.signer_device_id)
-      if (!signerPeerId || !verifyAuthorityEntry(signerPeerId, claim, claim.signature)) continue
-      pending.splice(pending.indexOf(claim), 1)
-      if (readRecord(working, AUTHORITY_LOG_ENTITY, claim.id)) continue
-      const fields = Object.fromEntries(ENTRY_FIELDS.filter((f) => f !== 'id').map((f) => [f, claim[f]]))
-      if (claim.kind === 'grant') {
-        const targetPeerId = rosterPeerIds.get(claim.target_device_id)
-        if (!targetPeerId || revoked.has(claim.target_device_id)) continue
-        fields.target_peer_id = targetPeerId
-      }
-      for (const [field, value] of Object.entries(fields)) {
-        const write = { entity: AUTHORITY_LOG_ENTITY, entity_id: claim.id, field, value }
-        writes.push(write)
-        working = applyWrite(working, write)
-      }
-      progress = true
+export function collectRevocationEvidence(doc, deviceId, peerHeads) {
+  if (!doc || typeof deviceId !== 'string' || !deviceId) return null
+  try {
+    const known = (Array.isArray(peerHeads) ? peerHeads.slice(0, MAX_HEADS) : []).filter((h) => typeof h === 'string' && HASH_RE.test(h) && A.hasHeads(doc, [h]))
+    const isTrusted = createVerifiedEntryTrust(A, doc)
+    const entryChange = entryChangeHashIndex(A, doc)
+    const targets = []
+    const revokeIds = new Set()
+    for (const id of listRecordIds(doc, AUTHORITY_LOG_ENTITY)) {
+      const row = readRecord(doc, AUTHORITY_LOG_ENTITY, id)
+      if (!isCompleteEntry(row) || row.kind !== 'revoke' || row.target_device_id !== deviceId || !isTrusted({ id, ...row })) continue
+      if (entryChange.has(id)) { targets.push(entryChange.get(id)); revokeIds.add(id) }
     }
+    if (!targets.length) return null
+    const meta = A.getChangesMetaSince(doc, known)
+    const bytes = A.getChangesSince(doc, known)
+    if (meta.length !== bytes.length || meta.length > MAX_EVIDENCE_CHANGES * 8) return null
+    const metaByHash = new Map(meta.map((m) => [m.hash, m]))
+    const needed = ancestorClosure(targets, metaByHash)
+    absorbEntryFieldWrites(meta, bytes, needed, A.getObjectId(doc, AUTHORITY_LOG_ENTITY), revokeIds)
+    if (!needed.size || needed.size > MAX_EVIDENCE_CHANGES) return null
+    const changes = []
+    let total = 0
+    for (let i = 0; i < meta.length; i++) {
+      if (!needed.has(meta[i].hash)) continue
+      total += bytes[i].length
+      if (total > MAX_EVIDENCE_BYTES) return null
+      changes.push(Buffer.from(bytes[i]).toString('base64'))
+    }
+    return { changes }
+  } catch {
+    return null
   }
-  return writes
+}
+
+// True when every op in `bytes` writes a field of one of `entryIds` (or edits the text object that write created).
+function writesOnlyEntryFields(bytes, logObjId, entryIds) {
+  const decoded = A.decodeChange(bytes)
+  const created = new Set()
+  for (const [i, op] of decoded.ops.entries()) {
+    const ownField = op.obj === logObjId && typeof op.key === 'string' && entryIds.has(splitRecordKey(op.key)?.entityId)
+    if (!ownField && !created.has(op.obj)) return false
+    if (op.action.startsWith('make')) created.add(`${decoded.startOp + i}@${decoded.actor}`)
+  }
+  return true
+}
+
+// Adds to `included` (hashes) every change in `metas` that only writes fields of `entryIds` and depends on nothing but
+// included changes or changes outside `metas`: a signature lands in a change after the one that completes its entry.
+function absorbEntryFieldWrites(metas, bytes, included, logObjId, entryIds) {
+  const inSet = new Set(metas.map((m) => m.hash))
+  for (const [i, m] of metas.entries()) {
+    if (included.has(m.hash) || !m.deps.every((d) => included.has(d) || !inSet.has(d))) continue
+    if (writesOnlyEntryFields(bytes[i], logObjId, entryIds)) included.add(m.hash)
+  }
+}
+
+/**
+ * Refused side: validates a refusal's evidence against `doc` (this device's own document) WITHOUT changing it, and
+ * returns the decoded change bytes to apply, or null. Whole-or-nothing: every change must descend from this camp's
+ * document (a foreign camp's changes have a root with no dependencies, or depend on hashes we have never held); the
+ * resulting document must derive this device as revoked from signatures verified at each entry's own causal position;
+ * and nothing may ride along beyond the causal past of the revoke entries naming this device and those entries' own
+ * field writes.
+ */
+export function validateRefusalEvidence(doc, deviceId, evidence) {
+  if (!doc || !evidence || typeof evidence !== 'object' || !Array.isArray(evidence.changes)) return null
+  const { changes } = evidence
+  if (changes.length === 0 || changes.length > MAX_EVIDENCE_CHANGES) return null
+  let total = 0
+  const bytes = []
+  for (const b64 of changes) {
+    if (typeof b64 !== 'string' || b64.length > MAX_EVIDENCE_BYTES * 2) return null
+    const raw = new Uint8Array(Buffer.from(b64, 'base64'))
+    total += raw.length
+    if (raw.length === 0 || total > MAX_EVIDENCE_BYTES) return null
+    bytes.push(raw)
+  }
+  try {
+    const held = A.getHeads(doc)
+    const [next] = A.applyChanges(A.clone(doc), bytes)
+    if (A.getMissingDeps(next, []).length) return null
+    const added = A.getChangesMetaSince(next, held)
+    if (!added.length) return null
+    const addedByHash = new Map(added.map((m) => [m.hash, m]))
+    for (const m of added) {
+      if (!m.deps.length) return null
+      for (const dep of m.deps) if (!addedByHash.has(dep) && !A.hasHeads(doc, [dep])) return null
+    }
+    if (!sharesGenesis(next)) return null
+    if (!currentRevokedDeviceIds(A, next, { isEntryTrusted: createVerifiedEntryTrust(A, next) }).includes(deviceId)) return null
+    const entryChange = entryChangeHashIndex(A, next)
+    const revokeIds = new Set()
+    for (const id of listRecordIds(next, AUTHORITY_LOG_ENTITY)) {
+      const row = readRecord(next, AUTHORITY_LOG_ENTITY, id)
+      if (isCompleteEntry(row) && row.kind === 'revoke' && row.target_device_id === deviceId && entryChange.has(id)) revokeIds.add(id)
+    }
+    const allowed = ancestorClosure([...revokeIds].map((id) => entryChange.get(id)).filter((h) => addedByHash.has(h)), addedByHash)
+    const addedBytes = A.getChangesSince(next, held)
+    if (addedBytes.length !== added.length) return null
+    absorbEntryFieldWrites(added, addedBytes, allowed, A.getObjectId(next, AUTHORITY_LOG_ENTITY), revokeIds)
+    for (const m of added) if (!allowed.has(m.hash)) return null
+    return bytes
+  } catch {
+    return null
+  }
 }
 
 /** This device's OWN derived state: has the authority log it holds revoked it? */
