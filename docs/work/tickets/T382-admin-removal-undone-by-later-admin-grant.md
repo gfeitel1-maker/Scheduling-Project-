@@ -3,7 +3,7 @@ title: T382-admin-removal-undone-by-later-admin-grant
 document_type: ticket
 status: open
 created: 2026-10-13
-task_class: security
+task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-10-02-distributed-revocation-authority.md]
 archive_when: a removed admin device stays removed when a later grant raises the admin count, pinned by a test against electron/automerge/authorityReplay.js
 ---
