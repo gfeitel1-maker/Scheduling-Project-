@@ -39,7 +39,9 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Build and verify the packaged app
-        run: npm run electron:build -- ${{ matrix.builder_args }}
+        # --publish never: on CI electron-builder otherwise tries to publish a GitHub release (and fails with no
+        # token). The installer is uploaded as an artifact below instead.
+        run: npm run electron:build -- ${{ matrix.builder_args }} --publish never
       # The installer as a downloadable artifact (Windows only; the macOS job proves the bundle, not a release).
       - name: Upload the Windows installer
         if: runner.os == 'Windows'
