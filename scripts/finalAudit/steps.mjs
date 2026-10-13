@@ -39,11 +39,11 @@ export async function run(h) {
     // "Replace them" is offered only when something is already set up; on an empty camp Review is the only path.
     if (replace && await ev(`return !!__btn('○ Replace them', false)`)) { await click('○ Replace them', false, 10000); await sleep(500) }
     await waitFor(`const b=__btn('Replace with ')||__btn('Review '); if(!b||b.disabled) return false; b.click(); return true`, 15000, 'Replace with / Review button')
-    const q = await waitFor(`const m=__main().match(/(\\d+) of (\\d+) questions? answered/); return m ? m[2] : ((__btn('Use what Shoresh understood',true)||__btn('Use this setup',true))? '0':false)`, 60000, 'reconciliation')
+    const q = await waitFor(`const m=__main().match(/(\\d+) of (\\d+) questions? answered/); return m ? m[2] : ((__btn('Use what Shoresh understood',true)||__btn('Import the rest')||__btn('Add to camp')||__btn('Use this setup',true))? '0':false)`, 60000, 'reconciliation')
     // Zero answers: a card that blocks the commit ("Skip this field" / "Skip … for now") is skipped.
     const skipped = await ev(`let n=0; for(let i=0;i<200;i++){ const b=__btn('Skip this field',true)||[...document.querySelectorAll('button')].filter(__vis).find(b=>/^Skip .* for now/.test(b.innerText.trim())); if(!b) break; b.click(); n++; await new Promise(r=>setTimeout(r,60)) } return n`, 60000)
     const t0 = Date.now()
-    await waitFor(`return __click('Use what Shoresh understood', true) || __click('Use this setup', true)`, 30000, 'commit button')
+    await waitFor(`return __click('Use what Shoresh understood', true) || __click('Import the rest', false) || __click('Add to camp', false) || __click('Use this setup', true)`, 30000, 'commit button')
     const done = await waitFor(`const t=__main(); const m=t.match(/Imported (\\d+) records[^\\n]*/)||t.match(/Setup replaced and ready[^\\n]*/); return m && m[0]`, 120000, 'import result')
     return { questions: +q, skipped, ms: Date.now() - t0, done }
   }
@@ -149,7 +149,7 @@ export async function run(h) {
       if (replace) { await click('○ Replace them', false, 10000); await sleep(500) }
       await ev(`(__btn('Replace with ')||__btn('Review ')).click(); return true`)
       // As text: a count of 0 must not read as "not ready yet".
-      return Number(await waitFor(`const m=__main().match(/(\\d+) of (\\d+) questions? answered/); return m ? String(m[2]) : ((__btn('Use what Shoresh understood',true)||__btn('Use this setup',true))?'0':false)`, 60000, 'questions'))
+      return Number(await waitFor(`const m=__main().match(/(\\d+) of (\\d+) questions? answered/); return m ? String(m[2]) : ((__btn('Use what Shoresh understood',true)||__btn('Import the rest')||__btn('Add to camp')||__btn('Use this setup',true))?'0':false)`, 60000, 'questions'))
     }
     const q1 = await openReview({ replace: true })
     if (q1 < 1) throw new Error(`the question file raised ${q1} questions`)
@@ -158,7 +158,7 @@ export async function run(h) {
     const answered = await ev(`const NOT=/^(Why\\?|Show |Skip |Low is fine|Set them in|Cancel|Use |Leave as is|Dismiss|Review all|\\d+ )/; const head=[...document.querySelectorAll('h1,h2,h3,h4,div,span')].filter(__vis).find(e=>e.children.length===0&&e.innerText.trim()==='Needs your attention'); if(!head) return null; const b=[...document.querySelectorAll('button')].filter(__vis).find(b=>{const t=b.innerText.trim(); return t && t.length<40 && !NOT.test(t) && (head.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)}); if(!b) return null; b.click(); return b.innerText.trim()`)
     if (!answered) throw new Error(`no answer button; buttons: ${await ev(`return [...new Set([...document.querySelectorAll('button')].filter(__vis).map(b=>b.innerText.trim()).filter(t=>t&&t.length<40))].join(' | ')`)}`)
     await ev(`let n=0; for(let i=0;i<300;i++){ const b=__btn('Skip this field',true)||[...document.querySelectorAll('button')].filter(__vis).find(b=>/^Skip .* for now/.test(b.innerText.trim())); if(!b) break; b.click(); n++; await new Promise(r=>setTimeout(r,60)) } return n`, 60000)
-    await waitFor(`return __click('Use what Shoresh understood', true) || __click('Use this setup', true)`, 30000, 'commit')
+    await waitFor(`return __click('Use what Shoresh understood', true) || __click('Import the rest', false) || __click('Add to camp', false) || __click('Use this setup', true)`, 30000, 'commit')
     await waitFor(`return /Imported \\d+ records|Setup replaced/.test(__main())`, 120000, 'import done'); await click('Continue', true, 5000).catch(() => {})
     const q2 = await openReview()
     await click('Cancel', true, 5000).catch(() => {})

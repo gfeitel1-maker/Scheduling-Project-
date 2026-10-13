@@ -4,7 +4,7 @@ import { importedVersionLine } from './importedVersionLine'
 describe('importedVersionLine', () => {
   it('names the saved version in one plain sentence', () => {
     expect(importedVersionLine({ created: true, versionName: 'Imported from campB.txt' })).toEqual({
-      text: "Last year's schedule is saved as a version: Imported from campB.txt.",
+      text: "Last year's schedule is saved.",
       versionName: 'Imported from campB.txt',
     })
   })
@@ -22,7 +22,7 @@ describe('importedVersionLine', () => {
   it('tells the director to restore it and confirm the proposed choices when the version holds elective cells', () => {
     const line = importedVersionLine({ created: true, versionName: 'Imported from campB.txt', electiveCellCount: 6 }, 5)
     expect(line.text).toBe(
-      "Last year's schedule is saved as a version: Imported from campB.txt. Restore it to see the electives, then confirm the proposed choices in Electives before Generate will assign them."
+      "Last year's schedule is saved. Restore it to see the electives, then confirm the proposed choices in Electives before Generate will assign them."
     )
   })
 

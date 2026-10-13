@@ -58,13 +58,13 @@ async function upload(weeksProp = weeks) {
 
 async function confirm() {
   await userEvent.click(screen.getByText(/Review \d+ record/))
-  await waitFor(() => expect(screen.getByText(/Use this setup|Use what Shoresh understood|Add to camp|Apply \d+ decision/)).toBeTruthy())
+  await waitFor(() => expect(screen.getByText(/Use this setup|Use what Shoresh understood|Import the rest|Add to camp|Apply \d+ decision/)).toBeTruthy())
   let skips = screen.queryAllByText(/^Skip .* for now/)
   while (skips.length > 0) {
     await userEvent.click(skips[0])
     skips = screen.queryAllByText(/^Skip .* for now/)
   }
-  await userEvent.click(await screen.findByText(/Use this setup|Use what Shoresh understood|Add to camp|Apply \d+ decision/))
+  await userEvent.click(await screen.findByText(/Use this setup|Use what Shoresh understood|Import the rest|Add to camp|Apply \d+ decision/))
   await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
 }
 

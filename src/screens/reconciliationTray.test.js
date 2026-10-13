@@ -22,13 +22,14 @@ describe('applyTrayState', () => {
     const state = applyTrayState({ totalCount: 79, doneCount: 0, confirmedCount: 0 })
     expect(state.disabled).toBe(false)
     expect(state.mode).toBe('confirmedOnly')
-    expect(state.label).toBe('Use what Shoresh understood')
+    // Director test 2026-10-12: the label says the open questions are kept, not accepted.
+    expect(state.label).toBe('Import the rest, keep 79 for later')
     expect(state.hint).toMatch(/^79 open — kept for later$/)
   })
 
   it('on a first import, says the file is being added rather than that questions are open', () => {
     const state = applyTrayState({ totalCount: 71, doneCount: 0, confirmedCount: 0, isFirstImport: true })
-    expect(state.label).toBe('Add to camp')
+    expect(state.label).toBe('Add to camp, keep 71 for later')
     expect(state.hint).toMatch(/^71 open — kept for later$/)
   })
 

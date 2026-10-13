@@ -9,7 +9,9 @@ export function importedVersionLine(version, proposedChoiceCount = 0) {
     ? ` Restore it to see the electives, then ${next} in Electives before Generate will assign them.`
     : ''
   return {
-    text: `Last year's schedule is saved as a version: ${version.versionName}.${electiveNote}`,
+    // Director test 2026-10-12: "saved as a version: Imported from…" read as jargon. The version name
+    // stays the link target (versionName below), not the sentence.
+    text: `Last year's schedule is saved.${electiveNote}`,
     versionName: version.versionName,
   }
 }

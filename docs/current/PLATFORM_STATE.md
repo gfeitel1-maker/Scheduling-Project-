@@ -623,7 +623,8 @@ only verifiable under `electron:dev`. Pinned by
 **There is one exit from reconciliation and it is never disabled.**
 `src/screens/reconciliationTray.js` decides its label from how far the director
 got: "Use this setup" when nothing is outstanding, "Apply N decisions" when some
-are, "Use what Shoresh understood" when none have been answered. The screen
+are, and "Import the rest, keep N for later" (first import: "Add to camp, keep N for later") when none
+have been answered: an unanswered guess is held out of the import and kept as an open question. The screen
 previously ended in two buttons where the navy PRIMARY stayed locked until every
 item was resolved (79, on one real file) and the only reachable exit was the
 secondary beside it — so a director who missed that had no way forward at all.
