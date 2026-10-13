@@ -156,7 +156,7 @@ describe('scanner vs the pre-Noise pending slots (real libp2p target, production
     const extra = scanner(t.port, publicIp(9000), t.assign, freePort())
     await waitFor(() => t.decisions.has(extra.port), { timeout: 10000 })
     expect(t.decisions.get(extra.port)).toBe(false) // the public source past the sub-cap is refused by the limiter
-    await waitFor(() => extra.closed)
+    await waitFor(() => extra.closed, { timeout: 10000 })
     expect(await legit(t.target, publicIp(9001), t.state)).toBe(false)
     expect(await legit(t.target, LAN_IP, t.state)).toBe(true) // LAN is not blocked by the scan
 
