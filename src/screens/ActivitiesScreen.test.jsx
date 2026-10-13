@@ -1463,3 +1463,45 @@ describe('ActivitiesScreen — null max_per_week is no cap', () => {
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'act-1', 'max_per_week', null))
   })
 })
+
+describe('ActivitiesScreen — Rain plan field', () => {
+  beforeEach(() => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([
+        activity({ id: 'swim', name: 'Swim', is_outdoor: 1, weather_alternative_id: 'hike' }),
+        activity({ id: 'hike', name: 'Hike', is_outdoor: 1 }),
+        activity({ id: 'movie', name: 'Movie' }),
+      ])
+      return Promise.resolve([])
+    })
+  })
+
+  async function openSwim() {
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Edit Swim' }), { key: 'Enter' })
+    await waitFor(() => expect(screen.queryByText('Edit: Swim')).not.toBeNull())
+  }
+
+  it('is labelled "Rain plan" and offers only indoor activities, never itself', async () => {
+    await openSwim()
+    const select = screen.getByLabelText('Rain plan')
+    expect(within(select).getAllByRole('option').filter(o => !o.disabled).map(o => o.textContent)).toEqual(['— None —', 'Movie'])
+    expect(screen.queryByText(/Weather alternative/)).toBeNull()
+  })
+
+  it('shows a stored outdoor rain plan as a disabled "choose another" option instead of None', async () => {
+    await openSwim()
+    const select = screen.getByLabelText('Rain plan')
+    const opt = within(select).getByRole('option', { name: 'Hike (outdoor, choose another)' })
+    expect(opt.disabled).toBe(true)
+    expect(select.value).toBe('hike')
+  })
+
+  it('refuses to save an outdoor activity as the rain plan, in plain words, and writes nothing', async () => {
+    await openSwim()
+    fireEvent.click(screen.getByText('Save Changes'))
+    await waitFor(() => expect(screen.getByText(/A rain plan has to be indoors/)).toBeTruthy())
+    expect(localClient.write).not.toHaveBeenCalled()
+  })
+})

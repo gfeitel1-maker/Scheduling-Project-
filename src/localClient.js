@@ -386,7 +386,6 @@ export const localClient = {
   onPairingRequest: (cb) => shoresh.onPairingRequest && shoresh.onPairingRequest(cb),
   // docs/adr/2026-08-16-client-reauth-on-restart.md (T87 Part 3)
   onAuthRejected: (cb) => shoresh.onAuthRejected && shoresh.onAuthRejected(cb),
-  onAccessRestored: (cb) => shoresh.onAccessRestored && shoresh.onAccessRestored(cb),
   // No payload — mirrors onOpApplied's subscribe/unsubscribe shape but the
   // event carries nothing beyond "it happened". See preload.js.
   onFullSyncApplied: (cb) => shoresh.onFullSyncApplied(cb),

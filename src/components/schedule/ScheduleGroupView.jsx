@@ -13,7 +13,7 @@ import GroupGridFrame from './GroupGridFrame'
 // route (ManualBuildView); this component supplies only the generated cells.
 export default function ScheduleGroupView({
   groups, days, timeBlocks, selectedGroup, onSelectGroup,
-  weatherMode, actMap, fixedEventMap,
+  actMap, fixedEventMap,
   releaseCell,
   geometry,
   eligibleActivitiesFor, onPlace, onCreateNew,
@@ -95,7 +95,6 @@ export default function ScheduleGroupView({
         slot={slot.is_fixed_event ? { ...slot, type: 'fixed_event', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id } : { ...slot, type: cellType, groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
         activity={act}
         fixedEvent={fixedEvent}
-        weatherMode={weatherMode}
         eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
         onPlace={onPlace}
         onCreateNew={onCreateNew}

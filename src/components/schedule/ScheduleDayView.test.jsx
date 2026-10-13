@@ -57,7 +57,6 @@ function renderView(extra = {}) {
         timeBlocks={timeBlocks}
         selectedDay="d1"
         onSelectDay={noop}
-        weatherMode={false}
         actMap={actMap}
         fixedEventMap={new Map()}
         releaseCell={noop}
@@ -306,7 +305,7 @@ describe('ScheduleDayView — row header shows a time-named block once (I3)', ()
     const { container } = render(
       <DndContext>
         <ScheduleDayView groups={groups} days={days} timeBlocks={blocks} selectedDay="d1" onSelectDay={noop}
-          weatherMode={false} actMap={actMap} fixedEventMap={new Map()} releaseCell={noop} geometry={geometry}
+          actMap={actMap} fixedEventMap={new Map()} releaseCell={noop} geometry={geometry}
           eligibleActivitiesFor={() => []} onPlace={noop} onCreateNew={noop} />
       </DndContext>
     )

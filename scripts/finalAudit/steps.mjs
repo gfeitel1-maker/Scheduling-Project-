@@ -469,6 +469,73 @@ export async function run(h) {
     return note
   })
 
+  await step(16, 'Rainy day…: a version is saved first, the day\'s outdoor cells take their rain plan, other days stay, Undo restores it', async () => {
+    // Needs a generated schedule. Standalone (--only=16) on a fresh camp, import campB and generate first.
+    await nav('Generated Schedule')
+    if (await ev(`return /still needed before you can build|Seed your camp/.test(__main())`)) {
+      await importFile(CAMPB); await done(); await nav('Generated Schedule')
+    }
+    if (await ev(`return !!__btn('Generate a schedule', true)`)) await click('Generate a schedule', true)
+    await waitFor(STATS, 120000, 'Generate stats')
+    await click('Daily View', true, 10000).catch(() => {})
+    await sleep(800)
+    const cellMap = () => ev(`const m={}; for (const c of document.querySelectorAll('[role=gridcell][data-cell-key]')) { if (__vis(c)) m[c.dataset.cellKey]=c.innerText.trim().split('\\n')[0] } return m`)
+    const before = await cellMap()
+    const names = Object.values(before).filter(Boolean)
+    const counts = names.reduce((m, n) => ({ ...m, [n]: (m[n] || 0) + 1 }), {})
+    const ranked = Object.keys(counts).sort((a, b) => counts[b] - counts[a])
+    const [outdoor, rain] = ranked
+    if (!outdoor || !rain) throw new Error(`need two different activities in the first day's grid (saw ${JSON.stringify(counts)})`)
+
+    await nav('Activities')
+    await waitFor(`return !!document.querySelector('[aria-label=${JSON.stringify(`Edit ${outdoor} details`)}]')`, 20000, 'activity row')
+    await ev(`document.querySelector('[aria-label=${JSON.stringify(`Edit ${outdoor} details`)}]').click(); return true`)
+    await waitFor(`return !!document.querySelector('select[aria-label="Rain plan"]')`, 10000, 'Rain plan field')
+    await ev(`const cb=[...document.querySelectorAll('label')].find(l=>/Outdoor activity/.test(l.innerText))?.querySelector('input'); if (cb && !cb.checked) cb.click(); return true`)
+    await ev(`const sel=document.querySelector('select[aria-label="Rain plan"]'); const o=[...sel.options].find(o=>o.text===${JSON.stringify(rain)}); if(!o) throw new Error('rain plan option missing: '+${JSON.stringify(rain)}); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(sel,o.value); sel.dispatchEvent(new Event('change',{bubbles:true})); return true`)
+    await click('Save Changes', true, 10000)
+    await waitFor(`return !document.querySelector('select[aria-label="Rain plan"]')`, 15000, 'editor closed')
+
+    await nav('Generated Schedule')
+    await click('Daily View', true, 10000).catch(() => {})
+    await sleep(800)
+    const sunny = await cellMap()
+    const pills = await ev(`return [...document.querySelectorAll('.day-pill')].filter(__vis).map(b=>b.innerText.trim())`)
+    if (pills.length < 2) throw new Error(`need two days to compare (saw ${pills})`)
+    await ev(`[...document.querySelectorAll('.day-pill')].filter(__vis)[1].click(); return true`)
+    await sleep(600)
+    const otherSunny = await cellMap()
+    await ev(`[...document.querySelectorAll('.day-pill')].filter(__vis)[0].click(); return true`)
+    await sleep(600)
+
+    await click('Rainy day…', true, 10000)
+    const dayLabel = await ev(`const b=document.querySelector('[aria-label="Pick a rainy day"] button'); const t=b.innerText.trim(); b.click(); return t`)
+    await waitFor(`return /Rainy [^:]+: \\d+ switched/.test(__main())`, 20000, 'rainy day receipt')
+    const receipt = await ev(`return (__main().match(/Rainy [^:]+: [^\\n]*/)||[null])[0]`)
+    const rainy = await cellMap()
+    const switched = Object.keys(sunny).filter(k => sunny[k] === outdoor && rainy[k] === rain)
+    await ev(`[...document.querySelectorAll('.day-pill')].filter(__vis)[1].click(); return true`)
+    await sleep(600)
+    const otherRainy = await cellMap()
+    await ev(`[...document.querySelectorAll('.day-pill')].filter(__vis)[0].click(); return true`)
+    await sleep(600)
+    const otherSame = JSON.stringify(otherSunny) === JSON.stringify(otherRainy)
+
+    await click('Versions', true, 10000)
+    const saved = await waitFor(`return new RegExp('Before rainy '+${JSON.stringify(dayLabel)}).test(__main())`, 10000, 'version "Before rainy ..."').then(() => true).catch(() => false)
+    await ev(`document.body.dispatchEvent(new MouseEvent('mousedown',{bubbles:true})); return true`)
+    await sleep(300)
+
+    await ev(`document.querySelector('[aria-label=Undo]')?.click(); return true`)
+    await sleep(1500)
+    const undone = await cellMap()
+    const restored = JSON.stringify(undone) === JSON.stringify(sunny)
+
+    const note = `${receipt}; version "Before rainy ${dayLabel}" ${saved ? 'saved' : 'MISSING'}; ${outdoor} -> ${rain} on ${switched.length} cell(s); other day ${otherSame ? 'unchanged' : 'CHANGED'}; Undo ${restored ? 'restored every cell' : 'did NOT restore'}`
+    if (!saved || switched.length === 0 || !otherSame || !restored) throw new Error(note)
+    return note
+  })
+
   // Like featureIn, for work that has a branch but no PR number yet: in the build iff a MERGED PR from
   // that branch has its merge commit in the build. --force=<step> runs the step anyway (to check the
   // harness against a build without the feature, where the step is expected to FAIL).
@@ -479,6 +546,72 @@ export async function run(h) {
     if (!prs.length) { e.skip = `${what}: feature not in this build (no merged PR from ${branch})`; throw e }
     featureIn(prs[0].number, what)
   }
+
+  await step(15, 'Two camps on one network: both hosts stay signed in, neither admits the other, no data crosses', async () => {
+    // Security batch / keeper 2026-10-13, after #991 (a peer's refusal read as this device's removal). A second,
+    // unrelated camp on the same LAN is the everyday case at a shared site: both hosts advertise, discover each
+    // other, and must refuse each other quietly. Runs before 13, which quits A.
+    const X = await h.launchPeer('X', h.PORT + 30)
+    const lost = `return document.body.innerText.includes("This device's access was removed") || !document.body.innerText.includes('Log out')`
+    try {
+      await X.waitFor(`return document.body.innerText.includes('Start a new camp')`, 120000, 'X: mode-select')
+      await X.click('Start a new camp', false)
+      await X.waitFor(`const n=document.getElementById('bootstrap-camp-name'); if(!n) return false; __set(n, 'Other Camp'); __set(document.getElementById('bootstrap-admin-name'), 'Other Dir'); __set(document.getElementById('bootstrap-admin-pin'), ${JSON.stringify(h.PIN)}); return true`, 10000, 'X: bootstrap form')
+      await sleep(300); await X.click('Create camp', true, 10000)
+      await X.waitFor(`return document.body.innerText.includes('Log out') && document.body.innerText.includes('Other Camp')`, 60000, 'X: signed in to Other Camp')
+      // Both hosts advertise for joiners (the most exposed state), each with a location only it has.
+      const tag = Date.now().toString(36)
+      const addLoc = async (c, name) => {
+        await c.nav('Locations')
+        await c.waitFor(`const i=__inp('input[placeholder="Pool"]'); if(!i) return false; __set(i, ${JSON.stringify(name)}); return true`, 15000, 'Locations add row')
+        await sleep(200); await c.click('+ Add', true, 10000)
+        await c.waitFor(`return __main().includes(${JSON.stringify(name)})`, 15000, `${name} added`)
+      }
+      const A = { nav, waitFor, click, ev }
+      await addLoc(A, `OnlyA ${tag}`); await addLoc(X, `OnlyX ${tag}`)
+      await openDevices(); if (!await ev(`return /Stop adding devices/.test(__main())`)) await click('Add a device', true, 10000)
+      await X.nav('Settings').catch(() => {}); await X.click('Devices', true, 10000).catch(() => {})
+      if (!await X.ev(`return /Stop adding devices/.test(__main())`).catch(() => false)) await X.click('Add a device', true, 10000).catch(() => {})
+      // 90s together on one LAN, sampled every 3s.
+      const t0 = Date.now(); const problems = []
+      while (Date.now() - t0 < 90000 && !problems.length) {
+        if (await ev(lost).catch(() => false)) problems.push('A lost its sign-in')
+        if (await X.ev(lost).catch(() => false)) problems.push('X lost its sign-in')
+        if (await ev(`return [...document.querySelectorAll('button')].filter(__vis).some(b=>b.innerText.trim()==='Approve')`).catch(() => false)) problems.push('A was offered a pairing request (from X?)')
+        if (await X.ev(`return [...document.querySelectorAll('button')].filter(__vis).some(b=>b.innerText.trim()==='Approve')`).catch(() => false)) problems.push('X was offered a pairing request (from A?)')
+        await sleep(3000)
+      }
+      // Silence from the logs, not only the screens: neither host may have discovered, dialed or authenticated
+      // the other in the window. Different camps use different camp-scoped mDNS tags (sync/automerge/discovery.js),
+      // so ANY such event naming the other is a failure.
+      const netEvents = (file, from) => { try { return fs.readFileSync(path.join(h.RUN, file), 'utf8').split('\n').filter((l) => /"event":"(PEER_DISCOVERED|DIAL_[A-Z_]+|AUTH_[A-Z_]+|TRUST_CHECK_[A-Z_]+)"/.test(l)).filter((l) => (JSON.parse(l.slice(l.indexOf('{'))).ts ?? 0) >= from) } catch { return [] } }
+      const aSaw = netEvents('app.log', t0), xSaw = netEvents('app-X.log', 0)
+      if (aSaw.length) problems.push(`A logged ${aSaw.length} discovery/auth event(s) with no same-camp peer present: ${aSaw[0].slice(0, 160)}`)
+      if (xSaw.length) problems.push(`X logged ${xSaw.length} discovery/auth event(s): ${xSaw[0].slice(0, 160)}`)
+      // Control: discovery works on this machine and network. Y asks to join A by code while A is still
+      // advertising; A must be offered Y's request. Without it, silence above proves nothing ("not exercised").
+      const Y = await h.launchPeer('Y', h.PORT + 40)
+      try {
+        const code = await waitFor(`const m=__main().match(/\\b([A-Z0-9]{4,6}-[A-Z0-9]{4,6})\\b/); return m && m[1]`, 30000, 'camp code on A')
+        await Y.waitFor(`return document.body.innerText.includes('Join with a camp code')`, 120000, 'Y: mode-select')
+        await Y.click('Join with a camp code', false)
+        await Y.waitFor(`const i=__inp('input[placeholder="K4P7-2MRQ"]'); if(!i) return false; __set(i, ${JSON.stringify(code)}); return true`, 15000, 'Y: code field')
+        await sleep(300); await Y.click('Continue', true, 10000)
+        const seen = await waitFor(`return [...document.querySelectorAll('button')].filter(__vis).some(b=>b.innerText.trim()==='Approve')`, 90000, 'control').catch(() => false)
+        if (!seen) throw new Error('not exercised: a same-camp join request never reached A within 90s, so discovery does not work on this machine/network (VPN?) and the silence between the two camps proves nothing')
+      } finally { await Y.stop() }
+      await click('Stop adding devices', true, 5000).catch(() => {})
+      await nav('Locations'); await X.nav('Locations')
+      if (await ev(`return __main().includes(${JSON.stringify(`OnlyX ${tag}`)})`)) problems.push("X's location reached A")
+      if (await X.ev(`return __main().includes(${JSON.stringify(`OnlyA ${tag}`)})`)) problems.push("A's location reached X")
+      if (!await ev(`return __main().includes(${JSON.stringify(`OnlyA ${tag}`)})`)) problems.push("A's own location is missing (detection path broken)")
+      await h.shot('s15'); await X.shot('s15')
+      if (problems.length) throw new Error(problems.join('; '))
+      return `A ("Audit Camp") and X ("Other Camp") both hosting and advertising on one LAN for ${((Date.now() - t0) / 1000).toFixed(0)}s: both stayed signed in, no pairing request on either, neither location crossed, neither host logged discovering or dialing the other; control: a same-camp join request reached A`
+    } finally {
+      await X.stop()
+    }
+  })
 
   await step(13, 'Host off: two paired non-admin devices still sync (B edits, C sees it within 60s)', async () => {
     featureInBranch('claude/shared-device-roster', 'Shared device roster (host-off sync)', 13)

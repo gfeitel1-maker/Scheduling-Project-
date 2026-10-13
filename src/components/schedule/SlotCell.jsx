@@ -3,13 +3,14 @@ import { useDraggable } from '@dnd-kit/core'
 import { S, prefersReducedMotion } from '../../styles/shared'
 import { useLatestTimeout } from '../../hooks/useLatestTimeout'
 import { ANCHOR_COLOR, FLAG_COLORS } from './slotCellConstants'
+import { RAIN_PLAN_FULL_TEXT } from '../../utils/rainyDay'
 import { cellAccessibleName } from './cellLabel'
 import CellInlineEditor from './CellInlineEditor'
 import { CellSpanChevron, UnfillableIcon, OpenElectiveIcon, OutdoorIcon } from '../icons'
 import './scheduleGrid.css'
 
 export default function SlotCell({
-  slot, activity, fixedEvent, weatherMode,
+  slot, activity, fixedEvent,
   onRelease, onSelect,
   // Inline-write (replaces the removed EditModal picklist, 2026-08-09):
   // eligibleActivities is this cell's group's eligible activity list (computed
@@ -188,6 +189,8 @@ export default function SlotCell({
   // Manual route only. Slate dot in the top-LEFT corner (clear of the top-right
   // flag cluster) — the activity or its group is marked not to run this week.
   const isWeekClosed = Boolean(flags.WEEK_CLOSED)
+  // Stored (not derived): set by Rainy day… when the rain plan had no room; cleared by any later write to the cell.
+  const isRainPlanFull = Boolean(flags.RAIN_PLAN_FULL)
   // T105 §4 — dangling-reference fallback: slot.elective_set_id can point at
   // a set deleted from another device (or a race with an in-flight delete).
   // A missing set renders a plain, non-alarming placeholder rather than a
@@ -207,7 +210,6 @@ export default function SlotCell({
     : null
   const isOutdoor = Boolean(activity?.is_outdoor)
   const showOutdoorIcon = isOutdoor && !isUnfillable
-  const isWeatherHighlight = weatherMode && showOutdoorIcon
 
   // WS5 follow-up "double-click to edit" (owner directive 2026-08-29): a
   // single plain click no longer opens the inline editor — Excel-style, that
@@ -278,8 +280,6 @@ export default function SlotCell({
     // indicators (spread later), so an in-progress drag still shows its target.
     ...(isFlagHighlighted ? S.cellFlagHighlight(highlightColor) : {}),
     opacity: isDragging ? 0.4 : 1,
-    // Weather outline applies first — selection (spread after) wins if both apply.
-    ...(isWeatherHighlight ? { outline: '1px solid var(--text-secondary)', outlineOffset: -1 } : {}),
     // The drop target's paint is NOT here any more. It is a static
     // `.cell[data-drag-over]::before/::after` rule in scheduleGrid.css, written
     // by one setAttribute — an inline value would both re-render the tree and
@@ -477,13 +477,20 @@ export default function SlotCell({
         )}
         {/* Every badge sits in ONE row under the cell's name (owner, 2026-10-12), never scattered to
             the corners: the corners belong to the cell's controls (split, open elective). */}
-        {(isOverlapping || isWeekClosed || isUnfillable || isContentRaced || showOutdoorIcon) && (
+        {(isOverlapping || isWeekClosed || isRainPlanFull || isUnfillable || isContentRaced || showOutdoorIcon) && (
           <div className="cell-flags">
             {isOverlapping && (
               <div
                 className="flag flag--overlap"
                 style={{ background: FLAG_COLORS.OVERLAP }}
                 title={flags.OVERLAP_reason || 'Over capacity'}
+              />
+            )}
+            {isRainPlanFull && (
+              <div
+                className="flag flag--overlap"
+                style={{ background: FLAG_COLORS.RAIN_PLAN_FULL }}
+                title={RAIN_PLAN_FULL_TEXT}
               />
             )}
             {isWeekClosed && (

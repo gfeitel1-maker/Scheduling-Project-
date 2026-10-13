@@ -46,9 +46,9 @@ function renderView(route, view, { replacements = replacementsOf(colorWar), sele
   if (view === 'group') {
     el = route === 'manual'
       ? <ManualBuildView {...common} selectedGroup="g1" onSelectGroup={() => {}} />
-      : <ScheduleGroupView {...common} selectedGroup="g1" onSelectGroup={() => {}} weatherMode={false} releaseCell={() => {}} />
+      : <ScheduleGroupView {...common} selectedGroup="g1" onSelectGroup={() => {}} releaseCell={() => {}} />
   } else if (view === 'day') {
-    el = <ScheduleDayView {...common} selectedDay={selectedDay} onSelectDay={() => {}} weatherMode={false} releaseCell={() => {}} />
+    el = <ScheduleDayView {...common} selectedDay={selectedDay} onSelectDay={() => {}} releaseCell={() => {}} />
   } else {
     el = <ScheduleActivityView {...common} activities={activities} slots={slots} selectedActivity="a1" onSelectActivity={() => {}} />
   }

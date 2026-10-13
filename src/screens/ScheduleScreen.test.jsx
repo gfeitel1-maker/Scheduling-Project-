@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 
 // loadAll() chains ~12 sequential localClient.list()/listByScope() calls before
 // the grid replaces "Loading…" — comfortably under RTL's 1000ms default when the
@@ -159,12 +159,13 @@ describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed
     expect(screen.getByLabelText('Redo')).toBeTruthy()
   })
 
-  it('renders Weather Mode, Versions, Export to Excel, and Rebuild directly on the toolbar, with no "⋯"/"More" control anywhere', async () => {
+  it('renders Rainy day, Versions, Export to Excel, and Rebuild directly on the toolbar, with no "⋯"/"More" control anywhere', async () => {
     mockList()
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    expect(screen.getByText('Weather')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Rainy day…' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Weather' })).toBeNull()
     expect(screen.getByRole('button', { name: /Versions/ })).toBeTruthy()
     expect(screen.getByText('Export to Excel')).toBeTruthy()
     expect(screen.getByText('Export JSON')).toBeTruthy()
@@ -200,7 +201,7 @@ describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed
   // VersionsDropdown owns its own dropdown — that's a legitimate menu of
   // saved versions, not the popup container the owner objected to — and it
   // still carries its own independent outside-click-closes behavior.
-  it('clicking a sibling control (Weather Mode) while Versions is open closes the Versions panel and toggles weather', async () => {
+  it('clicking a sibling control (Rainy day…) while Versions is open closes the Versions panel', async () => {
     mockList()
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
@@ -208,45 +209,180 @@ describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed
     fireEvent.click(screen.getByRole('button', { name: /Versions/ }))
     await waitFor(() => expect(screen.getByText('Version History')).toBeTruthy())
 
-    const weatherBtn = screen.getByRole('button', { name: 'Weather', pressed: false })
-    fireEvent.mouseDown(weatherBtn)
-    fireEvent.click(weatherBtn)
+    const rainyBtn = screen.getByRole('button', { name: 'Rainy day…' })
+    fireEvent.mouseDown(rainyBtn)
+    fireEvent.click(rainyBtn)
 
     expect(screen.queryByText('Version History')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Weather', pressed: true })).toBeTruthy()
     expect(screen.getByText('Export to Excel')).toBeTruthy()
   })
 })
 
-describe('Weather toggle with no outdoor activities', () => {
-  it('shows a flag and a Mark activities action when turned on and nothing is marked outdoor', async () => {
-    mockList()
-    const onNavigate = vi.fn()
-    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
-    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
-    expect(screen.queryByText('No outdoor activities marked')).toBeNull()
+// "Rainy day…" (director test 2026-10-12): the view-only Weather toggle is gone; one control switches a
+// whole day's outdoor cells to their rain plans, after saving a version so the sunny day can come back.
+describe('Rainy day…', () => {
+  const swim = (o = {}) => activity({ id: 'swim', name: 'Swim', is_outdoor: 1, weather_alternative_id: 'movie', ...o })
+  const movie = (o = {}) => activity({ id: 'movie', name: 'Movie', is_outdoor: 0, ...o })
+  const rainyFixture = (extra = {}) => ({
+    groups: [group({ id: 'g1', name: 'Group A' }), group({ id: 'g2', name: 'Group B' })],
+    days_of_operation: [day({ id: 'wed', label: 'Wednesday', sort_order: 1 }), day({ id: 'thu', label: 'Thursday', day_of_week: 4, sort_order: 2 })],
+    activities: [swim(), movie()],
+    template_slots: [
+      slotRow({ id: 'a1', group_id: 'g1', day_id: 'wed', activity_id: 'swim' }),
+      slotRow({ id: 'a2', group_id: 'g2', day_id: 'wed', activity_id: 'swim' }),
+      slotRow({ id: 'a3', group_id: 'g1', day_id: 'thu', activity_id: 'swim' }),
+    ],
+    ...extra,
+  })
+  const slotWrites = (field) => localClient.write.mock.calls.filter(c => c[1] === 'template_slots' && c[3] === field)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Weather' }))
-    expect(screen.getByText('No outdoor activities marked')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Mark activities' }))
-    expect(onNavigate).toHaveBeenCalledWith('activities')
-    expect(screen.getByRole('button', { name: 'Weather', pressed: true }).disabled).toBe(false)
+  beforeEach(() => {
+    let n = 0
+    vi.stubGlobal('crypto', { randomUUID: () => `uuid-${++n}` })
   })
 
-  it('shows no flag when an activity is marked outdoor', async () => {
-    mockList({ activities: [activity({ is_outdoor: 1 })] })
-    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+  async function pickWednesday() {
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: 'Weather' }))
-    expect(screen.queryByText('No outdoor activities marked')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Mark activities' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Rainy day…' }))
+    fireEvent.click(within(screen.getByRole('group', { name: 'Pick a rainy day' })).getByRole('button', { name: 'Wednesday' }))
+  }
+
+  it('saves "Before rainy Wednesday" first, then switches only that day, and one Undo restores every cell', async () => {
+    mockList(rainyFixture())
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await pickWednesday()
+
+    await waitFor(() => expect(slotWrites('activity_id')).toHaveLength(2))
+    const calls = localClient.write.mock.calls
+    const nameIdx = calls.findIndex(c => c[1] === 'schedule_snapshots' && c[3] === 'name' && c[4] === 'Before rainy Wednesday')
+    const firstSlotIdx = calls.findIndex(c => c[1] === 'template_slots')
+    expect(nameIdx).toBeGreaterThanOrEqual(0)
+    expect(nameIdx).toBeLessThan(firstSlotIdx)
+    expect(calls.some(c => c[1] === 'schedule_snapshots' && c[3] === 'template_id' && c[4] === 'schedule-template:camp-1')).toBe(true)
+    expect(calls.some(c => c[1] === 'schedule_snapshots' && c[3] === 'is_auto' && c[4] === false)).toBe(true)
+    expect(slotWrites('activity_id').map(c => [c[2], c[4]]).sort()).toEqual([['a1', 'movie'], ['a2', 'movie']])
+    expect(screen.getByText(/Rainy Wednesday: 2 switched to rain plans/)).toBeTruthy()
+
+    localClient.write.mockClear()
+    fireEvent.click(screen.getByLabelText('Undo'))
+    await waitFor(() => expect(slotWrites('activity_id')).toHaveLength(2))
+    expect(slotWrites('activity_id').map(c => [c[2], c[4]]).sort()).toEqual([['a1', 'swim'], ['a2', 'swim']])
+  })
+
+  it('saves the version on the Manual route only when Manual is the route being viewed', async () => {
+    const manualId = 'schedule-template:camp-1:manual'
+    const fx = rainyFixture()
+    mockList({
+      ...fx,
+      schedule_templates: [
+        { id: 'schedule-template:camp-1', camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: CAMP_ID },
+        { id: manualId, camp_id: CAMP_ID, name: 'Manual', kind: 'manual', week_id: CAMP_ID },
+      ],
+      template_slots: fx.template_slots.map(s => ({ ...s, template_id: manualId })),
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="manual" />)
+    await pickWednesday()
+    await waitFor(() => expect(slotWrites('activity_id')).toHaveLength(2))
+    const tids = localClient.write.mock.calls.filter(c => c[1] === 'schedule_snapshots' && c[3] === 'template_id').map(c => c[4])
+    expect(tids).toEqual([manualId])
+  })
+
+  it('leaves cells it cannot place unchanged and says the rain plan is full', async () => {
+    mockList(rainyFixture({ activities: [swim(), movie({ max_groups_per_slot: 1 })] }))
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await pickWednesday()
+    await waitFor(() => expect(screen.getByText(/Rainy Wednesday: 1 switched to rain plans, 1 full/)).toBeTruthy())
+    expect(slotWrites('activity_id')).toHaveLength(1)
+    const flagWrite = slotWrites('flags').find(c => c[2] === 'a2')
+    expect(JSON.stringify(flagWrite[4])).toContain('RAIN_PLAN_FULL')
+    await waitFor(() => expect(screen.getByTitle('Rain plan full: choose another')).toBeTruthy())
+  })
+
+  it('a write that fails mid-batch rolls the landed writes back, shows an error, and leaves the cells as they were', async () => {
+    mockList(rainyFixture())
+    let failed = false
+    localClient.write.mockImplementation(async (_t, entity, id, field) => {
+      if (!failed && entity === 'template_slots' && id === 'a2' && field === 'activity_id') { failed = true; throw new Error('disk failure') }
+      return { status: 'applied' }
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await pickWednesday()
+    await waitFor(() => expect(screen.getByText(/could not be applied/)).toBeTruthy())
+    expect(slotWrites('activity_id').some(c => c[2] === 'a1' && c[4] === 'swim')).toBe(true)
+    expect(screen.queryByText(/switched to rain plans/)).toBeNull()
+    expect(screen.queryByText('Movie', { selector: '.cell-name' })).toBeNull()
+  })
+
+  it('a failed version save writes no cells', async () => {
+    mockList(rainyFixture())
+    localClient.write.mockImplementation(async (_t, entity) => {
+      if (entity === 'schedule_snapshots') throw new Error('disk failure')
+      return { status: 'applied' }
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await pickWednesday()
+    await waitFor(() => expect(screen.getByText(/could not be saved/)).toBeTruthy())
+    expect(slotWrites('activity_id')).toHaveLength(0)
+  })
+
+  it('Redo switches the cells again after an Undo', async () => {
+    mockList(rainyFixture())
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await pickWednesday()
+    await waitFor(() => expect(slotWrites('activity_id')).toHaveLength(2))
+    fireEvent.click(screen.getByLabelText('Undo'))
+    await waitFor(() => expect(slotWrites('activity_id')).toHaveLength(4))
+    localClient.write.mockClear()
+    fireEvent.click(screen.getByLabelText('Redo'))
+    await waitFor(() => expect(slotWrites('activity_id')).toHaveLength(2))
+    expect(slotWrites('activity_id').map(c => [c[2], c[4]]).sort()).toEqual([['a1', 'movie'], ['a2', 'movie']])
+  })
+
+  it('Undo restores the flags a cell had before', async () => {
+    const fx = rainyFixture()
+    fx.template_slots[0] = { ...fx.template_slots[0], flags: { UNFILLABLE_dismissed: true } }
+    mockList(fx)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await pickWednesday()
+    await waitFor(() => expect(slotWrites('activity_id')).toHaveLength(2))
+    localClient.write.mockClear()
+    fireEvent.click(screen.getByLabelText('Undo'))
+    await waitFor(() => expect(slotWrites('flags').length).toBeGreaterThan(0))
+    expect(JSON.stringify(slotWrites('flags').find(c => c[2] === 'a1')[4])).toContain('UNFILLABLE_dismissed')
+  })
+
+  it('plans from the slots as they are after the version is saved, so a merge during the save cannot overbook', async () => {
+    mockList(rainyFixture({ activities: [swim(), movie({ max_groups_per_slot: 2 })] }))
+    localClient.write.mockImplementation(async (_t, entity, _id, field) => {
+      if (entity === 'schedule_snapshots' && field === 'name') {
+        mockList(rainyFixture({
+          activities: [swim(), movie({ max_groups_per_slot: 2 })],
+          template_slots: [
+            ...rainyFixture().template_slots,
+            slotRow({ id: 'a4', group_id: 'g3', day_id: 'wed', activity_id: 'movie' }),
+          ],
+          groups: [group({ id: 'g1' }), group({ id: 'g2' }), group({ id: 'g3', name: 'Group C' })],
+        }))
+        opAppliedListeners.forEach(cb => cb({ entity: 'template_slots' }))
+        await new Promise(r => setTimeout(r, 300))
+      }
+      return { status: 'applied' }
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await pickWednesday()
+    await waitFor(() => expect(screen.getByText(/Rainy Wednesday: 1 switched to rain plans, 1 full/)).toBeTruthy())
+  })
+
+  it('flags outdoor activities with no rain plan and "Set them" opens Activities', async () => {
+    mockList(rainyFixture({ activities: [swim({ weather_alternative_id: null }), movie()] }))
+    const onNavigate = vi.fn()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
+    await waitFor(() => expect(screen.getByText('1 outdoor activity has no rain plan')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Set them' }))
+    expect(onNavigate).toHaveBeenCalledWith('activities')
   })
 })
 
-// WS5 follow-up "Daily-first + restore Daily merge" — Daily is now the
-// default view and leftmost in the toggle, and the redundant "which route am
-// I on" caption under the toolbar is gone (route legibility already lives in
-// the sidebar, per WS5 S1).
 describe('WS5 Daily-first — default view, toggle order, and no redundant caption', () => {
   it('renders Daily view by default, with no click on the view toggle', async () => {
     mockList()

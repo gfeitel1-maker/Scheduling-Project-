@@ -24,7 +24,7 @@ const NO_REPLACEMENTS = new Map()
 // there is deliberately no second placement helper.
 export default function ScheduleDayView({
   groups, days, timeBlocks, selectedDay, onSelectDay,
-  weatherMode, actMap, fixedEventMap,
+  actMap, fixedEventMap,
   releaseCell,
   geometry,
   eligibleActivitiesFor, onPlace, onCreateNew,
@@ -201,7 +201,6 @@ export default function ScheduleDayView({
                             : { ...slot, type: cellType, groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
                           activity={act}
                           fixedEvent={fixedEvent}
-                          weatherMode={weatherMode}
                           eligibleActivities={eligibleActivitiesFor?.(group.id) ?? []}
                           onPlace={onPlace}
                           onCreateNew={onCreateNew}

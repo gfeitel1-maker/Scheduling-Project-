@@ -52,6 +52,7 @@ import ActivityPalette from '../components/schedule/ActivityPalette'
 import { isActivityEligibleForGroup } from '../engine/eligibility'
 import { filterFreeChoiceActivities } from '../engine/freeChoiceActivities'
 import { blockDisplayName } from '../utils/timeBlockLabel.js'
+import { outdoorActivitiesMissingRainPlan, RAIN_PLAN_FULL_TEXT } from '../utils/rainyDay'
 
 // dnd-kit's own announcer describes droppable IDs, which after T58 are one
 // container rather than 480 cells — it would say "over droppable
@@ -230,7 +231,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
   // Group and Daily View always show one: an unset or stale pick falls to the first.
   const selectedGroup = resolveSelection(pickedGroup, groups)
   const selectedDay = resolveSelection(pickedDay, days)
-  const [weatherMode, setWeatherMode] = useState(false)
+  const [rainyOpen, setRainyOpen] = useState(false)
+  const [rainReceipt, setRainReceipt] = useState(null)
   const [confirmRegen, setConfirmRegen] = useState(false)
   const [selectedActivity, setSelectedActivity] = useState(null)
   const [actionError, setActionError] = useState(null)
@@ -271,7 +273,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
     weekId,
   })
   const {
-    replaceSlot, dismissFlag, lockActivity, releaseCell,
+    replaceSlot, applyRainyDay, dismissFlag, lockActivity, releaseCell,
     placeActivityManual, expandSlot, splitSlot,
     createActivityFromCell, createElectiveFromCell, placeEventOnCell, ownWriteRef,
     hasInFlightClaim,
@@ -394,6 +396,18 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
     groups, activities, days, timeBlocks, fixedEvents, events: eventsAll, electiveSets: electiveSetsAll, weekId, replacedDayIds,
     activityExclusions, groupExclusions, locationExclusions,
   })
+
+  // Rainy day…: version first (so the sunny day survives Undo expiring), then the day's switch as one undo entry.
+  const noRainPlan = useMemo(
+    () => outdoorActivitiesMissingRainPlan({ slots: slots.filter(x => !replacedDayIds.includes(x.day_id)), activities }),
+    [slots, replacedDayIds, activities],
+  )
+  async function runRainyDay(day) {
+    setRainyOpen(false)
+    const result = await applyRainyDay(day, () => saveSnapshot(`Before rainy ${day.label}`, false))
+    if (result) setRainReceipt(result)
+  }
+  const rainReceiptShown = Boolean(rainReceipt) && (!rainReceipt.undoable || undoStack[undoStack.length - 1]?.description === rainReceipt.text)
 
   // Post-import "Open it in Manual": restore the named imported version through
   // the ordinary restore path (which keeps the current week as an automatic
@@ -649,6 +663,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
   // WEEK_CLOSED is derived on both routes (see the `slots` memo), so its rail
   // rows and cell markers are not gated to the manual route.
   const weekClosedSlots = flagSlots.filter(s => s.flags?.WEEK_CLOSED)
+  const rainPlanFullSlots = flagSlots.filter(s => s.flags?.RAIN_PLAN_FULL)
   const activeFindings = findings.filter(f => !dismissedFindingKeys.has(findingDismissKey(f)))
   const SEVERITY_ORDER = { danger: 0, caution: 1, info: 2 }
 
@@ -702,6 +717,14 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
       locator: slotLocator(s),
       groupId: s.group_id,
     })),
+    ...rainPlanFullSlots.map(s => ({
+      key: `rain-plan-full-${s.id}`,
+      kind: 'RAIN_PLAN_FULL',
+      severity: FLAG_SEVERITY.RAIN_PLAN_FULL,
+      reason: RAIN_PLAN_FULL_TEXT,
+      locator: slotLocator(s),
+      groupId: s.group_id,
+    })),
     ...activeFindings.map(f => ({
       // groupId/activityId are both null for EVERY FIXED_EVENT_IDENTITY_GAP finding
       // (buildSchedule.js) — the plain coordinate key would collapse two
@@ -744,7 +767,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
     // nothing to dismiss — they clear when the director moves the clashing /
     // closed-week placement or lifts the exclusion, which is the only honest
     // way for them to go away.
-    else if (row.kind !== 'OVERLAP' && row.kind !== 'WEEK_CLOSED') dismissFinding(row.dismissKey)
+    else if (row.kind !== 'OVERLAP' && row.kind !== 'WEEK_CLOSED' && row.kind !== 'RAIN_PLAN_FULL') dismissFinding(row.dismissKey)
   }
 
   function locateFindingsRow(row) {
@@ -1054,23 +1077,42 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
               ))}
             </div>
 
-            {/* Weather Mode sits with the views (owner, 2026-09-12): it changes
-                what you SEE, not what you have. */}
-            <button
-              onClick={() => setWeatherMode(w => !w)}
-              aria-pressed={weatherMode}
-              style={{ padding: '6px 12px', border: `1px solid ${weatherMode ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 6, background: weatherMode ? 'color-mix(in srgb, var(--primary) 9%, var(--surface))' : 'var(--surface)', color: weatherMode ? 'var(--primary)' : 'var(--text-secondary)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
-            >
-              Weather
-            </button>
-            {weatherMode && !activities.some(a => a.is_outdoor) && (
+            {/* Rainy day…: one day's outdoor cells move to their rain plans, after a version is saved. */}
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setRainyOpen(o => !o)}
+                aria-expanded={rainyOpen}
+                style={{ padding: '6px 12px', border: `1px solid ${rainyOpen ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 6, background: rainyOpen ? 'color-mix(in srgb, var(--primary) 9%, var(--surface))' : 'var(--surface)', color: rainyOpen ? 'var(--primary)' : 'var(--text-secondary)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
+              >
+                Rainy day…
+              </button>
+              {rainyOpen && (
+                <div role="group" aria-label="Pick a rainy day" style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 20, display: 'flex', flexDirection: 'column', gap: 2, minWidth: 140, padding: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 4px 14px rgba(0,0,0,0.12)' }}>
+                  {days.filter(d => !replacedDayIds.includes(d.id)).map(d => (
+                    <button key={d.id} onClick={() => runRainyDay(d)} style={{ textAlign: 'left', padding: '6px 10px', border: 'none', borderRadius: 6, background: 'none', color: 'var(--text)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>{d.label}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {noRainPlan.length > 0 && (
               <span role="status" style={weatherFlagStyle}>
                 <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
-                No outdoor activities marked
+                {noRainPlan.length === 1 ? '1 outdoor activity has no rain plan' : `${noRainPlan.length} outdoor activities have no rain plan`}
                 <button
                   onClick={() => onNavigate?.('activities')}
                   style={{ background: 'none', border: 'none', padding: 0, color: 'var(--primary)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline' }}
-                >Mark activities</button>
+                >Set them</button>
+              </span>
+            )}
+            {rainReceiptShown && (
+              <span role="status" style={weatherFlagStyle}>
+                {rainReceipt.text}
+                {rainReceipt.undoable && (
+                  <button
+                    onClick={() => { bumpFlagAckResync(); handleUndo() }}
+                    style={{ background: 'none', border: 'none', padding: 0, color: 'var(--primary)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline' }}
+                  >Undo</button>
+                )}
               </span>
             )}
 
@@ -1122,7 +1164,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
                 Categorised per the owner, 2026-09-12 — Versions belongs here
                 rather than beside Week 1, because "give me a different copy of
                 this" is closer to export/restore than to which-week-am-I-on.
-                Weather Mode moved up to the views; Rebuild moved to the
+                Rebuild moved to the
                 undo/redo cluster.
 
                 Deliberately NOT behind an overflow popup: WS5 S2a tried a "⋯"
@@ -1373,7 +1415,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
                 timeBlocks={timeBlocks}
                 selectedGroup={selectedGroup}
                 onSelectGroup={handleSelectGroup}
-                weatherMode={weatherMode}
                 actMap={actMap}
                 fixedEventMap={fixedEventMap}
                 releaseCell={releaseCell}
@@ -1413,7 +1454,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
                 timeBlocks={timeBlocks}
                 selectedDay={selectedDay}
                 onSelectDay={setSelectedDay}
-                weatherMode={weatherMode}
                 actMap={actMap}
                 fixedEventMap={fixedEventMap}
                 lockActivity={lockActivity}

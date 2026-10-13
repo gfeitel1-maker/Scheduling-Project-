@@ -50,7 +50,6 @@ function renderGroupView(extra = {}) {
         timeBlocks={timeBlocks}
         selectedGroup="g1"
         onSelectGroup={noop}
-        weatherMode={false}
         actMap={actMap}
         anchorMap={new Map()}
         releaseCell={noop}
@@ -221,7 +220,6 @@ describe('T59 — accessible names', () => {
         <ScheduleDayView
           groups={groups} days={days} timeBlocks={timeBlocks}
           selectedDay="d2" onSelectDay={noop}
-          weatherMode={false}
           actMap={actMap} anchorMap={new Map()}
           releaseCell={noop} geometry={geometry} eligibleActivitiesFor={() => []}
           onPlace={noop} onCreateNew={noop}

@@ -2996,7 +2996,6 @@ export const mockShoresh = {
   onPairingRequest(cb) { pairingRequestListeners.push(cb); return () => { pairingRequestListeners = pairingRequestListeners.filter((f) => f !== cb) } },
   // docs/adr/2026-08-16-client-reauth-on-restart.md (T87 Part 3)
   onAuthRejected(cb) { authRejectedListeners.push(cb); return () => { authRejectedListeners = authRejectedListeners.filter((f) => f !== cb) } },
-  onAccessRestored() { return () => {} },
   _triggerPairingRequest(payload) { pairingRequestListeners.forEach((cb) => cb(payload)) },
   _triggerAuthRejected(payload) { authRejectedListeners.forEach((cb) => cb(payload)) },
 

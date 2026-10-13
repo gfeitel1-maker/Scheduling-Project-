@@ -303,7 +303,7 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
           // was removed (packaged E2E on 42275c9f).
           let sent = false
           try {
-            await sendFramed(stream, encodeMessage({ type: 'auth_failed', reason: result.reason, ...(result.evidence ? { evidence: result.evidence } : {}) }))
+            await sendFramed(stream, encodeMessage({ type: 'auth_failed', reason: result.reason }))
             sent = true
           } catch {
             // ignore — aborting regardless
