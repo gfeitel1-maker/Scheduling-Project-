@@ -42,7 +42,7 @@ describe('useOpenReconciliationDecisions', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.rows).toHaveLength(1)
     expect(result.current.model.domains).toHaveLength(1)
-    expect(result.current.decisionsById.get('groups:g1')).toEqual({ reason: 'New in the import' })
+    expect(result.current.decisionsById.get('groups:g1')).toEqual({ reason: 'New in the import', canAddForAllGroups: false })
   })
 
   it('a fetch failure degrades to an empty list rather than throwing', async () => {
