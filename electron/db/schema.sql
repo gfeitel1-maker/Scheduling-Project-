@@ -333,7 +333,7 @@ CREATE TABLE IF NOT EXISTS open_reconciliation_decisions (
   reason TEXT,                  -- the decision's .reason/why text
   import_run_id TEXT NOT NULL,  -- same value import_evidence.import_run_id gets for this commit
   created_at TEXT NOT NULL,
-  payload TEXT                  -- v97 (UX audit A1): JSON {fixedEvent, cohortId} for a held-back
+  payload TEXT                  -- v98 (UX audit A1): JSON {fixedEvent, cohortId} for a held-back
                                 -- fixed_events question, so "Add for all groups" can add the event
                                 -- later. NULL for every other kind of question. ALTER-appended LAST.
 );
@@ -431,6 +431,21 @@ CREATE TABLE IF NOT EXISTS device_health_events (
 );
 CREATE INDEX IF NOT EXISTS idx_device_health_events_unresolved
   ON device_health_events(kind, occurred_at) WHERE resolved_at IS NULL;
+
+-- last_import_undo (v97, director test 2026-10-12) — the undo record of the LAST import on this device,
+-- so "Undo last import" survives a restart and stays on Roots until the next import replaces it. One row
+-- (id = 1). Device-local, never replicated, no PROJECTIONS entry: the record names what THIS device's
+-- import wrote (invertibleOps, created rows with their field-seq snapshots, its own saved versions) and
+-- undo re-checks every row against the op log before touching it, so a late undo keeps anything edited
+-- since. Held in this (encrypted) database rather than a file next to it: the record carries camp
+-- field values. Cleared by a successful undo; replaced by the next import.
+CREATE TABLE IF NOT EXISTS last_import_undo (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  import_run_id TEXT NOT NULL,
+  file_name TEXT,
+  committed_at TEXT NOT NULL,
+  record TEXT NOT NULL
+);
 
 -- op_id has NO foreign key to operations(id) (2026-09-17 addendum below): a
 -- store='document-replay' failure (a document-native row that cannot be
@@ -746,8 +761,10 @@ CREATE TABLE IF NOT EXISTS time_blocks (
 -- version-16 migration in localDb.js for existing dbs that already ran this
 -- file at an earlier version.
 -- schedule_week_id (v42, docs/work/specs/2026-08-23-unified-
--- schedule-overlay-slices.md Slice 1) is storage-only. schedule_week_id NULL
--- preserves today's implicit meaning exactly (all-weeks). Appended LAST —
+-- schedule-overlay-slices.md Slice 1): the one week an event runs in, set from
+-- the Weeks column on Fixed/Recurring Events. Generate and Manual placement keep
+-- an event only when it is NULL (every week) or the week being built; a special
+-- day's "Also bring" offers it only for a single-week placement (T377). Appended LAST —
 -- added by an ALTER TABLE in the v42 migration in localDb.js for existing
 -- dbs, so column order must match here for a fresh install to be
 -- byte-identical to a migrated one. (v42 also added `recurrence_level`,

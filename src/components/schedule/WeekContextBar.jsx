@@ -11,9 +11,11 @@ export default function WeekContextBar({
   const currentWeek = weeks.find(w => w.id === weekId)
   const weekName = currentWeek?.name ?? 'this week'
 
+  // Plain words for what the week toggles do (director test 2026-10-12: "Week 1 · Default" read as
+  // jargon). Nothing switched off: everything runs every week. Some off: which week they are off in.
   const summaryText = exclusionCount === 0
-    ? 'Default'
-    : `${exclusionCount} of ${totalCount} ${entityLabel} customized for ${weekName}`
+    ? `All ${entityLabel} run every week`
+    : `${exclusionCount} of ${totalCount} ${entityLabel} off in ${weekName}`
 
   return (
     <div style={{

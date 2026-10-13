@@ -265,7 +265,7 @@ export function syncStatusLabel(status) {
   if (status?.otherDeviceCount === 0) {
     const encrypted = status.atRestEncryptionEnabled === true
     return {
-      text: 'only this computer',
+      text: '1 device · add a laptop',
       tone: 'secondary',
       title: encrypted
         ? 'No other computer has a copy of this camp, and its data is encrypted on this computer. If this ' +

@@ -108,7 +108,7 @@ export async function restoreFromBackup({
 
   try {
     let docCopyError
-    safetyDbPath = writeUserBackup(dbPath, userDataPath, campId, (err) => { docCopyError = err }, sourcePath, db)
+    safetyDbPath = writeUserBackup(dbPath, userDataPath, campId, (err) => { docCopyError = err }, sourcePath, db, 'before-restore')
     if (docCopyError) throw docCopyError
   } catch (err) {
     return { error: 'backup_failed', message: err.message }

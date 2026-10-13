@@ -11,7 +11,17 @@ export async function run(h) {
   const listNames = async (screen) => {
     await nav(screen)
     await waitFor(`return /\\d+ (FIXED|RECURRING) EVENTS?/.test(__main())`, 20000, `${screen} list`)
-    return ev(`return [...document.querySelectorAll('tr')].filter(__vis).map(r=>[...r.querySelectorAll('td')].map(td=>td.innerText.trim())).filter(c=>c.length>=3)`)
+    // One entry per event per DAY, [name, day, block, divisions], whether the screen groups an event's
+    // days into one row (T377) or not. Every grouped row is expanded; its header row is skipped, and a
+    // day row's name comes from its "Edit NAME on DAY" label (its first cell shows the day).
+    await ev(`for (const b of [...document.querySelectorAll('button[aria-label^="Show each day of"]')].filter(__vis)) b.click(); return true`)
+    await sleep(400)
+    return ev(`return [...document.querySelectorAll('tr')].filter(__vis).flatMap(r=>{
+      if (r.querySelector('button[aria-label^="Hide each day of"],button[aria-label^="Show each day of"]')) return []
+      const c=[...r.querySelectorAll('td')].map(td=>td.innerText.trim()); if (c.length<3) return []
+      const m=(r.querySelector('[role=button][aria-label^="Edit "]')?.getAttribute('aria-label')||'').match(/^Edit (.+) on (.+)$/)
+      return [m ? [m[1], c[1], c[2], c[3]] : c]
+    })`)
   }
   // Which groups the FILE gives a lunch, per day (CIT has none in campB).
   const fileLunch = () => {
@@ -29,11 +39,11 @@ export async function run(h) {
     // "Replace them" is offered only when something is already set up; on an empty camp Review is the only path.
     if (replace && await ev(`return !!__btn('○ Replace them', false)`)) { await click('○ Replace them', false, 10000); await sleep(500) }
     await waitFor(`const b=__btn('Replace with ')||__btn('Review '); if(!b||b.disabled) return false; b.click(); return true`, 15000, 'Replace with / Review button')
-    const q = await waitFor(`const m=__main().match(/(\\d+) of (\\d+) questions? answered/); return m ? m[2] : ((__btn('Use what Shoresh understood',true)||__btn('Use this setup',true))? '0':false)`, 60000, 'reconciliation')
+    const q = await waitFor(`const m=__main().match(/(\\d+) of (\\d+) questions? answered/); return m ? m[2] : ((__btn('Use what Shoresh understood',true)||__btn('Import the rest')||__btn('Add to camp')||__btn('Use this setup',true))? '0':false)`, 60000, 'reconciliation')
     // Zero answers: a card that blocks the commit ("Skip this field" / "Skip … for now") is skipped.
     const skipped = await ev(`let n=0; for(let i=0;i<200;i++){ const b=__btn('Skip this field',true)||[...document.querySelectorAll('button')].filter(__vis).find(b=>/^Skip .* for now/.test(b.innerText.trim())); if(!b) break; b.click(); n++; await new Promise(r=>setTimeout(r,60)) } return n`, 60000)
     const t0 = Date.now()
-    await waitFor(`return __click('Use what Shoresh understood', true) || __click('Use this setup', true)`, 30000, 'commit button')
+    await waitFor(`return __click('Use what Shoresh understood', true) || __click('Import the rest', false) || __click('Add to camp', false) || __click('Use this setup', true)`, 30000, 'commit button')
     const done = await waitFor(`const t=__main(); const m=t.match(/Imported (\\d+) records[^\\n]*/)||t.match(/Setup replaced and ready[^\\n]*/); return m && m[0]`, 120000, 'import result')
     return { questions: +q, skipped, ms: Date.now() - t0, done }
   }
@@ -139,7 +149,7 @@ export async function run(h) {
       if (replace) { await click('○ Replace them', false, 10000); await sleep(500) }
       await ev(`(__btn('Replace with ')||__btn('Review ')).click(); return true`)
       // As text: a count of 0 must not read as "not ready yet".
-      return Number(await waitFor(`const m=__main().match(/(\\d+) of (\\d+) questions? answered/); return m ? String(m[2]) : ((__btn('Use what Shoresh understood',true)||__btn('Use this setup',true))?'0':false)`, 60000, 'questions'))
+      return Number(await waitFor(`const m=__main().match(/(\\d+) of (\\d+) questions? answered/); return m ? String(m[2]) : ((__btn('Use what Shoresh understood',true)||__btn('Import the rest')||__btn('Add to camp')||__btn('Use this setup',true))?'0':false)`, 60000, 'questions'))
     }
     const q1 = await openReview({ replace: true })
     if (q1 < 1) throw new Error(`the question file raised ${q1} questions`)
@@ -148,7 +158,7 @@ export async function run(h) {
     const answered = await ev(`const NOT=/^(Why\\?|Show |Skip |Low is fine|Set them in|Cancel|Use |Leave as is|Dismiss|Review all|\\d+ )/; const head=[...document.querySelectorAll('h1,h2,h3,h4,div,span')].filter(__vis).find(e=>e.children.length===0&&e.innerText.trim()==='Needs your attention'); if(!head) return null; const b=[...document.querySelectorAll('button')].filter(__vis).find(b=>{const t=b.innerText.trim(); return t && t.length<40 && !NOT.test(t) && (head.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)}); if(!b) return null; b.click(); return b.innerText.trim()`)
     if (!answered) throw new Error(`no answer button; buttons: ${await ev(`return [...new Set([...document.querySelectorAll('button')].filter(__vis).map(b=>b.innerText.trim()).filter(t=>t&&t.length<40))].join(' | ')`)}`)
     await ev(`let n=0; for(let i=0;i<300;i++){ const b=__btn('Skip this field',true)||[...document.querySelectorAll('button')].filter(__vis).find(b=>/^Skip .* for now/.test(b.innerText.trim())); if(!b) break; b.click(); n++; await new Promise(r=>setTimeout(r,60)) } return n`, 60000)
-    await waitFor(`return __click('Use what Shoresh understood', true) || __click('Use this setup', true)`, 30000, 'commit')
+    await waitFor(`return __click('Use what Shoresh understood', true) || __click('Import the rest', false) || __click('Add to camp', false) || __click('Use this setup', true)`, 30000, 'commit')
     await waitFor(`return /Imported \\d+ records|Setup replaced/.test(__main())`, 120000, 'import done'); await click('Continue', true, 5000).catch(() => {})
     const q2 = await openReview()
     await click('Cancel', true, 5000).catch(() => {})
@@ -231,9 +241,11 @@ export async function run(h) {
     return waitFor(`const r=(()=>{${STATS}})(); return r && r.placed>0 && r`, 30000, 'restored stats')
   }
   // Visible grid cells naming `word`, with the number of rows each spans.
+  // Row pitch comes from the grid's row-header cells (one per block). Block times now wrap onto two
+  // lines, so the gap between two time-text lines is not a row; the text fallback ignores gaps under 40px.
   // Only the schedule grid: anything left of the BLOCK column header (the activities palette, which
   // also names the elective) is not a cell. Innermost matches only, so a cell is counted once.
-  const cellsNaming = (word) => ev(`const vis=[...document.querySelectorAll('*')].filter(__vis); const hdr=vis.find(e=>e.children.length===0&&(e.innerText||'').trim()==='BLOCK'); if(!hdr) return []; const x0=hdr.getBoundingClientRect().right; const labels=vis.filter(e=>{const r=e.getBoundingClientRect(); return r.right<=x0+2&&r.left>=hdr.getBoundingClientRect().left-2&&/^\\d{1,2}:\\d{2}/.test((e.innerText||'').trim())&&![...e.children].some(c=>/^\\d{1,2}:\\d{2}/.test((c.innerText||'').trim()))}).map(e=>e.getBoundingClientRect().top).sort((a,b)=>a-b); const pitch=labels.length>1?labels[1]-labels[0]:0; const hits=vis.filter(e=>{const r=e.getBoundingClientRect(); return r.left>=x0&&(e.innerText||'').trim()===${JSON.stringify(word)}}); const cells=hits.map(e=>{let c=e; while(c.parentElement&&c.parentElement.innerText.trim()===e.innerText.trim()) c=c.parentElement; return c}); return [...new Set(cells)].map(c=>pitch?Math.max(1,Math.round((c.getBoundingClientRect().height+pitch*0.25)/pitch)):0)`)
+  const cellsNaming = (word) => ev(`const vis=[...document.querySelectorAll('*')].filter(__vis); const hdr=vis.find(e=>e.children.length===0&&(e.innerText||'').trim()==='BLOCK'); if(!hdr) return []; const x0=hdr.getBoundingClientRect().right; const labels=vis.filter(e=>{const r=e.getBoundingClientRect(); return r.right<=x0+2&&r.left>=hdr.getBoundingClientRect().left-2&&/^\\d{1,2}:\\d{2}/.test((e.innerText||'').trim())&&![...e.children].some(c=>/^\\d{1,2}:\\d{2}/.test((c.innerText||'').trim()))}).map(e=>e.getBoundingClientRect().top).sort((a,b)=>a-b); const heads=[...document.querySelectorAll('[role=rowheader]')].filter(__vis).map(e=>e.getBoundingClientRect().top).sort((a,b)=>a-b); const gaps=labels.slice(1).map((t,i)=>t-labels[i]).filter(g=>g>40); const pitch=heads.length>1?heads[1]-heads[0]:(gaps.length?Math.min(...gaps):0); const hits=vis.filter(e=>{const r=e.getBoundingClientRect(); return r.left>=x0&&(e.innerText||'').trim()===${JSON.stringify(word)}}); const cells=hits.map(e=>{let c=e; while(c.parentElement&&c.parentElement.innerText.trim()===e.innerText.trim()) c=c.parentElement; return c}); return [...new Set(cells)].map(c=>pitch?Math.max(1,Math.round((c.getBoundingClientRect().height+pitch*0.25)/pitch)):0)`)
 
   await step(9, 'Locations round-trip: Download worksheet, edit a capacity in the xlsx, Import from Excel, the location updates', async () => {
     featureIn(959, 'Locations sheet round-trip')
@@ -386,6 +398,77 @@ export async function run(h) {
     return note
   })
 
+  await step(14, 'Drag swap + undo count: two filled cells swap, Placed unchanged, Undo restores both; a span refuses with a note', async () => {
+    // Needs a generated schedule. Standalone (--only=14) on a fresh camp, import campB and generate first.
+    await nav('Generated Schedule')
+    if (await ev(`return /still needed before you can build|Seed your camp/.test(__main())`)) {
+      await importFile(CAMPB); await done(); await nav('Generated Schedule')
+    }
+    if (await ev(`return !!__btn('Generate a schedule', true)`)) await click('Generate a schedule', true)
+    await waitFor(STATS, 120000, 'Generate stats')
+    await click('Daily View', true, 10000).catch(() => {})
+    await sleep(800)
+    const cellInfo = `const cells=[...document.querySelectorAll('[role=gridcell][data-cell-key]')].filter(__vis).map(c=>{const r=c.getBoundingClientRect(); const [g,d,b]=c.dataset.cellKey.split('|'); return {key:c.dataset.cellKey, g, d, b, x:r.left+r.width/2, y:r.top+r.height/2, text:c.innerText.trim(), span:Number(c.getAttribute('aria-rowspan')||1), plain:!c.hasAttribute('data-elective')&&!c.hasAttribute('data-event')&&!c.hasAttribute('data-drop-disabled')&&!!c.querySelector('.cell-inner')&&!c.querySelector('.cell-inner--anchor')}}).filter(c=>c.text);`
+    const textAt = (key) => ev(`return document.querySelector('[data-cell-key="'+${JSON.stringify(key)}+'"]')?.innerText.trim() ?? null`)
+    const placed = async () => (await waitFor(STATS, 15000, 'stats')).placed
+    // A real pointer drag (dnd-kit needs > 5px of movement before it starts).
+    const drag = async (a, b) => {
+      const send = (type, x, y) => h.app().send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 })
+      await send('mousePressed', a.x, a.y)
+      for (let i = 1; i <= 12; i++) { await send('mouseMoved', a.x + (b.x - a.x) * i / 12, a.y + (b.y - a.y) * i / 12); await sleep(25) }
+      await sleep(150); await send('mouseReleased', b.x, b.y); await sleep(1200)
+    }
+    const cells = await ev(cellInfo + 'return cells')
+    // Two plain single-block cells in the same block, holding different activities.
+    const plain = cells.filter(c => c.plain && c.span === 1)
+    let pair = null
+    for (const a of plain) { const b = plain.find(o => o.b === a.b && o.d === a.d && o.key !== a.key && o.text !== a.text); if (b) { pair = [a, b]; break } }
+    if (!pair) throw new Error(`no two plain single-block cells with different activities in one block (${plain.length} plain cells)`)
+    const [A, B] = pair
+    const p0 = await placed()
+    await drag(A, B)
+    const [a1, b1, p1] = [await textAt(A.key), await textAt(B.key), await placed()]
+    await click('Undo', true, 10000).catch(async () => ev(`document.querySelector('[aria-label=Undo]')?.click(); return true`))
+    await sleep(1200)
+    const [a2, b2, p2] = [await textAt(A.key), await textAt(B.key), await placed()]
+    const swapped = a1 === B.text && b1 === A.text
+    const restored = a2 === A.text && b2 === B.text
+    let note = `swap "${A.text}" (${A.key}) onto "${B.text}" (${B.key}): ${swapped ? 'swapped' : `NOT swapped (now "${a1}" / "${b1}")`}, Placed ${p0} -> ${p1}; Undo: ${restored ? 'both restored' : `NOT restored ("${a2}" / "${b2}")`}, Placed ${p2}`
+    let ok = swapped && restored && p1 === p0 && p2 === p0
+    // Refused case: a plain cell dropped on a multi-block cell.
+    let after = await ev(cellInfo + 'return cells')
+    let span = after.find(c => c.span > 1)
+    if (!span) {
+      // campB's week has no multi-block cell: load the double-period elective sample (r9), whose Monday
+      // holds a two-block elective, so the refused case is always exercised.
+      const R9 = SYN('repro/r9-double-period-elective.txt')
+      if (!fs.existsSync(R9)) throw new Error(`${note}; refused case needs ${R9} (pull main)`)
+      await importFile(R9, { replace: true }); await done()
+      await nav('Generated Schedule')
+      if (await ev(`return !!__btn('Generate a schedule', true)`)) await click('Generate a schedule', true)
+      else await click('Rebuild', true)
+      if (await ev(`return !!__btn('Rebuild it', true)`)) await click('Rebuild it', true)
+      await waitFor(STATS, 120000, 'Generate stats (r9)')
+      await click('Monday', true, 10000).catch(() => {})
+      await sleep(800)
+      after = await ev(cellInfo + 'return cells')
+      span = after.find(c => c.span > 1)
+    }
+    const src = span && after.find(c => c.plain && c.span === 1 && c.d === span.d && c.text !== span.text)
+    if (!span || !src) throw new Error(`${note}; refused case: no multi-block cell even after loading r9`)
+    {
+      const [s0, t0, p3] = [await textAt(src.key), await textAt(span.key), await placed()]
+      await drag(src, span)
+      const said = await ev(`return (__main().match(/Can.t swap[^\\n]*/)||[null])[0]`)
+      const [s1, t1, p4] = [await textAt(src.key), await textAt(span.key), await placed()]
+      const unchanged = s1 === s0 && t1 === t0 && p4 === p3
+      note += `; refused case "${src.text}" onto 2-block "${span.text}": note ${said ? `"${said}"` : 'MISSING'}, ${unchanged ? 'nothing changed' : `CHANGED ("${s1}" / "${t1}", Placed ${p3} -> ${p4})`}`
+      ok = ok && Boolean(said) && unchanged
+    }
+    if (!ok) throw new Error(note)
+    return note
+  })
+
   // Like featureIn, for work that has a branch but no PR number yet: in the build iff a MERGED PR from
   // that branch has its merge commit in the build. --force=<step> runs the step anyway (to check the
   // harness against a build without the feature, where the step is expected to FAIL).
@@ -413,17 +496,25 @@ export async function run(h) {
       await peer.click('Join with a camp code', false)
       await peer.waitFor(`const i=__inp('input[placeholder="K4P7-2MRQ"]'); if(!i) return false; __set(i, ${JSON.stringify(code)}); return true`, 15000, `${peer.label}: code field`)
       await sleep(300); await peer.click('Continue', true, 10000)
+      h.log(`[t13] ${new Date().toISOString()} ${peer.label}: pairing request sent (code ${code})`)
       await waitFor(`return [...document.querySelectorAll('button')].filter(__vis).some(b=>b.innerText.trim()==='Approve'&&!b.disabled)`, 90000, `${peer.label}'s pairing request on A`)
       await ev(`[...document.querySelectorAll('button')].filter(__vis).find(b=>b.innerText.trim()==='Approve'&&!b.disabled).click(); return true`)
+      h.log(`[t13] ${new Date().toISOString()} A: Approve clicked for ${peer.label}`)
       await peer.waitFor(`return !!__inp('#join-name')`, 90000, `${peer.label}: sign-in after approval`)
       await peer.ev(`__set(__inp('#join-name'), ${JSON.stringify(h.ADMIN)}); __set(__inp('#join-pin'), ${JSON.stringify(h.PIN)}); return true`)
       await sleep(300); await peer.click('Sign in', true, 10000)
       // The join completes only once the camp document has arrived from A (the host must stay on until then).
       await peer.waitFor(`return __click('Continue', true) || document.body.innerText.includes('Log out')`, 120000, `${peer.label}: camp arrived`)
       await peer.waitFor(`return document.body.innerText.includes('Log out')`, 60000, `${peer.label}: signed in`)
+      h.log(`[t13] ${new Date().toISOString()} ${peer.label}: first sign-in complete`)
       return code
     }
+    // Timeline for diagnosis (T376 host self-sign-out): the instant A shows it lost access is logged.
+    let signedOutAt = null
+    const watch = setInterval(() => { if (!signedOutAt) ev(`return document.body.innerText.includes("This device's access was removed")`).then((v) => { if (v && !signedOutAt) { signedOutAt = new Date().toISOString(); h.log(`[t13] ${signedOutAt} A: shows "access was removed"`) } }).catch(() => {}) }, 500)
+    h.log(`[t13] ${new Date().toISOString()} launching peers B and C`)
     const B = await h.launchPeer('B', h.PORT + 10), C = await h.launchPeer('C', h.PORT + 20)
+    h.log(`[t13] ${new Date().toISOString()} peers B and C up`)
     try {
       const codeB = await pair(B), codeC = await pair(C)
       await click('Stop adding devices', true, 5000).catch(() => {})
@@ -452,9 +543,12 @@ export async function run(h) {
       if (off.s == null) throw new Error(note)
       return note
     } finally {
+      clearInterval(watch)
       await B.stop(); await C.stop()
     }
   })
+
+
 }
 
 function listBackups(ud) {

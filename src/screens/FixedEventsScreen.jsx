@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { Fragment, useState, useEffect, useRef } from 'react'
+import { groupFixedEvents } from './setup/groupFixedEvents'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, readEntitySheet } from '../utils/exportSanitize.js'
@@ -77,7 +78,10 @@ function normalizeFixedEvent(row) {
   }
 }
 
-function FixedEventModal({ fixedEvent, kind, tiers, groups, days, timeBlocks, locations, onSave, onClose, onCreateLocation, onUpdateLocationCapacity }) {
+// `group` (T377): editing the grouped row of an event that runs on several days. The days are shown,
+// not edited (a day is changed by expanding the row and editing it alone), and the save is applied to
+// every day's row. When the days' time blocks differ the block starts unpicked, so one pick sets all.
+function FixedEventModal({ fixedEvent, group = null, kind, tiers, groups, days, timeBlocks, locations, onSave, onClose, onCreateLocation, onUpdateLocationCapacity }) {
   const isNew = !fixedEvent?.id
   // Fixed = all-camp by construction (docs/adr/2026-08-28-fixed-vs-recurring-
   // events.md §3 CHECK: kind='fixed' requires is_all_groups=1, unit_id/
@@ -97,8 +101,8 @@ function FixedEventModal({ fixedEvent, kind, tiers, groups, days, timeBlocks, lo
   // it, so it's a constant derived from `kind`, not React state.
   const isAllTiers = isFixed
   // Multi-day: editing an existing fixed event pre-selects its single day
-  const [selectedDays, setSelectedDays] = useState(fixedEvent?.day_id ? [fixedEvent.day_id] : [])
-  const [blockId, setBlockId] = useState(fixedEvent?.time_block_id || '')
+  const [selectedDays, setSelectedDays] = useState(group ? group.dayIds : fixedEvent?.day_id ? [fixedEvent.day_id] : [])
+  const [blockId, setBlockId] = useState(group?.timesVary ? '' : fixedEvent?.time_block_id || '')
   const [locationId, setLocationId] = useState(fixedEvent?.location_id ?? null)
   const [notes, setNotes] = useState(fixedEvent?.notes || '')
   const [saving, setSaving] = useState(false)
@@ -190,11 +194,21 @@ function FixedEventModal({ fixedEvent, kind, tiers, groups, days, timeBlocks, lo
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, marginBottom: 20 }}>
           {isNew ? `Add ${kindLabel}` : `Edit: ${fixedEvent.name}`}
         </div>
+        {group && (
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: -12, marginBottom: 16 }}>
+            Changes apply to all {group.events.length} days. To change one day, expand the row and edit that day.
+          </div>
+        )}
 
         <Field label="Name">
           <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} placeholder="Mifkad" />
         </Field>
 
+        {group ? (
+          <Field label="Days">
+            <div style={{ fontSize: 13, color: 'var(--text)' }}>{group.daysLabel}</div>
+          </Field>
+        ) : (
         <Field label={isNew ? 'Days' : 'Day'}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {days.map(d => (
@@ -208,8 +222,10 @@ function FixedEventModal({ fixedEvent, kind, tiers, groups, days, timeBlocks, lo
             ))}
           </div>
         </Field>
+        )}
 
         <Field label="Time Block">
+          {group?.timesVary && !blockId && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Times vary by day. Pick one to set every day.</div>}
           <select value={blockId} onChange={e => setBlockId(e.target.value)} style={S.input}>
             <option value="">Block</option>
             {timeBlocks.map(b => <option key={b.id} value={b.id}>{timeBlockLabel(b)}</option>)}
@@ -261,6 +277,13 @@ function FixedEventModal({ fixedEvent, kind, tiers, groups, days, timeBlocks, lo
   )
 }
 
+// The heading counts events as the table shows them, one per name (T377), and the event-days they
+// make up when that differs: "12 recurring events · 37 days".
+function eventCountLabel(events, eventDays, kind) {
+  const head = `${events} ${kind} event${events !== 1 ? 's' : ''}`
+  return eventDays !== events ? `${head} · ${eventDays} days` : head
+}
+
 function Field({ label, children }) {
   return (
     <div style={{ marginBottom: 14 }}>
@@ -301,6 +324,8 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null) // fixed event being confirmed for delete
+  const [pendingGroupDelete, setPendingGroupDelete] = useState(null) // T377: grouped row asking all days or one
+  const [expandedEvents, setExpandedEvents] = useState(() => new Set()) // T377: grouped rows showing each day
   const [deleting, setDeleting] = useState(false)
   // null, or the exact ids the open Delete All confirm names (fetched fresh when it opens).
   const [pendingDeleteAll, setPendingDeleteAll] = useState(null)
@@ -484,6 +509,61 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
     }
     await load()
     setModal(null)
+  }
+
+  // T377: the grouped row's edit, applied to every day's row of the event. Days are not edited here
+  // (no day_id write): a day is changed alone from the expanded row.
+  async function saveFixedEventGroup(ids, fields) {
+    if (!activeCohort) return
+    const { selectedDays: _days, ...rest } = fields
+    let activityId
+    try {
+      activityId = await resolveActivityLink(rest.name)
+    } catch (err) {
+      setError(
+        err.message?.includes('matches more than one activity')
+          ? err.message
+          : describeWriteFailure(err, `That ${eventLabel} could not be saved.`)
+      )
+      throw err
+    }
+    const base = { ...rest, activity_id: activityId }
+    try {
+      for (const id of ids) await writeFields(id, base)
+    } catch (err) {
+      setError(describeWriteFailure(err, `That ${eventLabel} could not be saved on every day. Check each day and try again.`))
+      await load()
+      throw err
+    }
+    await load()
+    setModal(null)
+  }
+
+  // T377: delete some or all of an event's day rows (the grouped row's delete choice).
+  async function deleteFixedEventIds(ids) {
+    if (deleteInFlight.current) return
+    deleteInFlight.current = true
+    setDeleting(true)
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      for (const id of ids) {
+        const result = await localClient.deleteEntity(token, 'fixed_events', id)
+        if (!(result && (result.status === 'applied' || result.status === 'queued'))) throw new Error('delete failed')
+      }
+      setPendingGroupDelete(null)
+      await load()
+    } catch (err) {
+      setError(
+        /admin role required/i.test(err?.message ?? '')
+          ? `Only an admin can delete ${eventLabelPlural}.`
+          : describeWriteFailure(err, `That ${eventLabel} could not be deleted.`)
+      )
+      setPendingGroupDelete(null)
+      await load()
+    } finally {
+      setDeleting(false)
+      deleteInFlight.current = false
+    }
   }
 
   // Slice 2 — per-fixed-event "which weeks" control. '' selects "All weeks" and
@@ -902,6 +982,125 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
     const names = unitIds.map(tid => tierById[tid]).filter(Boolean)
     return names.length ? names.join(', ') : '—'
   }
+  // One day's row (a single-day event, or one day of an expanded grouped event, `asDay`).
+  function renderEventRow(a, { asDay = false } = {}) {
+    return (
+                <tr key={a.id} style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+                  onClick={() => setModal({ fixedEvent: a })}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+                  onMouseLeave={e => e.currentTarget.style.background = ''}
+                  onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
+                  onBlur={e => e.currentTarget.style.background = ''}
+                >
+                  <td style={{ ...S.td, fontWeight: 500 }}>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label={asDay ? `Edit ${a.name} on ${dayMap[a.day_id] || 'this day'}` : `Edit ${a.name}`}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ fixedEvent: a }) } }}
+                      style={{ cursor: 'pointer' }}
+                    >{asDay ? <span style={{ color: 'var(--text-secondary)', paddingLeft: 22 }}>{dayMap[a.day_id] || '—'}</span> : a.name}</span>
+                    {!activities.some(act => act.id === a.activity_id) && (
+                      <button
+                        onClick={e => { e.stopPropagation(); linkFixedEvent(a) }}
+                        title="Not linked to an activity, so the schedule cannot place it"
+                        aria-label={`Link to activity: ${a.name}`}
+                        style={{ ...S.btnRowDanger, marginLeft: 8, padding: '2px 8px', fontSize: 12 }}
+                      >Not linked · Link to activity</button>
+                    )}
+                  </td>
+                  <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{dayMap[a.day_id] || '—'}</td>
+                  <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)' }}>{blockMap[a.time_block_id] || '—'}</td>
+                  <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)', fontStyle: resolveFixedEventUnitIds(a, groups).inferred ? 'italic' : 'normal' }}>{fixedEventTierLabel(a)}</td>
+                  <td style={{ ...S.td, fontSize: 12 }}>
+                    <select
+                      value={a.schedule_week_id || ''}
+                      onChange={e => changeFixedEventWeek(a.id, e.target.value || null)}
+                      onClick={e => e.stopPropagation()}
+                      style={{ ...S.input, padding: '5px 8px', fontSize: 12, width: 'auto' }}
+                    >
+                      <option value="">All weeks</option>
+                      {weeks.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                    </select>
+                  </td>
+                  <td style={{ ...S.td, textAlign: 'right' }}>
+                    <button
+                      onClick={e => { e.stopPropagation(); deleteFixedEvent(a.id) }}
+                      disabled={role !== 'admin'}
+                      title={role !== 'admin' ? 'Admin only' : undefined}
+                      style={role !== 'admin' ? { ...S.btnRowDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnRowDanger, marginLeft: 6 }}
+                    >Delete</button>
+                  </td>
+                </tr>
+    )
+  }
+
+  // T377: one row for an event that runs on several days. Its edits apply to every day; the toggle
+  // shows each day for editing alone; delete asks whether to remove every day or one.
+  function renderGroupRow(group) {
+    const first = group.events[0]
+    const open = expandedEvents.has(group.key)
+    const toggle = (e) => {
+      e.stopPropagation()
+      setExpandedEvents((prev) => { const next = new Set(prev); if (next.has(group.key)) next.delete(group.key); else next.add(group.key); return next })
+    }
+    const editAll = () => setModal({ fixedEvent: first, group })
+    const unlinked = group.events.some(e => !activities.some(act => act.id === e.activity_id))
+    return (
+      <tr key={group.key} style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+        onClick={editAll}
+        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+        onMouseLeave={e => e.currentTarget.style.background = ''}
+      >
+        <td style={{ ...S.td, fontWeight: 500 }}>
+          <button type="button" data-no-press onClick={toggle} aria-expanded={open}
+            aria-label={`${open ? 'Hide' : 'Show'} each day of ${group.name}`}
+            style={{ border: 'none', background: 'none', padding: '0 6px 0 0', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 12 }}
+          >{open ? '▾' : '▸'}</button>
+          <span role="button" tabIndex={0} aria-label={`Edit ${group.name}`}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editAll() } }}
+            style={{ cursor: 'pointer' }}
+          >{group.name}</span>
+          {unlinked && (
+            <button
+              onClick={e => { e.stopPropagation(); group.events.filter(ev => !activities.some(act => act.id === ev.activity_id)).forEach(linkFixedEvent) }}
+              title="Not linked to an activity, so the schedule cannot place it"
+              aria-label={`Link to activity: ${group.name}`}
+              style={{ ...S.btnRowDanger, marginLeft: 8, padding: '2px 8px', fontSize: 12 }}
+            >Not linked · Link to activity</button>
+          )}
+        </td>
+        <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{group.daysLabel}</td>
+        <td style={{ ...S.td, fontSize: 12, fontFamily: group.timesVary ? 'inherit' : 'var(--font-mono)', color: group.timesVary ? 'var(--text-secondary)' : undefined }}>
+          {group.timesVary ? 'times vary' : blockMap[group.timeBlockId] || '—'}
+        </td>
+        <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{group.scopeVaries ? 'varies' : fixedEventTierLabel(first)}</td>
+        <td style={{ ...S.td, fontSize: 12 }}>
+          <select
+            value={group.weeksVary ? '__varies' : group.weekId || ''}
+            onChange={e => { const v = e.target.value || null; group.events.forEach(ev => changeFixedEventWeek(ev.id, v)) }}
+            onClick={e => e.stopPropagation()}
+            aria-label={`Weeks for ${group.name}`}
+            style={{ ...S.input, padding: '5px 8px', fontSize: 12, width: 'auto' }}
+          >
+            {group.weeksVary && <option value="__varies" disabled>Varies</option>}
+            <option value="">All weeks</option>
+            {weeks.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </td>
+        <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+          <button
+            onClick={e => { e.stopPropagation(); setPendingGroupDelete(group) }}
+            disabled={role !== 'admin'}
+            title={role !== 'admin' ? 'Admin only' : undefined}
+            aria-label={`Delete ${group.name}`}
+            style={role !== 'admin' ? { ...S.btnRowDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnRowDanger, marginLeft: 6 }}
+          >Delete</button>
+        </td>
+      </tr>
+    )
+  }
+
 
   const readyRows = importRows.filter(r => r.name && !r.warning)
   const warnRows = importRows.filter(r => r.warning || !r.name)
@@ -911,7 +1110,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
       <SetupScreenShell
         screenKey={kind === 'fixed' ? 'fixedevents' : 'recurringevents'}
         onNavigate={onNavigate}
-        countLabel={`${fixedEvents.length} ${kind} event${fixedEvents.length !== 1 ? 's' : ''}`}
+        countLabel={eventCountLabel(groupFixedEvents(fixedEvents, days).length, fixedEvents.length, kind)}
         role={role}
         actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
         fileInputRef={fileRef}
@@ -945,54 +1144,11 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
                 <tr><td colSpan={6} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>No {kind} events yet</div>
                 </td></tr>
-              ) : fixedEvents.map(a => (
-                <tr key={a.id} style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
-                  onClick={() => setModal({ fixedEvent: a })}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
-                  onMouseLeave={e => e.currentTarget.style.background = ''}
-                  onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
-                  onBlur={e => e.currentTarget.style.background = ''}
-                >
-                  <td style={{ ...S.td, fontWeight: 500 }}>
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Edit ${a.name}`}
-                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ fixedEvent: a }) } }}
-                      style={{ cursor: 'pointer' }}
-                    >{a.name}</span>
-                    {!activities.some(act => act.id === a.activity_id) && (
-                      <button
-                        onClick={e => { e.stopPropagation(); linkFixedEvent(a) }}
-                        title="Not linked to an activity, so the schedule cannot place it"
-                        aria-label={`Link to activity: ${a.name}`}
-                        style={{ ...S.btnRowDanger, marginLeft: 8, padding: '2px 8px', fontSize: 12 }}
-                      >Not linked · Link to activity</button>
-                    )}
-                  </td>
-                  <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{dayMap[a.day_id] || '—'}</td>
-                  <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)' }}>{blockMap[a.time_block_id] || '—'}</td>
-                  <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)', fontStyle: resolveFixedEventUnitIds(a, groups).inferred ? 'italic' : 'normal' }}>{fixedEventTierLabel(a)}</td>
-                  <td style={{ ...S.td, fontSize: 12 }}>
-                    <select
-                      value={a.schedule_week_id || ''}
-                      onChange={e => changeFixedEventWeek(a.id, e.target.value || null)}
-                      onClick={e => e.stopPropagation()}
-                      style={{ ...S.input, padding: '5px 8px', fontSize: 12, width: 'auto' }}
-                    >
-                      <option value="">All weeks</option>
-                      {weeks.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                    </select>
-                  </td>
-                  <td style={{ ...S.td, textAlign: 'right' }}>
-                    <button
-                      onClick={e => { e.stopPropagation(); deleteFixedEvent(a.id) }}
-                      disabled={role !== 'admin'}
-                      title={role !== 'admin' ? 'Admin only' : undefined}
-                      style={role !== 'admin' ? { ...S.btnRowDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnRowDanger, marginLeft: 6 }}
-                    >Delete</button>
-                  </td>
-                </tr>
+              ) : groupFixedEvents(fixedEvents, days).map(group => group.events.length === 1 ? renderEventRow(group.events[0]) : (
+                <Fragment key={group.key}>
+                  {renderGroupRow(group)}
+                  {expandedEvents.has(group.key) && group.events.map(a => renderEventRow(a, { asDay: true }))}
+                </Fragment>
               ))}
               <AddRecordRow label={`Add ${kind === 'fixed' ? 'Fixed' : 'Recurring'} Event`} colSpan={6} onClick={() => setModal({ fixedEvent: null })} />
             </tbody>
@@ -1009,13 +1165,14 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
       {modal && (
         <FixedEventModal
           fixedEvent={modal.fixedEvent}
+          group={modal.group ?? null}
           kind={kind}
           tiers={tiers}
           groups={groups}
           days={days}
           timeBlocks={timeBlocks}
           locations={locations}
-          onSave={saveFixedEvent}
+          onSave={modal.group ? (_id, fields) => saveFixedEventGroup(modal.group.events.map(e => e.id), fields) : saveFixedEvent}
           onClose={() => setModal(null)}
           onCreateLocation={createLocation}
           onUpdateLocationCapacity={updateLocationCapacity}
@@ -1057,6 +1214,32 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
           if (c.key === 'tiers') return r._tierNames
         }}
       />
+
+      {pendingGroupDelete && (
+        <div style={S.overlay}>
+          <ModalCard onCancel={deleting ? undefined : () => setPendingGroupDelete(null)} style={{ ...S.modalSm, maxWidth: 440 }} aria-labelledby="group-delete-title">
+            <div id="group-delete-title" style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 8 }}>
+              Delete "{pendingGroupDelete.name}"?
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.6, margin: '0 0 16px' }}>
+              It runs on {pendingGroupDelete.daysLabel}. Delete it from every day, or from one day only?
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+              {pendingGroupDelete.events.map(ev => (
+                <button key={ev.id} className="press-97" disabled={deleting} onClick={() => deleteFixedEventIds([ev.id])} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>
+                  {dayMap[ev.day_id] || 'That day'} only
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button data-autofocus className="press-97" disabled={deleting} onClick={() => setPendingGroupDelete(null)} style={S.btnSecondary}>Cancel</button>
+              <button disabled={deleting} onClick={() => deleteFixedEventIds(pendingGroupDelete.events.map(ev => ev.id))} style={S.btnDanger}>
+                {deleting ? 'Deleting…' : `Delete all ${pendingGroupDelete.events.length} days`}
+              </button>
+            </div>
+          </ModalCard>
+        </div>
+      )}
 
       {pendingDelete && (
         <ConfirmDangerDialog

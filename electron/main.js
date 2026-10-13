@@ -37,7 +37,7 @@ import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from '
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
 import { listOpenReconciliationDecisions, dismissOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
 import { addHeldEventForAllGroups } from './ops/addHeldEventForAllGroups.js'
-import { commitIngest, undoImportRun, recordRunVersion, recordRunCreated, listImportEvidence, listCompoundCellDecisions, listActivityAliases } from './ops/ingest.js'
+import { commitIngest, undoImportRun, recordRunVersion, recordRunCreated, recordRunFile, clearLastImportUndo, lastImportUndo, listImportEvidence, listCompoundCellDecisions, listActivityAliases } from './ops/ingest.js'
 import { materializeImportedVersion, cleanSourceFileName } from './ops/materializeImportedVersion.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { mergeActivity, previewActivityMerge } from './ops/mergeActivity.js'
@@ -617,6 +617,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // behavior as before (docs/adr/2026-08-17-onescreen-reconciliation-undo.md).
       captureInverse: captureInverse === true,
     })
+    // Only the last import can be undone (director test 2026-10-12). An undoable commit has already stored
+    // its record over the previous one; any other commit (e.g. Replace) retires the previous import's undo.
+    if (!outcome?.held) {
+      if (captureInverse === true && outcome?.importRunId) recordRunFile(db, outcome.importRunId, cleanSourceFileName(sourceFileName))
+      else clearLastImportUndo(db)
+    }
     // T118 slice 4 — the director's freshly-resolved compound-cell-pattern
     // decisions (ImportScreen's "Cells We Weren't Sure About"), written to the
     // per-camp learned table AFTER the catalog commit above succeeds, same
@@ -747,6 +753,14 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       device_id: deviceId,
       client_write_id,
     })
+  }
+
+  // The import that can still be undone on this device (Roots' "Undo last import"), or null. Same
+  // authority as the undo itself.
+  function lastImportUndoHandler({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'groups.import' })
+    return lastImportUndo(db)
   }
 
   // S1b — confirm that an imported label means an existing entity, so the
@@ -1854,7 +1868,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (dbPath && handlersUserDataPath) {
       try {
         try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
-        writeUserBackup(dbPath, handlersUserDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err), null, db)
+        writeUserBackup(dbPath, handlersUserDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err), null, db, 'before-replace')
       } catch (err) {
         // Non-fatal by design, but never silent: the replace proceeds without a safety snapshot.
         console.error('backup: pre-bulk-replace snapshot failed (non-fatal, replace proceeds without one):', err?.message ?? err)
@@ -3351,6 +3365,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     ingestCommit,
     ingestReconcile,
     ingestUndo: ingestUndoHandler,
+    lastImportUndo: lastImportUndoHandler,
     confirmAlias: confirmAliasHandler,
     recordDeclinedSplit: recordDeclinedSplitHandler,
     recordImportDecisions: recordImportDecisionsHandler,
@@ -3716,6 +3731,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))
     ipcMain.handle('shoresh:ingest-undo', (_event, args) => handlers.ingestUndo(args))
     ipcMain.handle('shoresh:add-held-event-for-all-groups', (_event, args) => handlers.addHeldEventForAllGroups(args))
+    ipcMain.handle('shoresh:last-import-undo', (_event, args) => handlers.lastImportUndo(args))
     ipcMain.handle('shoresh:confirm-alias', (_event, args) => handlers.confirmAlias(args))
     ipcMain.handle('shoresh:record-declined-split', (_event, args) => handlers.recordDeclinedSplit(args))
     ipcMain.handle('shoresh:record-import-decisions', (_event, args) => handlers.recordImportDecisions(args))
@@ -3985,7 +4001,8 @@ if (isElectronEntryPoint()) {
       let docBackupError
       const backupPath = writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => { docBackupError = err.message }, null, db)
       lastBackupPath = backupPath
-      return docBackupError ? { backupPath, docBackupError } : { backupPath }
+      const savedAt = new Date().toISOString()
+      return docBackupError ? { backupPath, savedAt, docBackupError } : { backupPath, savedAt }
     } catch (err) {
       return { error: 'backup_failed', message: err.message }
     }

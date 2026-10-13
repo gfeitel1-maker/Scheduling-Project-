@@ -168,7 +168,7 @@ describe('resolving a decision', () => {
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
     await screen.findByText(/0 of 1 question/)
 
-    const exit = screen.getByRole('button', { name: /Use what Shoresh understood/ })
+    const exit = screen.getByRole('button', { name: /Import the rest, keep \d+ for later/ })
     expect(exit.disabled).toBe(false)
     // Still read-only until the director actually presses it.
     expect(localClient.ingestCommit).not.toHaveBeenCalled()
@@ -194,7 +194,7 @@ describe('double-submit guard on apply() (HIGH 2)', () => {
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
     await screen.findByText(/0 of 1 question/)
 
-    const exit = screen.getByRole('button', { name: /Use what Shoresh understood/ })
+    const exit = screen.getByRole('button', { name: /Import the rest, keep \d+ for later/ })
     // Both clicks dispatched inside one act(), before React flushes the
     // `applying` state update from the first — exercises the synchronous
     // guard, not the disabled-button re-render (which would mask the bug).
@@ -218,7 +218,7 @@ describe('double-submit guard on apply() (HIGH 2)', () => {
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={onCommitted} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
     await screen.findByText(/0 of 1 question/)
 
-    const exit = screen.getByRole('button', { name: /Use what Shoresh understood/ })
+    const exit = screen.getByRole('button', { name: /Import the rest, keep \d+ for later/ })
     await act(async () => {
       fireEvent.click(exit)
     })
@@ -784,7 +784,7 @@ describe('audit 714: leaving the review', () => {
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
     await screen.findByText(/0 of 1 question/)
 
-    await userEvent.click(screen.getByRole('button', { name: /Use what Shoresh understood/ }))
+    await userEvent.click(screen.getByRole('button', { name: /Import the rest, keep \d+ for later/ }))
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
     expect(localClient.ingestCommit.mock.calls[0][0].openDecisions).toEqual([
       expect.objectContaining({ entity: 'activities', entityName: 'Swim', kind: 'confirm_value' }),

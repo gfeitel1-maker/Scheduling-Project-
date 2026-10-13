@@ -1,26 +1,27 @@
-// Inverse of migration v97 (electron/db/localDb.js) — UX audit A1.
+// Inverse of migration v97 (electron/db/localDb.js) — the persistent "Undo last import" record.
 //
-//   1. `ALTER TABLE open_reconciliation_decisions DROP COLUMN payload`. v97 added one nullable column to a
-//      device-local, never-synced table and touched nothing else, so the rollback is lossless elsewhere.
-//   2. DATA LOSS: each held-back event question loses the event it carries. The question itself stays and
-//      can still be dismissed; it can no longer be answered with "Add for all groups".
+//   1. `DROP TABLE last_import_undo`. v97 added one device-local table and touched no existing table, so
+//      the rollback is lossless for every other table.
+//   2. DATA LOSS: the stored undo record of the last import, so that import can no longer be undone from
+//      Roots. The import itself and everything it wrote are untouched. An older build kept the record in
+//      memory only, which is the behaviour it returns to.
 //
 // Usage:  node electron/db/rollback/v97_down.js <path-to-shoresh.sqlite>
 
 import { assertHighestApplied } from './assertHighestApplied.js'
 
-const hasColumn = (db, table, col) =>
-  db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col)
+const hasTable = (db, name) =>
+  db.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name=?").get(name).c > 0
 
 /**
- * @returns {{ok:true, discarded:{payloads:number}}}
+ * @returns {{ok:true, discarded:{undoRows:number}}}
  */
 export function rollbackV97(db) {
-  const discarded = { payloads: 0 }
+  const discarded = { undoRows: 0 }
 
-  if (hasColumn(db, 'open_reconciliation_decisions', 'payload')) {
-    discarded.payloads = db.prepare('SELECT COUNT(*) c FROM open_reconciliation_decisions WHERE payload IS NOT NULL').get().c
-    db.exec('ALTER TABLE open_reconciliation_decisions DROP COLUMN payload')
+  if (hasTable(db, 'last_import_undo')) {
+    discarded.undoRows = db.prepare('SELECT COUNT(*) c FROM last_import_undo').get().c
+    db.exec('DROP TABLE last_import_undo')
   }
 
   // `>= 97`, never `= 97` (bareEqualityRollback.guard.test.js's class).
@@ -42,7 +43,7 @@ if (process.argv[1] && process.argv[1].endsWith('v97_down.js')) {
   const result = rollbackV97(db)
   db.close()
   console.log(
-    `v97 rolled back: dropped open_reconciliation_decisions.payload (${result.discarded.payloads} held-back event(s) lost; the questions remain). ` +
-    'This app build still declares schema version 97: reopening it re-adds the column empty.'
+    `v97 rolled back: dropped last_import_undo (${result.discarded.undoRows} row(s); that import can no longer be undone from Roots). ` +
+    'This app build still declares schema version 97: reopening it recreates the table empty.'
   )
 }

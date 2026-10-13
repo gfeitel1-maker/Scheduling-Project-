@@ -24,6 +24,8 @@ export function useSetupCounts(campId) {
   const [buildLabel, setBuildLabel] = useState(null)
   const [backupStatus, setBackupStatus] = useState(null)
   const [backupRevealable, setBackupRevealable] = useState(false)
+  // When the director's last "Backup now" was made, kept after "Backup saved" fades (director test).
+  const [lastBackupAt, setLastBackupAt] = useState(null)
   const { start: startBackupStatusReset, cancel: cancelBackupStatusReset } = useLatestTimeout()
   const [counts, setCounts] = useState(null)
   // Which camp the counts above were read for, and whether every list read
@@ -127,7 +129,7 @@ export function useSetupCounts(campId) {
     try {
       const result = await localClient.backupProject()
       status = result?.error ? 'error' : result?.docBackupError ? 'caution' : 'ok'
-      if (!result?.error) setBackupRevealable(true)
+      if (!result?.error) { setBackupRevealable(true); setLastBackupAt(result?.savedAt ?? new Date().toISOString()) }
     } catch {
       status = 'error'
     }
@@ -155,6 +157,7 @@ export function useSetupCounts(campId) {
     backupStatus,
     handleBackupNow,
     backupRevealable,
+    lastBackupAt,
     handleShowBackup,
     offerShown,
     setOfferShown,

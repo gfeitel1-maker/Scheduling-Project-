@@ -146,6 +146,8 @@ export const localClient = {
   // above is a read-only dry run and correctly stays unwrapped.) T259.
   ingestUndo: announcing(({ invertibleOps, createdEntityIds, importRunId, client_write_id } = {}) =>
     shoresh.ingestUndo({ token: currentToken(), invertibleOps, createdEntityIds, importRunId, client_write_id })),
+  // The import that can still be undone on this device (Roots' "Undo last import"), or null.
+  lastImportUndo: () => shoresh.lastImportUndo({ token: currentToken() }),
   // S1b — remember an import label -> existing entity mapping so the next
   // import recognizes it without re-asking. Host-only, admin-gated at the IPC
   // boundary (electron/main.js's confirmAliasHandler); best-effort by callers.

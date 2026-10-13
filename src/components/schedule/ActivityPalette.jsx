@@ -44,24 +44,27 @@ function DraggablePaletteItem({ activity, scheduledCount, target, cap, atMax, dr
         transition: 'opacity var(--motion-fast) var(--ease-out)',
       }}
     >
-      <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <span style={{
+      {/* Name above, count below (director test 2026-10-12): side by side, the count left the name
+          a few letters ("A.", "Ga..."). The name wraps to two lines before it is cut. */}
+      <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span title={activity.name} style={{
           fontFamily: 'var(--font-sans)',
           fontSize: 12,
           fontWeight: 600,
           color: 'var(--text)',
           overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
+          display: '-webkit-box',
+          WebkitBoxOrient: 'vertical',
+          WebkitLineClamp: 2,
+          overflowWrap: 'anywhere',
         }}>{activity.name}</span>
-      </span>
-      <span data-testid={`palette-count-${activity.id}`} style={{
-        fontFamily: 'var(--font-mono)',
-        fontSize: 11,
-        color: atMax ? 'var(--danger)' : 'var(--text)',
-        flexShrink: 0,
-      }}>
-        {scheduledCount} placed{needs ? ` (${needs})` : ''}
+        <span data-testid={`palette-count-${activity.id}`} style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 11,
+          color: atMax ? 'var(--danger)' : 'var(--text-secondary)',
+        }}>
+          {scheduledCount} placed{needs ? ` (${needs})` : ''}
+        </span>
       </span>
     </div>
   )
@@ -105,8 +108,10 @@ function DraggableElectiveItem({ set, count, draggable }) {
         fontWeight: 600,
         color: 'var(--text)',
         overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
+        display: '-webkit-box',
+        WebkitBoxOrient: 'vertical',
+        WebkitLineClamp: 2,
+        overflowWrap: 'anywhere',
       }}>{set.name}</span>
       <span data-testid={`palette-elective-count-${set.id}`} style={{
         fontFamily: 'var(--font-mono)',

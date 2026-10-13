@@ -22,13 +22,14 @@ describe('applyTrayState', () => {
     const state = applyTrayState({ totalCount: 79, doneCount: 0, confirmedCount: 0 })
     expect(state.disabled).toBe(false)
     expect(state.mode).toBe('confirmedOnly')
-    expect(state.label).toBe('Use what Shoresh understood')
+    // Director test 2026-10-12: the label says the open questions are kept, not accepted.
+    expect(state.label).toBe('Import the rest, keep 79 for later')
     expect(state.hint).toMatch(/^79 open — kept for later$/)
   })
 
   it('on a first import, says the file is being added rather than that questions are open', () => {
     const state = applyTrayState({ totalCount: 71, doneCount: 0, confirmedCount: 0, isFirstImport: true })
-    expect(state.label).toBe('Add to camp')
+    expect(state.label).toBe('Add to camp, keep 71 for later')
     expect(state.hint).toMatch(/^71 open — kept for later$/)
   })
 
@@ -98,13 +99,13 @@ describe('commitTrayState', () => {
     expect(tray.hint.toLowerCase()).not.toMatch(/always/)
   })
 
-  it('says "for the next few minutes" with more than 60s left', () => {
+  it('says the undo is here, or later from Roots, with more than 60s left', () => {
     const tray = commitTrayState({
       notices: [],
       undoCapable: true,
       undoState: { status: 'live', isLive: true, isPending: false, total: 1, secondsLeft: null },
     })
-    expect(tray.secondary.note).toBe('for the next few minutes')
+    expect(tray.secondary.note).toBe('here, or later from Roots')
     expect(tray.hint).toBe('Imported 1 record from the file.')
   })
 
@@ -114,7 +115,7 @@ describe('commitTrayState', () => {
       undoCapable: true,
       undoState: { status: 'live', isLive: true, isPending: false, total: 40, secondsLeft: 42 },
     })
-    expect(tray.secondary.note).toBe('42s left')
+    expect(tray.secondary.note).toBe('42s left here, then on Roots')
   })
 
   it('shows "Undoing…" with the note hidden while an undo is in flight', () => {

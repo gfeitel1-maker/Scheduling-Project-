@@ -1,4 +1,4 @@
-// rollbackV97 drops open_reconciliation_decisions.payload and nothing else.
+// rollbackV97 drops last_import_undo and nothing else.
 import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -12,22 +12,21 @@ afterEach(() => {
     for (const s of ['', '-wal', '-shm']) if (fs.existsSync(f + s)) fs.unlinkSync(f + s)
   }
 })
-const cols = (db) => db.prepare('PRAGMA table_info(open_reconciliation_decisions)').all().map((c) => c.name)
+const hasTable = (db, name) =>
+  db.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type = 'table' AND name = ?").get(name).c > 0
 
 describe('rollbackV97', () => {
-  it('drops payload, keeps the question, reports what was discarded, clears version >= 97, and is idempotent', () => {
+  it('drops last_import_undo, reports what was discarded, clears version >= 97, leaves roster_cache, and is idempotent', () => {
     const file = path.join(os.tmpdir(), `shoresh-v97-down-${Date.now()}-${Math.random()}.sqlite`)
     files.push(file)
     const db = openLocalDb(file)
-    db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('c', 'Camp', ?)").run('a'.repeat(64))
-    db.prepare(`INSERT INTO open_reconciliation_decisions
-      (id, camp_id, entity_type, identity_key, kind, domain_key, child_key, import_run_id, created_at, payload)
-      VALUES ('q', 'c', 'fixed_events', 'q', 'confirm_value', 'd', 'k', 'r', 'now', '{"fixedEvent":{}}')`).run()
-    expect(rollbackV97(db).discarded).toEqual({ payloads: 1 })
-    expect(cols(db)).not.toContain('payload')
-    expect(db.prepare('SELECT id FROM open_reconciliation_decisions').get().id).toBe('q')
+    db.prepare("INSERT INTO last_import_undo (id, import_run_id, file_name, committed_at, record) VALUES (1, 'r', 'f.txt', 'now', '{}')").run()
+    db.prepare("INSERT INTO roster_cache (device_id, peer_id, verified_at) VALUES ('d', 'p', 'now')").run()
+    expect(rollbackV97(db).discarded).toEqual({ undoRows: 1 })
+    expect(hasTable(db, 'last_import_undo')).toBe(false)
     expect(getSchemaVersion(db)).toBe(96)
-    expect(rollbackV97(db).discarded).toEqual({ payloads: 0 })
+    expect(db.prepare('SELECT peer_id FROM roster_cache').get().peer_id).toBe('p')
+    expect(rollbackV97(db).discarded).toEqual({ undoRows: 0 })
     db.close()
   })
 })

@@ -15,8 +15,13 @@ const eventIdentity = (ev) => JSON.stringify([ev.kind, ev.name, ev.activity_id, 
 // group-scoped lunch wave lands in its own groups' cells and nowhere else. Anything else
 // (a recurring or day-specific event) is OFFERED, and only when the special day is placed
 // on exactly one weekday (a special day replaces that day), for events that apply to it.
-function splitFixedEvents(fixedEvents, groups, placedDayId, operatingDayIds) {
+// `placedWeekId`: the one week every placement of the special day is in, else null. A week-only event
+// (its Weeks column) is never CARRIED (the copy is week-agnostic) and is OFFERED only for that week: the
+// special day's grid is shared by every week it is placed in, so a week-only event offered for a day
+// placed in two weeks would show in the wrong one.
+function splitFixedEvents(fixedEvents, groups, placedDayId, operatingDayIds, placedWeekId = null) {
   const live = fixedEvents.filter((ev) => ev.schedule_week_id == null && ev.activity_id != null)
+  const offerable = fixedEvents.filter((ev) => ev.activity_id != null && (ev.schedule_week_id == null || (placedWeekId != null && ev.schedule_week_id === placedWeekId)))
   const byIdentity = new Map()
   for (const ev of live) {
     const key = eventIdentity(ev)
@@ -40,9 +45,15 @@ function splitFixedEvents(fixedEvents, groups, placedDayId, operatingDayIds) {
     }
   }
   const offered = placedDayId
-    ? live.filter((ev) => !carriedRows.has(ev) && (ev.day_id === placedDayId || (ev.kind === 'recurring' && isEveryDay(ev))))
+    ? offerable.filter((ev) => !carriedRows.has(ev) && (ev.day_id === placedDayId || (ev.kind === 'recurring' && isEveryDay(ev))))
     : []
   return { carry, offered, varies: live.some((ev) => !carriedRows.has(ev)) }
+}
+
+// The single week a special day is placed in, or null when it is unplaced or placed in several weeks.
+function onlyWeek(placements, specialDayId) {
+  const weeks = [...new Set((placements || []).filter((p) => p.special_day_id === specialDayId).map((p) => p.week_id))]
+  return weeks.length === 1 ? weeks[0] : null
 }
 
 // Whether a camp's fixed events differ by weekday for some group, which is when an unplaced
@@ -146,7 +157,7 @@ export async function offerForPlacedDay({ campId, specialDayId }) {
     .filter((ev) => ev.camp_id === campId)
     .map((ev) => ({ ...ev, group_ids: parseIdList(ev.group_ids), unit_ids: parseIdList(ev.unit_ids) }))
   const operating = (days || []).filter((d) => d.camp_id === campId)
-  const { offered } = splitFixedEvents(fixedEvents, groups, placedDayIds[0], operating.map((d) => d.id))
+  const { offered } = splitFixedEvents(fixedEvents, groups, placedDayIds[0], operating.map((d) => d.id), onlyWeek(placements, specialDayId))
   const day = operating.find((d) => d.id === placedDayIds[0])
   return makeOffer({ specialDayId, offered, groups, scoped, blockIdMap, dayLabel: day?.label || day?.day_of_week || 'another day' })
 }
@@ -192,7 +203,7 @@ export async function copyCampTimeBlocks({ campId, specialDayId }) {
     }
     const multiDay = placedDayIds.length > 1
     const placedDayId = placedDayIds.length === 1 ? placedDayIds[0] : null
-    const { carry, offered, varies } = splitFixedEvents(fixedEvents, groups, placedDayId, (days || []).filter((d) => d.camp_id === campId).map((d) => d.id))
+    const { carry, offered, varies } = splitFixedEvents(fixedEvents, groups, placedDayId, (days || []).filter((d) => d.camp_id === campId).map((d) => d.id), onlyWeek(placements, specialDayId))
 
     const copied = await copyInOneWrite(specialDayId, blocks, cellsFor(carry, groups, scoped, blockIdMap))
     const notices = [...copied.skipped]

@@ -126,6 +126,29 @@ describe('copyCampTimeBlocks fixed events', () => {
     expect(filled().filter((c) => c.activity_id === 'a-gt')).toEqual([expect.objectContaining({ group_id: 'g2', time_block_id: 'sdb-sd1-b3' })])
   })
 
+  // Keeper question 2026-10-12: an event set to one week (its Weeks column) is offered when the special
+  // day is placed only in that week. The special day's grid is shared by every week it is placed in, so
+  // a week-only event is not offered when the placements span weeks.
+  describe('an event set to one week only', () => {
+    beforeEach(() => { rows.fixed_events[1] = { ...rows.fixed_events[1], schedule_week_id: 'w2' } })
+    const placeIn = (...weeks) => { rows.special_day_placements = weeks.map((w, i) => ({ id: `p${i}`, week_id: w, day_id: 'mon', special_day_id: SD })) }
+    it('is offered when the special day is placed in that week only', async () => {
+      placeIn('w2')
+      const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+      expect(r.offer?.count).toBe(1)
+    })
+    it('is not offered when the special day is placed in another week', async () => {
+      placeIn('w1')
+      const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+      expect(r.offer?.count ?? 0).toBe(0)
+    })
+    it('is not offered when the special day is placed in more than one week', async () => {
+      placeIn('w1', 'w2')
+      const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+      expect(r.offer?.count ?? 0).toBe(0)
+    })
+  })
+
   it('does not offer day-specific events when the special day is not placed', async () => {
     const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
     expect(r.offer).toBeNull()

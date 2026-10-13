@@ -67,8 +67,8 @@ describe('CommittedTray receipt placement', () => {
         onNavigate={onNavigate}
       />
     )
-    expect(screen.getByText("Last year's schedule is saved as a version: Imported from campB.txt.")).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Open it in Manual' }))
+    expect(screen.getByText("Last year's schedule is saved.")).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Open it in Manual Build' }))
     expect(onNavigate).toHaveBeenCalledWith('schedule:manual', { openVersionName: 'Imported from campB.txt' })
   })
 
@@ -82,7 +82,7 @@ describe('CommittedTray receipt placement', () => {
       />
     )
     expect(screen.queryByText(/saved as a version/)).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Open it in Manual' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open it in Manual Build' })).toBeNull()
   })
 
   it('counts what the director recognizes: elective join rows are not records', () => {

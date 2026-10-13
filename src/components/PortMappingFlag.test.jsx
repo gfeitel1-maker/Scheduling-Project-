@@ -60,6 +60,13 @@ describe('PortMappingFlag', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
+  // Director test 2026-10-12: a router problem read as an alarm. Every failure leads with the calm fact.
+  it.each(['refused', 'no-gateway', 'double-nat', 'port-in-use', 'error'])('%s leads with "Devices on this Wi-Fi connect normally."', async (status) => {
+    localClient.getPortMappingStatus.mockResolvedValue({ status })
+    render(<PortMappingFlag />)
+    expect((await screen.findByTestId('port-mapping-flag-line')).textContent).toBe('Devices on this Wi-Fi connect normally.')
+  })
+
   it('shows nothing for a status it does not know', async () => {
     localClient.getPortMappingStatus.mockResolvedValue({ status: 'something-new' })
     const { container } = render(<PortMappingFlag />)

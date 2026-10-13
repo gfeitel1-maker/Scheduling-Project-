@@ -51,9 +51,12 @@ export function applyTrayState({ totalCount = 0, doneCount = 0, confirmedCount =
 
   // Work outstanding. This is the case the old screen had no reachable exit
   // for, and the label says exactly what pressing it does with the remainder.
+  // Director test 2026-10-12: "Use what Shoresh understood" read as accepting the open guesses. It does
+  // not — an unanswered guess is held out of the import and kept on the camp as an open question
+  // (reconciliationResolutions.js applyResolutions, heldBackDecisions). So the label says exactly that.
   if (confirmedCount === 0) {
     return {
-      label: isFirstImport ? 'Add to camp' : 'Use what Shoresh understood',
+      label: `${isFirstImport ? 'Add to camp' : 'Import the rest'}, keep ${pending} for later`,
       mode: 'confirmedOnly',
       disabled: false,
       hint: `${pending} open — kept for later`,
@@ -197,7 +200,8 @@ export function commitTrayState({ notices = [], undoCapable = false, undoState =
         receipt: null,
       }
     }
-    const note = secondsLeft != null ? `${secondsLeft}s left` : 'for the next few minutes'
+    // The button here expires; the undo does not — Roots keeps it until the next import (director test).
+    const note = secondsLeft != null ? `${secondsLeft}s left here, then on Roots` : 'here, or later from Roots'
     return {
       hint: importedHint,
       primary,
