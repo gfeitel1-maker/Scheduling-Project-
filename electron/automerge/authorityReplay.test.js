@@ -589,3 +589,22 @@ describe('currentRevokedDeviceIds', () => {
     expect(ids).toEqual([])
   })
 })
+
+describe('currentRevokedDeviceIds: a revoke counts only if its signer was an admin at the entry\'s own position', () => {
+  it('a revoked admin\'s later revoke (and grant) of an outsider changes nothing', () => {
+    let doc = initDoc()
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'D', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'D', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'H', signer_device_id: 'D' })
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'X', signer_device_id: 'D' })
+    expect(currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'FOUNDER' })).toEqual(['D'])
+  })
+
+  it('the same revoke by an admin who was still an admin at that position counts', () => {
+    let doc = initDoc()
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'D', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'H', signer_device_id: 'D' })
+    doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'D', signer_device_id: 'FOUNDER' })
+    expect(currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'FOUNDER' })).toEqual(['D', 'H'])
+  })
+})

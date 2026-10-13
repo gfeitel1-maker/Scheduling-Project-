@@ -622,7 +622,12 @@ export function createAutomergeSyncStarter({
             }),
           })
         },
-        onAuthRejected: (peerId, reply) => {
+        onRemovalCleared: () => {
+          const mainWindow = getMainWindow()
+          if (mainWindow) mainWindow.webContents.send('shoresh:access-restored')
+          try { getLiveHandlers()?.pushSyncStatus?.() } catch { /* never break sync over a UI notice */ }
+        },
+        onAuthRejected: (peerId, reply, { removed = false } = {}) => {
           console.error(`automerge sync: peer ${peerId} rejected our authenticate: ${JSON.stringify(reply)}`)
           recordAuditEvent(db, {
             actorUserId: null,
@@ -632,16 +637,11 @@ export function createAutomergeSyncStarter({
             reason: reply?.reason ?? 'unknown',
             metadata: { peerId },
           })
-          // Reconnects the renderer half of T87's onAuthRejected path (preload.js's onAuthRejected,
-          // useDeviceMode.js's reasonForAuthRejectedCode), which had no sender at all from the Stage
-          // 6 WS-layer deletion onward — the Host authoritatively rejecting THIS device's authenticate
-          // was silently invisible to the director, sync just went dead. `reply` on the wire is
-          // `{ type: 'auth_failed', reason }` (authGate.js's auth_failed frame) — there is no numeric
-          // code on the wire, confirmed by reading authGate.js/mutualAuth.js directly — so it is
-          // mapped to the close-code convention here via codeForAuthRejectedReason, mirroring
-          // evaluateAuthenticate's own code choices (electron/auth/connectionAuth.js).
+          // The renderer hears "access removed" ONLY when this device's own authority state says so
+          // (syncNode.js's handleAuthRejected, selfRemoval.js). A peer's refusal of any kind is that
+          // peer's view of this device, not a verdict: a device mid-join refuses its own host.
           const mainWindow = getMainWindow()
-          if (mainWindow) mainWindow.webContents.send('shoresh:auth-rejected', { code: codeForAuthRejectedReason(reply?.reason) })
+          if (mainWindow && removed) mainWindow.webContents.send('shoresh:auth-rejected', { code: codeForAuthRejectedReason('device_revoked_by_authority') })
           // syncNode has already recorded a removal refusal (selfRemoval.js); refresh the footer now.
           try { getLiveHandlers()?.pushSyncStatus?.() } catch { /* never break sync over a UI notice */ }
         },

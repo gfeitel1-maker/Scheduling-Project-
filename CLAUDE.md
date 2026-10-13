@@ -68,6 +68,8 @@ second and catches run-record/frontmatter findings (a stale status field, a malf
 array, a missing agent accounting entry) that a later CI run reports anyway, just slower and after a
 round-trip.
 
+**Deleting a test needs a note.** A test file deleted on a branch must be named under a `Removed tests` heading (any level) in the PR body or a changed ticket, or `check:governance` fails (`test-deleted-without-note`); the #991 security tests are also pinned by `PINNED_TESTS` in `scripts/check-governance.js`.
+
 **Only one local gate runs at a time.** `npm run verify` takes a machine-wide lock
 (`scripts/gateLock.js`) keyed to the repository, so a second one waits and names the holder instead
 of both thrashing a 4-core machine. `SHORESH_VERIFY_NO_LOCK=1` bypasses it.

@@ -18,6 +18,7 @@ const mockLocalClient = {
   verifySession: vi.fn(),
   getDevicePairingStatus: vi.fn(),
   onAuthRejected: vi.fn(),
+  onAccessRestored: vi.fn(),
 }
 
 vi.mock('../localClient', () => ({
@@ -59,6 +60,7 @@ function makeLocalStorage() {
 }
 
 let authRejectedCallback
+let accessRestoredCallback
 
 beforeEach(() => {
   globalThis.localStorage = makeLocalStorage()
@@ -68,6 +70,7 @@ beforeEach(() => {
   mockLocalClient.campHasSetupData.mockResolvedValue(false)
   mockLocalClient.chooseMode.mockResolvedValue({ mode: 'client' })
   mockLocalClient.onAuthRejected.mockImplementation((cb) => { authRejectedCallback = cb })
+  mockLocalClient.onAccessRestored.mockImplementation((cb) => { accessRestoredCallback = cb })
 })
 
 describe('useDeviceMode: startup ordering (T87 Part 1)', () => {
@@ -323,5 +326,30 @@ describe('useDeviceMode: role follows the key (host handoff successor)', () => {
     await waitFor(() => expect(result.current.phase).not.toBe('loading'))
 
     expect(result.current.mode).toBe('client')
+  })
+})
+
+describe('useDeviceMode: access restored (a false removal healed itself)', () => {
+  it('clears the "access was removed" explanation', async () => {
+    seedClientDevice({ token: 'stored-token' })
+    mockLocalClient.verifySession.mockResolvedValue({ valid: true, role: 'staff' })
+    const { result } = renderHook(() => useDeviceMode())
+    await waitFor(() => expect(result.current.phase).toBe('session'))
+    authRejectedCallback(4404)
+    await waitFor(() => expect(result.current.sessionEndedReason).toMatch(/removed|revoked/i))
+    accessRestoredCallback()
+    await waitFor(() => expect(result.current.sessionEndedReason).toBeNull())
+  })
+
+  it('leaves a benign "session ended" explanation alone', async () => {
+    seedClientDevice({ token: 'stored-token' })
+    mockLocalClient.verifySession.mockResolvedValue({ valid: true, role: 'staff' })
+    const { result } = renderHook(() => useDeviceMode())
+    await waitFor(() => expect(result.current.phase).toBe('session'))
+    authRejectedCallback(4401)
+    await waitFor(() => expect(result.current.sessionEndedReason).toMatch(/sign in again/i))
+    accessRestoredCallback()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(result.current.sessionEndedReason).toMatch(/sign in again/i)
   })
 })
