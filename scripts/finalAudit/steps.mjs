@@ -402,6 +402,12 @@ export async function run(h) {
     return note
   })
 
+  // Guide mode only (step 18): the director-guide screens no audit step stands on (scripts/finalAudit/guideScreens.mjs).
+  if (h.guide) await step(18, 'Guide screens: import, schedules, electives, special day, devices, restore, pair again', async () => {
+    const { guideScreens } = await import('./guideScreens.mjs')
+    return guideScreens(h, { importFile, done, openDevices, STATS })
+  })
+
   await step(12, 'Encryption disable through the UI: the app restarts by itself and signs everyone out, the database is plain SQLite, data intact', async () => {
     featureIn(960, 'At-rest encryption disable')
     const dbFiles = () => { const out = []; const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { if (!/Cache|GPU|blob_storage|backups?/i.test(e.name)) walk(p) } else if (/\.(db|sqlite3?)$/.test(e.name) && fs.statSync(p).size > 0) out.push(p) } }; try { walk(UD) } catch {} ; return out }
