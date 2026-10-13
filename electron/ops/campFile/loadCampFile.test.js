@@ -46,7 +46,7 @@ const newDb = () => {
 // A is built once per test: it is the expensive part, and every test starts from a clean disk.
 function buildA() {
   const dbA = newDb()
-  const A = makeFreshCamp(dbA, { name: 'Camp Roundtrip' })
+  const A = makeFreshCamp(dbA, { name: 'Roundtrip camp' })
   const ids = buildFixtureCamp(dbA, A)
   const exported = exportCampFile(dbA, A.campId)
   const text = serializeCampFile(exported)
@@ -57,7 +57,7 @@ function buildA() {
 
 function openInto(file, { prepare, ...options } = {}) {
   const db = newDb()
-  const B = makeFreshCamp(db, { name: 'Camp Roundtrip' })
+  const B = makeFreshCamp(db, { name: 'Roundtrip camp' })
   prepare?.(db, B)
   const result = loadCampFile(db, { file, campId: B.campId, author_user_id: B.userId, device_id: B.deviceId, ...options })
   return { db, B, result }
@@ -160,7 +160,7 @@ describe('open a saved camp into a brand-new camp: the exact round trip', () => 
     const doc = getCurrentDoc(dbB) ?? ensureSeeded(dbB)
     expect(listRecordIds(doc, 'groups').length).toBe(file.entities.groups.length)
     const fresh = newDb()
-    rebuildIntoFreshDb(fresh, doc, B.campId, 'Camp Roundtrip')
+    rebuildIntoFreshDb(fresh, doc, B.campId, 'Roundtrip camp')
     const fromDoc = normalizedCampSnapshot(fresh, B)
     const fromSqlite = normalizedCampSnapshot(dbB, B)
     for (const e of EXPORTED_ENTITIES) expect({ e, rows: fromDoc[e] }).toEqual({ e, rows: fromSqlite[e] })
@@ -206,7 +206,7 @@ describe('a file with nothing in it', () => {
     const { file } = buildA()
     const empty = { ...file, entities: {}, learned: { tables: {}, counts: {} }, counts: Object.fromEntries(EXPORTED_ENTITIES.map((e) => [e, 0])) }
     const db = newDb()
-    const B = makeFreshCamp(db, { name: 'Camp Roundtrip' })
+    const B = makeFreshCamp(db, { name: 'Roundtrip camp' })
     const before = wholeDatabaseText(db)
     const result = loadCampFile(db, { file: empty, campId: B.campId, author_user_id: B.userId, device_id: B.deviceId })
     expect(result).toMatchObject({ ok: true })
@@ -238,7 +238,7 @@ describe('refusals and failure', () => {
   it('refuses a camp that already holds setup data, and writes nothing', () => {
     const { file } = buildA()
     const db = newDb()
-    const B = makeFreshCamp(db, { name: 'Camp Roundtrip' })
+    const B = makeFreshCamp(db, { name: 'Roundtrip camp' })
     putter(db, B)('groups', 'g-existing', { name: 'Existing bunk' })
     const before = wholeDatabaseText(db)
     const result = loadCampFile(db, { file, campId: B.campId, author_user_id: B.userId, device_id: B.deviceId })

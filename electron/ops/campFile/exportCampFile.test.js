@@ -26,7 +26,7 @@ afterEach(() => {
 })
 
 function fixture() {
-  const camp = makeFreshCamp(db, { name: 'Camp Export' })
+  const camp = makeFreshCamp(db, { name: 'Export camp' })
   const ids = buildFixtureCamp(db, camp)
   return { camp, ids }
 }
@@ -40,7 +40,7 @@ describe('exportCampFile', () => {
     expect(file.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(file.appVersion).toBe('9.9.9')
     expect(typeof file.exportedAt).toBe('string')
-    expect(file.camp).toEqual({ name: 'Camp Export' })
+    expect(file.camp).toEqual({ name: 'Export camp' })
     expect(Object.keys(file.entities)).toEqual(EXPORTED_ENTITIES)
     for (const e of EXPORTED_ENTITIES) expect(file.counts[e]).toBe(file.entities[e].length)
     expect(Object.keys(file.learned.tables).sort()).toEqual(Object.keys(LEARNED_TABLES).sort())

@@ -23,7 +23,7 @@ beforeAll(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-campfile-validate-'))
   setUserDataDirGetter(() => dir)
   const { db } = openTemplatedDb()
-  const camp = makeFreshCamp(db, { name: 'Camp Validate' })
+  const camp = makeFreshCamp(db, { name: 'Validate camp' })
   buildFixtureCamp(db, camp)
   base = exportCampFile(db, camp.campId)
   baseText = serializeCampFile(base)

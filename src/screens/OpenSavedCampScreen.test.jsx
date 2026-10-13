@@ -6,7 +6,7 @@ import LoadIncompleteScreen from './LoadIncompleteScreen'
 import ModeSelectScreen from './ModeSelectScreen'
 import { CAMP_FILE_FAILURE_TEXT } from './campFileMessages'
 
-const PICKED = { ok: true, fileName: 'Willow.shoresh-camp', campName: 'Camp Willow', counts: { groups: 14, activities: 8, locations: 3 } }
+const PICKED = { ok: true, fileName: 'Willow.shoresh-camp', campName: 'Willow camp', counts: { groups: 14, activities: 8, locations: 3 } }
 
 function setup(over = {}) {
   const props = {
@@ -48,7 +48,7 @@ describe('Open a saved camp', () => {
     const props = setup()
     expect(props.onPick).not.toHaveBeenCalled()
     await chooseFile()
-    expect(screen.getByLabelText('Camp name').value).toBe('Camp Willow')
+    expect(screen.getByLabelText('Camp name').value).toBe('Willow camp')
     expect(screen.getByText(/Willow\.shoresh-camp/)).toBeTruthy()
     expect(screen.getByText(/14 groups/)).toBeTruthy()
     expect(props.onOpen).not.toHaveBeenCalled()
@@ -61,7 +61,7 @@ describe('Open a saved camp', () => {
     await fillAndSubmit()
     await screen.findByText('Loading your camp')
     expect(screen.getByText('Checking the file').closest('li').textContent).toMatch(/✓/)
-    expect(props.onOpen).toHaveBeenCalledWith({ campName: 'Camp Willow', adminName: 'Ruth', adminPin: '123456' })
+    expect(props.onOpen).toHaveBeenCalledWith({ campName: 'Willow camp', adminName: 'Ruth', adminPin: '123456' })
     expect(props.onFinish).not.toHaveBeenCalled()
     finish({ ok: true, counts: {} })
     await waitFor(() => expect(props.onFinish).toHaveBeenCalledTimes(1))
