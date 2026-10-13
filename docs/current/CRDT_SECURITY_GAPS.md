@@ -115,6 +115,15 @@ boundary, not re-authorized per merge.
 
 ---
 
+### 9. A lost or stolen device keeps syncing until an admin removes it (T376)
+
+**Accepted.** Devices admit each other from a signed device roster, and a roster entry has no expiry
+(the old 24-hour token that once bounded a stolen, unreported device is no longer part of admission).
+A lost or stolen device therefore keeps syncing until an admin removes it on **Devices**; the removal is
+a signed entry that every device then honours as it learns of it. The remedy is operational: remove the
+device the moment it is lost. See `docs/current/PLATFORM_STATE.md` (Stolen-device posture) and
+`SECURITY.md`.
+
 ## OPEN
 
 ### 4. PIN material replicates in the document
@@ -209,7 +218,7 @@ restore should reconstruct fields or just undelete).
 
 ---
 
-## 8. Field provenance and authorship do not replicate — OPEN, and it costs a director their work
+## 8. Field provenance and authorship do not replicate — FIXED (it cost a director their work)
 
 **Status: FIXED — both halves.** Not a vulnerability in the attacker sense; it was a silent
 data-loss defect with a security-shaped cause.
@@ -312,7 +321,7 @@ both directions.
 | Gap | Symptom | Fix |
 |---|---|---|
 | Dual-write never configured | Every domain operation (`deleteRecord`, ingest, merge) applied locally and replicated **nothing**, behind one warning line | `configureDualWrite` |
-| A restarted Host never re-issued its own token | Reconnect timed out with everything else looking healthy — the Host could not authenticate outward, so sync was one-way | `AmHost.start` self-issues when a camp already exists, as `startAutomergeSyncNodeIfEnabled` does |
+| _Prior:_ A restarted Host never re-issued its own token | _Prior: reconnect timed out with everything else looking healthy — the Host could not authenticate outward, so sync was one-way. Admission now takes no token (T376), so this gap no longer exists._ | _Prior: `AmHost.start` self-issued when a camp already existed._ |
 | A restarted Host started from an EMPTY document | A Host that came back had forgotten everything; only `assertDocIsSupersetOrEmpty` stood between that and a wiped camp | `AmHost.start` seeds from SQLite, as `ensureAutomergeDocSeeded` does |
 
 The third is the one to remember: it is not a vulnerability, but it is the same

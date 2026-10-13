@@ -96,11 +96,11 @@ You can import the same file, or an updated copy of it, onto a camp that already
 
 1. You'll see **Reconciling** your file name and a bar: **X of Y questions answered**.
 2. Click a tile (**Needs attention**, **Changed**, …) to see its questions.
-3. Answer what you can. **Unanswered is OK** — they're kept for later.
+3. Answer what you can. Anything you leave open is fine: the screen shows "N open — kept for later", and you can come back to it.
 4. Click the button at the bottom:
    - **Use this setup** — everything is decided.
    - **Apply N decisions** — some answered, the rest kept for later.
-   - **Add to camp** — first import, nothing answered yet.
+   - **Add to camp, keep N for later** — first import, nothing answered yet. On a later import it reads **Import the rest, keep N for later**.
 5. Changed your mind? Click **Undo this import** (not offered after **Replace them**). See [Undo this import](#undo-this-import).
 6. Click **Continue**.
 
@@ -115,9 +115,9 @@ Change either on **Activities**.
 
 ### Undo this import
 
-After an import that keeps your existing records (**Keep them**), **Undo this import** appears next to **Continue** once it finishes, with a countdown in the last minute. You have five minutes, and only while you stay on that screen. Leave the screen, close Shoresh or reload it, and the button is gone for good. The import itself stays. After a **Replace them** import there is no **Undo this import**; the version saved as **Before replace** is how you go back.
+After an import that keeps your existing records (**Keep them**), **Undo this import** appears next to **Continue** once it finishes, with a countdown in the last minute. You have five minutes, and only while you stay on that screen. Leave the screen and that button goes, but the import's undo is not lost: Shoresh keeps the last import's undo on this computer, and **Roots** shows **Undo last import** until your next import replaces it. The import itself stays. After a **Replace them** import there is no **Undo this import**; the version saved as **Before replace** is how you go back.
 
-Undo removes what the import added: its records, the elective sets it made (and their double-period links), and the versions it saved (the ones named **Imported from** and your file's name). The result tells you what happened, for example "Removed 12 records the import created." Some things are kept on purpose:
+Undo removes what the import added: its records, the elective sets it made (and their double-period links), and the versions it saved (the ones named **Imported from** and your file's name). The result tells you what happened, for example "Removed 12 records the import created." From **Roots** the result reads **Import undone.**, or, if you changed things after importing, "Import undone. N things you changed after importing were kept." Some things are kept on purpose:
 
 - **changed since import** — something you or another device edited after the import. Undo won't throw your edits away.
 - **still in use** — a record something else still points to, including one a saved schedule version uses.
@@ -203,7 +203,7 @@ Choose **Start by hand** on **Seed your camp.**, or use the sidebar. Every table
 
 1. Click **+ Add Activity**.
 2. Fill in **Name** and, if you like, **Location (optional)**.
-3. Set **Min per week**, **Max per week** and **Blocks per session**.
+3. Set **Fewest times a week**, **Most times a week** and **Blocks per session**.
 4. Pick **Scheduling Priority**: High or Low.
 5. Tick the age divisions it's for — or leave all unticked for everyone.
 6. Click **Add Activity**.
@@ -607,7 +607,7 @@ On **Devices**, right under the **Devices** title, Shoresh sometimes shows one s
 
 ![Devices, with the router line under the title: Devices on this Wi-Fi connect normally](img/devices/router-flag.png)
 
-It appears only when cross-network reconnect is on. If your copy of Shoresh doesn't use it, you'll never see this line, and that's normal. Computers on the same Wi-Fi never need it. When the router opening works, nothing shows.
+It appears only when cross-network reconnect is on, which it is by default in the installed app. If a copy has it turned off, you won't see this line. Computers on the same Wi-Fi never need it. When the router opening works, nothing shows.
 
 What each line means:
 
@@ -618,7 +618,7 @@ What each line means:
 | **No router to ask** | Shoresh couldn't find a router it can ask. Common on camp, school and phone-hotspot networks. Same-Wi-Fi devices are fine. |
 | **Another router sits in front of this one** | A second router, or your internet provider, is in front of yours, so opening a path here wouldn't help. Same-Wi-Fi devices are fine. |
 | **Shoresh's connection spot is busy** | Another program on this computer is using the spot Shoresh wants. Close other copies of Shoresh and reopen it. Same-Wi-Fi devices are fine. |
-| **Couldn't check the router** | Something went wrong while Shoresh talked to the router. Same-Wi-Fi devices are fine. |
+| **Couldn't reach your router** | Something went wrong while Shoresh talked to the router. Same-Wi-Fi devices are fine. |
 
 ---
 
