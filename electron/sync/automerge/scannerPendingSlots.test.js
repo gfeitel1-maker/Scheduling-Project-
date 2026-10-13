@@ -116,13 +116,25 @@ async function startTarget() {
   return { target, port, ...c }
 }
 
+// A raw TCP socket from a chosen local port, so the wrapper can attribute it to `ip`. If that local port is already
+// taken on this machine, it moves to the next free one and connects again (rec.port follows), so the limiter always
+// sees it; any other error after connecting is ignored, as a silent scanner would.
 function scanner(port, ip, assign, localPort) {
-  assign(localPort, ip)
-  const s = net.connect({ port, host: '127.0.0.1', localAddress: '127.0.0.1', localPort })
-  const rec = { socket: s, closed: false, port: String(localPort) }
-  s.on('error', () => {})
-  s.on('close', () => { rec.closed = true })
-  cleanups.push(async () => s.destroy())
+  const rec = { socket: null, closed: false, port: String(localPort) }
+  const open = (lp) => {
+    assign(lp, ip)
+    rec.port = String(lp)
+    const s = net.connect({ port, host: '127.0.0.1', localAddress: '127.0.0.1', localPort: lp })
+    rec.socket = s
+    let connected = false
+    s.on('connect', () => { connected = true })
+    s.on('error', (err) => {
+      if (!connected && (err?.code === 'EADDRINUSE' || err?.code === 'EADDRNOTAVAIL')) { s.destroy(); open(freePort()) }
+    })
+    s.on('close', () => { if (rec.socket === s) rec.closed = true })
+    cleanups.push(async () => s.destroy())
+  }
+  open(localPort)
   return rec
 }
 
@@ -168,6 +180,20 @@ describe('scanner vs the pre-Noise pending slots (real libp2p target, production
     expect(await legit(t.target, publicIp(1), t.state)).toBe(false)
     expect(await legit(t.target, publicIp(2), t.state)).toBe(true)
     expect(await legit(t.target, LAN_IP, t.state)).toBe(true)
+  }, 120000)
+
+  // A scanner's chosen local port can already be in use on a busy machine. It must then retry on another port;
+  // otherwise it never connects, the limiter never decides it, and a wait for every verdict times out.
+  it('a scanner whose chosen local port is taken still reaches the limiter, from another port', async () => {
+    const t = await startTarget()
+    const taken = freePort()
+    const blocker = net.createServer()
+    await new Promise((r, j) => { blocker.once('error', j); blocker.listen(taken, '127.0.0.1', r) })
+    cleanups.push(async () => new Promise((r) => blocker.close(() => r())))
+    const s = scanner(t.port, publicIp(7), t.assign, taken)
+    await waitFor(() => t.decisions.has(s.port))
+    expect(s.port).not.toBe(String(taken))
+    expect(t.decisions.get(s.port)).toBe(true)
   }, 120000)
 
   it('many distinct public sources saturate only the PUBLIC sub-cap: one more public source past the sub-cap is refused, the LAN still gets in, and the slots free at the upgrade timeout', async () => {
