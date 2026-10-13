@@ -52,6 +52,12 @@ had synced recently.** Then:
 synced.** With any second synced device, the "real loss" case does not occur — that
 device *is* the backup, continuously.
 
+**Backups restore on this computer only.** A backup (**Backup now**) is a copy of the database and the
+camp document, both encrypted under this computer's keychain-sealed key, so it opens on this computer and
+nowhere else. It protects against a bad edit or a damaged file, not against losing the laptop. For that the
+director pairs a second device (owner ruling 2026-10-13, "Second device + camp file"; the camp-file half is
+being built). The app and the Director's Guide say so at the point of restore.
+
 **There is deliberately no plaintext local backup.** Once encryption has verified, the first-run
 plaintext rollback backup and any legacy plaintext schema-migration backups
 (`*.pre-migration-*.bak`) are shredded, because a plaintext copy beside the data defeats at-rest
