@@ -17,7 +17,9 @@ import { connect } from './cdp.mjs'
 
 const arg = (k, d) => (process.argv.find((a) => a.startsWith(`--${k}=`)) || `--${k}=${d}`).slice(k.length + 3)
 const PORT = Number(arg('port', 9444))
-const APP = path.resolve(arg('app', 'release/mac/Shoresh.app/Contents/MacOS/Shoresh'))
+const WIN = process.platform === 'win32'
+const NET_OPTIONAL = process.argv.includes('--net-optional')
+const APP = path.resolve(arg('app', WIN ? 'release/win-unpacked/Shoresh.exe' : 'release/mac/Shoresh.app/Contents/MacOS/Shoresh'))
 const REPO = path.resolve(arg('repo', process.cwd()))
 const CAMPB = path.join(REPO, 'docs/work/specs/samples/campB-by-day.txt')
 const RUN = path.join(fs.realpathSync(os.tmpdir()), 'shoresh-final-audit', `run-${Date.now().toString(36)}`)
@@ -59,6 +61,32 @@ async function mainEval(expr, inspectPort = PORT + 1) {
     ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id === 1) { clearTimeout(tm); ws.close(); d.result?.exceptionDetails ? rej(new Error(JSON.stringify(d.result.exceptionDetails).slice(0, 300))) : res(d.result?.result?.value) } }
     ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: expr, returnByValue: true, includeCommandLineAPI: true } }))
   })
+}
+// Quit a running Shoresh the way the platform allows. SIGTERM is a real signal on macOS (and step 8 tests that
+// path); on Windows it is a hard kill that skips the app's own shutdown, so app.quit() is asked for through the
+// main-process inspector instead, with a hard kill only if that cannot be reached.
+async function gracefulQuit(targetPid, inspectPort) {
+  if (!WIN) { try { process.kill(targetPid, 'SIGTERM') } catch {} return }
+  try { await mainEval(`(()=>{const r=process.getBuiltinModule('module').createRequire('/x.js'); setTimeout(()=>r('electron').app.quit(), 50); return 'quitting'})()`, inspectPort) }
+  catch { try { process.kill(targetPid) } catch {} }
+}
+// The process that now serves a debugging port after the app relaunched itself (app.relaunch keeps argv, so
+// the ports are unchanged). macOS: pgrep on the command line. Windows has no pgrep: the relaunched app answers
+// on its inspector port, and reports its own pid.
+async function pidOnPort(port, inspectPort, excludePid, timeoutMs) {
+  const t = Date.now()
+  while (Date.now() - t < timeoutMs) {
+    let next = null
+    if (WIN) {
+      try { next = await mainEval('process.pid', inspectPort) } catch {}
+    } else {
+      const { execFileSync } = await import('node:child_process')
+      try { next = execFileSync('pgrep', ['-n', '-f', '--', `${path.basename(APP)} --remote-debugging-port=${port}`], { encoding: 'utf8' }).trim().split('\n').map(Number).find((n) => n && n !== excludePid) } catch {}
+    }
+    if (next && next !== excludePid) return next
+    await sleep(500)
+  }
+  return null
 }
 async function routeDownloads() {
   return mainEval(`(()=>{const r=process.getBuiltinModule('module').createRequire('/x.js'); const {session}=r('electron'); const s=session.defaultSession; if(globalThis.__dlHooked) return 'already'; globalThis.__dlHooked=1; s.on('will-download',(e,item)=>{ item.setSavePath(r('path').join(${JSON.stringify(DL)}, Date.now()+'-'+item.getFilename())) }); return 'hooked'})()`)
@@ -132,7 +160,14 @@ async function step(id, title, fn) {
   const t = Date.now(); let status = 'PASS', note = ''
   log(`STEP ${id} ${title}`)
   // A step throws { skip } when its feature is not in the build under test (featureIn).
-  try { note = (await fn()) || '' } catch (e) { if (e?.skip) { status = 'SKIP'; note = e.skip } else { status = 'FAIL'; note = e.message } }
+  try { note = (await fn()) || '' } catch (e) {
+    if (e?.skip) { status = 'SKIP'; note = e.skip }
+    // --net-optional (CI only): a multi-device step whose peers never DISCOVERED each other (no pairing request
+    // ever reached A, or step 15's own "not exercised" control) is recorded as not exercised rather than failed.
+    // A CI runner may block mDNS/loopback discovery; any later failure in these steps is still a FAIL.
+    else if (NET_OPTIONAL && ['13', '15', '19', '19b'].includes(String(id)) && /waiting for [^\n]*pairing request on A|^not exercised/.test(e.message)) { status = 'N/E'; note = `not exercised on CI (peers never discovered each other): ${e.message}` }
+    else { status = 'FAIL'; note = e.message }
+  }
   const files = app ? [await shot(`s${id}`)] : []
   results.push({ id, title, status, ms: Date.now() - t, note: String(note), shots: files })
   log(`  -> ${status} (${((Date.now() - t) / 1000).toFixed(1)}s) ${String(note).slice(0, 600)}`)
@@ -167,12 +202,12 @@ async function main() {
     BUILD_SHA = (build.match(/· ([0-9a-f]{7,}) ·/) || [])[1] || null
     return 'build ' + build
   })
-  await (await import('./steps.mjs')).run({ step, ev, waitFor, click, nav, text, shot, setFile, sleep, log, app: () => app, CAMPB, DL, RUN, relaunch, adopt, launchPeer, quitMain, guide: GUIDE ? guideShot : null, FORCE: new Set(arg('force', '').split(',').filter(Boolean)), ADMIN, PIN, signInIfAsked, mainEval, UD, REPO, PORT, buildSha: () => BUILD_SHA })
+  await (await import('./steps.mjs')).run({ step, ev, waitFor, click, nav, text, shot, setFile, sleep, log, app: () => app, CAMPB, DL, RUN, relaunch, adopt, launchPeer, quitMain, guide: GUIDE ? guideShot : null, FORCE: new Set(arg('force', '').split(',').filter(Boolean)), ADMIN, PIN, signInIfAsked, mainEval, quitVia: WIN ? 'app.quit()' : 'SIGTERM', UD, REPO, PORT, buildSha: () => BUILD_SHA })
   finish()
 }
 
 async function relaunch() {
-  const t = Date.now(); process.kill(pid, 'SIGTERM'); try { app.close() } catch {}
+  const t = Date.now(); await gracefulQuit(pid, PORT + 1); try { app.close() } catch {}
   let alive = true
   while (Date.now() - t < 30000) { try { process.kill(pid, 0) } catch { alive = false; break } await sleep(250) }
   const exitMs = Date.now() - t
@@ -188,12 +223,7 @@ async function relaunch() {
 async function adopt(timeoutMs = 120000) {
   const t = Date.now(); try { app.close() } catch {}
   while (Date.now() - t < timeoutMs) { try { process.kill(pid, 0) } catch { break } await sleep(250) }
-  const { execFileSync } = await import('node:child_process')
-  let next = null
-  while (!next && Date.now() - t < timeoutMs) {
-    try { next = execFileSync('pgrep', ['-n', '-f', '--', `${path.basename(APP)} --remote-debugging-port=${PORT}`], { encoding: 'utf8' }).trim().split('\n').map(Number).find((n) => n && n !== pid) } catch {}
-    if (!next) await sleep(500)
-  }
+  const next = await pidOnPort(PORT, PORT + 1, pid, Math.max(1000, timeoutMs - (Date.now() - t)))
   if (!next) throw new Error(`no relaunched process with --remote-debugging-port=${PORT} within ${timeoutMs / 1000}s`)
   log(`adopted relaunched pid=${next} (was ${pid})`); pid = next
   await attach()
@@ -216,7 +246,7 @@ async function launchPeer(label, port, { reuse = null } = {}) {
   let curPid = child.pid
   const stop = async () => {
     try { conn?.close() } catch {}
-    try { process.kill(curPid, 'SIGTERM') } catch {}
+    await gracefulQuit(curPid, port + 1)
     const t = Date.now(); while (Date.now() - t < 15000) { try { process.kill(curPid, 0) } catch { break } await sleep(250) }
     try { process.kill(curPid, 'SIGKILL') } catch {}
     // userData is NOT removed here: finish() removes it only when every step passed, so a failure's
@@ -231,12 +261,7 @@ async function launchPeer(label, port, { reuse = null } = {}) {
   const adoptPeer = async (timeoutMs = 120000) => {
     const t = Date.now(); try { conn?.close() } catch {}
     while (Date.now() - t < timeoutMs) { try { process.kill(curPid, 0) } catch { break } await sleep(250) }
-    const { execFileSync } = await import('node:child_process')
-    let next = null
-    while (!next && Date.now() - t < timeoutMs) {
-      try { next = execFileSync('pgrep', ['-n', '-f', '--', `${path.basename(APP)} --remote-debugging-port=${port}`], { encoding: 'utf8' }).trim().split('\n').map(Number).find((n) => n && n !== curPid) } catch {}
-      if (!next) await sleep(500)
-    }
+    const next = await pidOnPort(port, port + 1, curPid, Math.max(1000, timeoutMs - (Date.now() - t)))
     if (!next) throw new Error(`peer ${label}: no relaunched process on port ${port} within ${timeoutMs / 1000}s`)
     log(`peer ${label} adopted relaunched pid=${next} (was ${curPid})`); curPid = next
     conn = await connect(port, timeoutMs)
@@ -247,7 +272,7 @@ async function launchPeer(label, port, { reuse = null } = {}) {
 
 // Quit the main instance (SIGTERM) and wait for it to exit; later steps then have no main app.
 async function quitMain() {
-  const t = Date.now(); process.kill(pid, 'SIGTERM'); try { app.close() } catch {}
+  const t = Date.now(); await gracefulQuit(pid, PORT + 1); try { app.close() } catch {}
   while (Date.now() - t < 30000) { try { process.kill(pid, 0) } catch { return Date.now() - t } await sleep(250) }
   throw new Error(`pid ${pid} still alive 30s after SIGTERM`)
 }
@@ -259,7 +284,7 @@ function finish() {
   fs.writeFileSync(path.join(RUN, 'results.json'), JSON.stringify(results, null, 1))
   try { app?.close() } catch {}
   if (process.argv.includes('--keep')) { log(`--keep: app left running pid=${pid} port=${PORT} userData=${UD}`); fs.writeFileSync(path.join(RUN, 'kept.json'), JSON.stringify({ pid, UD })); process.exit(0) }
-  try { process.kill(pid, 'SIGTERM') } catch {}
+  gracefulQuit(pid, PORT + 1).catch(() => {})
   log(`run dir ${RUN}`)
   // Remove userData only once the app has exited (it writes on the way out, which re-created the
   // folder when this ran on a fixed 3s timer), SIGKILLing after 20s.

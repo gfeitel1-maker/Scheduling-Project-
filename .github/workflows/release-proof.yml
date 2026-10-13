@@ -14,6 +14,8 @@ on:
 
 permissions:
   contents: read
+  # The final audit's featureIn checks ask gh which PRs a build contains.
+  pull-requests: read
 
 jobs:
   package:
@@ -31,6 +33,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: the final audit's featureIn checks ask whether each feature's merge commit is an
+          # ancestor of the build; a shallow clone makes every feature look newer than the build.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           # Release builds use Node 22: the encrypting SQLite driver has no prebuilt for, and does not
@@ -64,4 +70,22 @@ jobs:
           name: shoresh-windows-installer
           path: release/*.exe
           if-no-files-found: error
+          retention-days: 30
+      # The director audit (scripts/finalAudit) against the packaged Windows app built above, every step. A runner
+      # whose network blocks local discovery records the multi-device steps (13, 15, 19, 19b) as "not exercised on
+      # CI" (--net-optional) instead of failing them. TEMP points the audit's run directory somewhere uploadable.
+      - name: Director audit on the packaged Windows app
+        if: runner.os == 'Windows'
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/finalAudit/driver.mjs --app=release/win-unpacked/Shoresh.exe --port=9900 --net-optional
+      - name: Upload the director audit results
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: shoresh-windows-audit
+          path: ${{ runner.temp }}/shoresh-final-audit/
+          if-no-files-found: warn
           retention-days: 30
