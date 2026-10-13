@@ -77,6 +77,15 @@ See the [README](../README.md) for installing or building Shoresh. On first run,
 the first computer (you can create the camp by importing last year's schedule), **Join with a camp code** on each
 computer after that, or **Open a saved camp** to start from a file made with Save whole camp.
 
+There is no published installer yet. A Windows installer (NSIS) is coming from CI: the **Release proof** workflow
+builds and launch-checks the packaged app on Windows and on Apple Silicon macOS when a release tag is pushed. Until
+then, build from source (see the README).
+
+The app is not code-signed, so confirm the first time you open it:
+- **macOS:** Control-click (right-click) Shoresh, choose **Open**, then **Open** again. If that is blocked, open
+  **System Settings** → **Privacy & Security** and choose **Open Anyway**.
+- **Windows:** at **Windows protected your PC**, choose **More info**, then **Run anyway**.
+
 ---
 
 ## Known limitations
@@ -115,3 +124,7 @@ Shoresh v1 is the release. There is no update service and no central version to 
 own copy, and a camp that wants changes forks the project (Apache License 2.0) and makes them. See
 [CONTRIBUTING](../CONTRIBUTING.md) for working on the code and [SECURITY](../SECURITY.md) for exactly what the
 network setup and encryption do and do not protect.
+
+---
+
+Built by a camp director working with Claude (Anthropic) in Claude Code: design, implementation, testing, and review across the v1 build.

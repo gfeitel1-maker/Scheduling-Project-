@@ -56,18 +56,21 @@ Pairing is accepted only from a private (RFC1918 / IPv6 ULA), loopback or link-l
 Every new device must be explicitly approved by an admin before it can sync or authenticate.
 A joining Client requests pairing over the libp2p connection; it remains a pending device
 (`devices.pairing_status = 'pending'`, `electron/auth/connectionAuth.js`) until an admin approves or
-denies it in the Device Manager screen. (The renderer once had a `pairing_pending` device-mode phase;
+denies it in the Devices screen. (The renderer once had a `pairing_pending` device-mode phase;
 that UI phase was retired in Stage 6c — the Host-side pending status is the real gate.) Approved devices receive
 a `device_secret_identifier` (32 random bytes, hex-encoded) minted by the Host at approval
 time.
 
 ### Device revocation
 
-Revocation is immediate and enforced server-side. When an admin revokes a device, the Host:
+Any admin device can remove a device. There is no sync server to close a connection on: removal is a
+signed entry in the authority log and a signed change to the device roster, both of which replicate.
+When an admin removes a device:
 
-1. Sets `devices.revoked_at`, `revoked_by_user_id`, and `revocation_reason` in the database.
-2. Closes the device's live WebSocket connection.
-3. Rejects any subsequent `authenticate` message from that device via `authorize()`.
+1. `devices.revoked_at`, `revoked_by_user_id`, and `revocation_reason` are set in the database.
+2. The signed authority-log entry names the device, so every device that learns of it refuses that
+   device's connections (see "Admission is the signed device roster" below).
+3. Any later mutating call from that device's person is rejected by `authorize()`.
 
 ### Ed25519 Host-only token minting
 
@@ -78,7 +81,7 @@ via full-sync, so they can verify tokens but can never mint them.
 
 Client offline sessions use a different token type (`type: 'local'`) — HMAC-SHA256 keyed to
 the device's own `device_secret_identifier`. These are accepted only for local IPC calls on
-that device; the Host's WebSocket server rejects them outright.
+that device; they are never an admission credential between devices (admission is the signed device roster).
 
 ### Per-device transport identity, and tokens bound to the peer presenting them
 
@@ -121,7 +124,7 @@ local IPC calls and the `login_ok` reply.
 
 ### Centralized `authorize()`
 
-Every mutating IPC handler and every mutating WebSocket handler calls `authorize()` in
+Every mutating IPC handler calls `authorize()` in
 `electron/auth/authorize.js` before proceeding. `authorize()`:
 
 - Verifies the session token (signature + expiry).
@@ -130,12 +133,10 @@ Every mutating IPC handler and every mutating WebSocket handler calls `authorize
 - Checks the action against a named permission matrix (`electron/auth/permissions.js`).
 - Returns `{allowed: false, reason}` on any failure — never throws, never defaults to allowed.
 
-The same `authorize()` call and the same action-derivation logic (`deriveWriteAction`,
-`deriveBulkReplaceAction`) are used identically on both the IPC and WebSocket paths, so on the
-**op-log** transport there is no way to bypass IPC-level restrictions by connecting directly to the
-WebSocket.
+The same action-derivation logic (`deriveWriteAction`, `deriveBulkReplaceAction`) decides what a
+write is. There is no separate network write path that skips it: the WebSocket server is gone.
 
-**This does not extend to the Automerge/libp2p engine, which is now the default.** See "Role
+**This does not extend to the Automerge/libp2p sync, which admits devices, not actions.** See "Role
 enforcement is device-side under CRDT sync" under Known limitations — that is an accepted tradeoff,
 not an oversight, and it is the one place the two engines differ in what they enforce.
 
@@ -305,48 +306,39 @@ sync traffic is *not* sent in cleartext on the wire (this corrects the pre-libp2
 which said `ws://` plaintext — that transport is gone). What Noise does **not** provide is
 TLS-style certificate trust or any protection once traffic leaves the local network: Noise
 authenticates the *channel between two peers*, not *camp membership* (membership is proven
-separately by the session token at the auth gate). Under the trusted-LAN model this is accepted.
-The residual exposures that remain are the application-layer ones below (the PIN reaching the Host
-process, and camp-membership trust), not wire-plaintext.
+separately, by the signed device roster at the auth gate). The residual exposures that remain are the
+application-layer ones below, not wire-plaintext.
 
 Off the local network the same holds: a cross-network connection (see "Deployment boundary") is
-the same Noise channel with no relay in between, and camp membership is still proven at the auth
-gate. Any new internet-facing capability goes through the gate in
+the same Noise channel with no relay in between, and camp membership is still proven by the signed device
+roster at the auth gate. Any new internet-facing capability goes through the gate in
 [docs/adr/2026-09-14-internet-transport-security-gate.md](docs/adr/2026-09-14-internet-transport-security-gate.md).
 
-### Raw PIN reaches the Host process on initial login
+### Raw PIN reaches the Host process once, when a device joins
 
-A Client verifies its PIN against the Host by sending it in the pre-auth `login` message (now over
-the libp2p auth gate). The message travels inside the Noise-encrypted peer channel, so it is not
-exposed on the wire — but the **Host process receives the PIN in cleartext** to run `scryptSync` on
-it. This is necessary for the lockout mechanism and so the Host can issue the token. Under a
-trusted-LAN model this is accepted; the exposure is the Host device itself and grows on a shared or
-monitored network, and off-LAN it must be revisited (Tier-4 gate).
+Signing in is local on every device: the PIN is checked on the device against the replicated user
+records, and the PIN does not cross the network on a normal sign-in. The one time a PIN is sent is the
+first join of a new device (`electron/sync/automerge/joinSession.js`): the joining device sends the PIN
+to the host inside the Noise-encrypted peer channel, and the **host process receives it in cleartext**
+to check it and apply the lockout. Joining happens on the local network, with a director present. The
+exposure is the host device itself.
 
-### Offline local tokens cannot be remotely invalidated
+### Session tokens gate local actions, not sync
 
-A Client that has a valid `local` token and is offline can continue to use it until expiry
-(up to 24 hours from issuance). Revoking the device at the Host while the Client is offline
-prevents future re-authentication but does not immediately invalidate the local token on the
-Client's own process. Work queued offline during this window is submitted to the Host when
-connectivity is restored — the Host's `authorize()` call on the WS path will then reject it.
-
-A Client's `camp` token (issued when it logs in over the network, distinct from the
-device-only `local` token above) is now re-presented to the Host on every process restart —
-not only right after a fresh PIN entry — per
-[docs/adr/2026-08-16-client-reauth-on-restart.md](docs/adr/2026-08-16-client-reauth-on-restart.md).
-A revoked device therefore discovers the rejection (WS close 4401-4404) the next time it
-restarts or reconnects — the Client clears the stale token and returns to the login screen —
-instead of only ever finding out when the stored token's 24-hour window naturally expires.
-This strengthens, but does not remove, the tradeoff above: a `local` token is still never
-valid over the network by design (rejected outright with 4402, revoked or not), and a Client
-that never reconnects to the Host still has no way to learn of a remote revocation until it
-does.
+A session token (24 hours) is checked by `authorize()` on this device's own calls. It does not gate
+device-to-device sync: since T376 a device is admitted by the signed device roster, so a lapsed token
+does not stop two enrolled devices syncing, and a valid token does not admit one that is not enrolled.
+A device that is lost or stolen keeps syncing until an admin removes it on **Devices**; the removal
+then reaches every device that is online and any that reconnect later. A computer that is off when the
+removal happens acts on what it knew until it reconnects. The token itself is never invalidated
+remotely: until it expires (24 hours), someone at that computer who is already signed in can still use
+the app on that computer. Related: [docs/adr/2026-08-16-client-reauth-on-restart.md](docs/adr/2026-08-16-client-reauth-on-restart.md)
+(historical for the network re-presentation it describes).
 
 ### PIN hashes replicate, and a four-digit PIN is small (T150)
 
 `users.pin_hash` and `users.pin_salt` are modeled document fields: they replicate to every approved
-device and sit in a plaintext `.automerge` file on each one. That is deliberate — a device that
+device and sit in the `.automerge` file on each one (encrypted at rest by default). That is deliberate — a device that
 cannot reach anyone still has to be able to log its staff in — and it is not equivalent to
 replicating plaintext credentials. But it does mean the hash is available to anyone holding the
 file, and the PIN it protects is four numeric digits: ten thousand candidates.
@@ -434,7 +426,7 @@ document is not supported: older builds cannot read either. The ruling is no dow
   (`PRAGMA rekey = ''`), verifies row counts and bytes, writes the `encryption.disabled` marker, then
   removes and overwrites the key file. Any failure restores from the backups and leaves encryption on;
   an unreadable or inconsistent state is refused. A key file present always wins over the marker.
-  Older user backups made while encrypted cannot be opened afterwards. See
+  Turning it off signs everyone out on that computer (`electron/atRestDisableRunner.js` ends the sessions; the sign-out cut-off is `sessionsValidAfter`), so each person signs in again. Older user backups made while encrypted cannot be opened afterwards. See
   `docs/adr/2026-09-28-at-rest-encryption-disable-control.md` and
   `docs/adr/2026-10-08-at-rest-encryption-sticky-no-ambient-disable.md`.
 - **A removed device can clear itself ("Start fresh on this computer").** Offered and executable only when

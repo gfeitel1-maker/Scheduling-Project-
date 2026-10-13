@@ -26,13 +26,13 @@ accepted but not yet built — are named occupants of a page that already exists
 
 | | **What happens on the new/reset machine** | **Why** |
 |---|---|---|
-| **Host signing key** (`host_signing_key`, Ed25519) | Matters **only if the lost machine was the sync Host.** If so, it is a genuine loss: the new machine must be set up as a Host and **re-establish its identity** through the normal flow before it can mint credentials (add users, promote admins). If the lost machine was a *client*, this key was never on it — nothing to recover. | Host-only, never replicated. It is the camp's authority to sign credential changes; a new Host earns a new one. |
+| **Host signing key** (`host_signing_key`, Ed25519) | Matters **only if the lost machine was the sync Host.** If so, it is a genuine loss: there is no flow that sets up a new machine as the Host. Hosting moves only by a handoff from a working host (director guide, "Moving hosting to another computer"), so a host that is gone cannot hand it over. Until a host exists, no new device can be added. The camp's data is not lost: every other paired device still has it, and a camp saved earlier with **Save whole camp** opens on any computer as a new camp with its own host and sign-in. If the lost machine was a *client*, this key was never on it — nothing to recover. | Host-only, never replicated. It is the camp's authority to sign credential changes; a new Host earns a new one. |
 | **Device identity key** (T162, persistent per-device — *implemented, schema v67 `device_identity_key`, `electron/auth/deviceIdentity.js`*) | **Re-pair.** The new machine is a new device; it pairs to the camp again and is trusted afresh. The old device's identity simply stops being used. | Per-device, established at pairing. Losing it is losing a device, and the answer to a lost device is a new pairing — never a lockout. See ticket **T162** / ADR `2026-07-28-device-identity-*`. |
 | **Storage (at-rest) key** (per-device, in the OS keychain) | **The old machine's on-disk data is unreadable — and that is the feature.** The new machine does **not** recover the old bytes; it **syncs the camp fresh from a peer** (any other paired device holds the same document). No data is lost to the *camp*, only to the stolen disk. | The key lives in the OS keychain of the old machine's login, released only to this app under that user. A thief with the disk cannot read it; a new install re-syncs rather than decrypts. |
 
 **The short version for a director:** *"You don't recover the old laptop's files —
 you don't need to. Any other camp device still has everything. Set the new laptop up,
-pair it (or make it the Host if the lost one was), and it fills in from the others.
+pair it, and it fills in from the others. (If the lost one was the host, a camp saved earlier with **Save whole camp** is the way to get a new host.)
 The old laptop's data stays locked, which is exactly what you want if someone else has it."*
 
 ## The one case that is a real loss, spelled out
@@ -45,8 +45,10 @@ had synced recently.** Then:
   to you** (this is the accepted hard-fail; see below). There is no passphrase to
   recover it with, by design — the alternative (a director-remembered passphrase)
   was rejected because "forget it = lose the camp" is a worse day than the theft.
-- If it was the Host, its signing key is gone too → a new Host must re-establish
-  identity before it can mint credentials.
+- If it was the Host, its signing key is gone too → no other device can take over
+  hosting, because hosting moves only by handoff from a working host. Use **Save whole camp**
+  (if you saved one earlier) to start a new camp on another computer, or keep a second
+  paired device and hand hosting over before the host is retired.
 
 **Mitigation is operational, not cryptographic: keep more than one device paired and
 synced.** With any second synced device, the "real loss" case does not occur — that
@@ -108,11 +110,13 @@ ignored; the key is acquired via `safeStorage` in `electron/main.js`, with a hea
 `electron/unlockDbKey.js`) — so this undecryptable-document case is reachable on any device whose
 keychain entry is lost.
 
+A director can also turn encryption off, deliberately, from **Devices** (admin only, with a typed confirmation). Doing so signs everyone out on that computer, so each person signs in again; see `SECURITY.md`.
+
 ## Where each key actually lives (for the check-it-yourself reader)
 
 | Key | Storage | Replicated? | Recovery |
 |---|---|---|---|
-| Host signing key | `host_signing_key` table (Host only) | Never | New Host re-establishes identity |
+| Host signing key | `host_signing_key` table (Host only) | Never | Moves only by host handoff; if the host is lost, use a Save whole camp file |
 | Device identity (T162) | per-device secret (implemented, v67) | Never | Re-pair |
 | Storage / at-rest key | OS keychain (`safeStorage`), sealed file `db.key.enc` | Never | None — re-sync from a peer |
 
