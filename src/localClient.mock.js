@@ -1804,6 +1804,8 @@ export const mockShoresh = {
   // check). Good enough to drive :5200's undo affordance; the real
   // seq-gated skip / edited-since / still-referenced behavior is proven only
   // under electron:dev (CLAUDE.md's dev/mock split).
+  // Browser dev mock: no persisted import record.
+  async lastImportUndo() { return null },
   async ingestUndo({ invertibleOps, createdEntityIds } = {}) {
     const state = loadState()
     const reverted = []

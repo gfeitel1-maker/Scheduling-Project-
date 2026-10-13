@@ -41,7 +41,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 96
+export const CURRENT_SCHEMA_VERSION = 97
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4435,6 +4435,15 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // `< 96` (this repo's standing gotcha).
   if (getSchemaVersion(db) >= 95 && getSchemaVersion(db) < 96) {
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (96, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v97 (director test 2026-10-12) — last_import_undo, the device-local record of the last import's undo.
+  // schema.sql creates it on every open; this stamps the version for a database upgrading from v96. Nothing
+  // to carry forward: an import committed before v97 had its record in memory only. Guard `>= 96 && < 97`.
+  if (getSchemaVersion(db) >= 96 && getSchemaVersion(db) < 97) {
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (97, ?)').run(
       new Date().toISOString()
     )
   }

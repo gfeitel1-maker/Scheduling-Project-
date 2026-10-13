@@ -13,6 +13,7 @@ import { ScheduleDoor } from '../components/ScheduleDoor'
 import { SIDEBAR_WIDTH_PX } from '../components/layout/Sidebar.jsx'
 import { screenForAttentionRow, subjectIdFromRow } from './attentionRowDestination.js'
 import NameSubjectDialog from '../components/NameSubjectDialog.jsx'
+import LastImportUndo from '../components/LastImportUndo.jsx'
 
 // ADR docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md — the Roots
 // home is a distinct screen from now on: no census/diff vocabulary, no
@@ -343,6 +344,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
             )}
           </section>
 
+          <LastImportUndo />
           {worksheetError && <div style={{ ...S.errorBanner, marginTop: 'var(--space-4)' }}>{worksheetError}</div>}
           <div style={styles.bottomActions}>
             <button className="press-97" onClick={() => onNavigate('import')} style={S.btnSecondary}>Import last year</button>
