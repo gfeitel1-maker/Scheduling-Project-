@@ -164,7 +164,12 @@ export async function guideScreens(h, { importFile, done, openDevices, STATS }) 
       await nav('Special Schedules'); await click('Audit Day', false); await sleep(1500)
       if (await ev(`return /Week 1 · Fri/.test(__main())`)) return
       await click('+ Place on a day', true)
-      await waitFor(`const b=document.querySelector('button[aria-label^="Week 1, Friday"]'); if(!b) return false; b.click(); return true`, 10000, 'Week 1 Friday')
+      // Read the cell before clicking: a cell that already holds this day reads "… is here. Remove." and a click
+      // would UNPLACE it (SpecialDayPlacements.jsx toggles). Only a free cell is clicked.
+      const cell = await waitFor(`const b=document.querySelector('button[aria-label^="Week 1, Friday"]'); return b && b.getAttribute('aria-label')`, 10000, 'Week 1 Friday')
+      if (/is here\. Remove\./.test(cell)) return
+      if (!/, free\./.test(cell)) throw new Error(`Week 1 Friday is taken by another special day: ${cell}`)
+      await ev(`document.querySelector('button[aria-label^="Week 1, Friday"]').click(); return true`)
       // Bring the day's recurring events, so the replaced day shows a real grid rather than empty blocks.
       await sleep(600); await click('Bring', true, 5000).catch(() => {})
     }
@@ -276,7 +281,13 @@ export async function guideScreens(h, { importFile, done, openDevices, STATS }) 
       h.log(`  [peer] ${new Date().toISOString()} B relaunched and signed in`)
       // A removed computer shows this on its sign-in screen, with Start fresh (#1022). The confirm step is shot and then
       // CANCELLED: the guide run never wipes anything.
-      await B.waitFor(`return /This computer was removed from the camp/.test(document.body.innerText) && [...document.querySelectorAll('button')].some(b=>b.innerText.trim()==='Start fresh on this computer')`, 240000, 'B: removed screen with Start fresh')
+      // Signed in when it learns, the device keeps its session and shows the sidebar row; signed out, it shows the
+      // removed screen. Sign out first if needed, as the row says, to reach the screen the guide pictures.
+      const state = await B.waitFor(`const t=document.body.innerText; if (/This computer was removed from the camp/.test(t) && [...document.querySelectorAll('button')].some(b=>b.innerText.trim()==='Start fresh on this computer')) return 'sign-in'; if (/removed from this camp/.test(t) && /Log out/.test(t)) return 'signed-in'; return false`, 240000, 'B: told it was removed')
+      if (state === 'signed-in') {
+        await B.click('Log out', true, 10000)
+        await B.waitFor(`return /This computer was removed from the camp/.test(document.body.innerText) && [...document.querySelectorAll('button')].some(b=>b.innerText.trim()==='Start fresh on this computer')`, 30000, 'B: removed screen after signing out')
+      }
       await guideFromPeer(B, 'devices/removed-start-fresh')
       await B.click('Start fresh on this computer', true, 10000)
       await B.waitFor(`return [...document.querySelectorAll('button')].some(b=>b.innerText.trim()==='Yes, start fresh')`, 15000, 'B: Start fresh confirm')
