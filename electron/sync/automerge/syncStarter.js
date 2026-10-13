@@ -622,6 +622,11 @@ export function createAutomergeSyncStarter({
             }),
           })
         },
+        onRemovalCleared: () => {
+          const mainWindow = getMainWindow()
+          if (mainWindow) mainWindow.webContents.send('shoresh:access-restored')
+          try { getLiveHandlers()?.pushSyncStatus?.() } catch { /* never break sync over a UI notice */ }
+        },
         onAuthRejected: (peerId, reply, { removed = false } = {}) => {
           console.error(`automerge sync: peer ${peerId} rejected our authenticate: ${JSON.stringify(reply)}`)
           recordAuditEvent(db, {

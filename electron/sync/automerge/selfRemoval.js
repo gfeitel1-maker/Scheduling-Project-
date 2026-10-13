@@ -22,6 +22,7 @@
 // exactly that table's kind of fact — something about this device the director must see, that
 // survives a restart, cleared when resolved. Local data is never touched.
 import { DEVICE_HEALTH, recordDeviceHealthEvent } from '../../ops/deviceHealthEvents.js'
+import { isRevokedByOwnAuthority } from './removalEvidence.js'
 
 const ROW_ID = 'self:removed_from_camp'
 
@@ -57,4 +58,10 @@ export function clearRemovedFromCamp(db) {
     console.error(`selfRemoval: could not clear the removed-from-camp state: ${err?.message ?? err}`)
     return false
   }
+}
+
+/** A removal that this device's own authority state no longer backs (a re-grant superseded the revoke) is over. True when it just cleared. */
+export function healRemovedMark(db, deviceId) {
+  if (!isRemovedFromCamp(db) || isRevokedByOwnAuthority(db, deviceId)) return false
+  return clearRemovedFromCamp(db)
 }

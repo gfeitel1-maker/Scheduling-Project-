@@ -54,6 +54,7 @@ import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 // window this trades away small: a peer that becomes trusted mid-window is only
 // delayed to its next announce after the cache entry expires, not locked out.
 const NEGATIVE_CACHE_TTL_MS = 5_000
+const REMOVED_RETRY_MS = 60_000
 // Caps the cache itself from being a memory-growth vector under a peer-id-churning
 // flood — oldest entry evicted once this is exceeded.
 const NEGATIVE_CACHE_MAX_SIZE = 500
@@ -100,7 +101,7 @@ const DISCOVERY_EMIT_STATE_MAX_SIZE = 500
 // that never purges a camper) gets an empty self-report rather than a crash. syncNode.js is the
 // one production caller that supplies a real one, reading the `tombstones` table. Read fresh on
 // every dial/authenticate attempt, same discipline as getSchemaVersion.
-export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter(), getSchemaVersion = () => CURRENT_SCHEMA_VERSION, getAppliedTombstones = () => [], getRosterEntry = () => null, getHeads = () => [], isSelfRemoved = () => false, reauthAfterDisconnectMs = 1_000 } = {}) {
+export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter(), getSchemaVersion = () => CURRENT_SCHEMA_VERSION, getAppliedTombstones = () => [], getRosterEntry = () => null, getHeads = () => [], isSelfRemoved = () => false, removedRetryMs = REMOVED_RETRY_MS, reauthAfterDisconnectMs = 1_000 } = {}) {
   if (typeof isPeerTrusted !== 'function') {
     throw new TypeError(
       'wireMutualAuth requires an isPeerTrusted(peerId) predicate: this seam decides who receives ' +
@@ -148,6 +149,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onReje
   // recency order (re-set deletes then re-inserts), so the oldest entry to evict is
   // always the Map's first key.
   const deniedRecently = new Map()
+  const removedAttemptAt = new Map()
   // Peers whose last authenticate from this device succeeded (bounded like deniedRecently). See forget().
   const admittedBy = new Set()
 
@@ -194,10 +196,14 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, isPeerTrusted, onReje
 
   async function tryAuthenticate(peerId) {
     if (attempted.has(peerId)) return
-    // A camp peer has authoritatively told this device it was removed (selfRemoval.js). Every
-    // further authenticate would be refused the same way, so make none — no retry loop — until
-    // Pair again clears the state. A transient failure never sets this, so it never stops retries.
-    if (isSelfRemoved()) return
+    // This device's own authority state says it was removed (selfRemoval.js). Keep trying, slowly: a removal can turn out
+    // false (a re-grant supersedes the revoke) and only a peer that admits us again lets us learn it. One attempt per peer
+    // per interval, so a genuinely removed device does not retry-loop.
+    if (isSelfRemoved()) {
+      const last = removedAttemptAt.get(peerId)
+      if (last !== undefined && now() - last < removedRetryMs) return
+      removedAttemptAt.set(peerId, now())
+    }
 
     // Short-circuits a peer denied within the last NEGATIVE_CACHE_TTL_MS without
     // touching isPeerTrusted at all — see the module-level comment for why this

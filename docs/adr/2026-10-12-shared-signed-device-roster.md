@@ -199,6 +199,17 @@ Security (score 3) and Red Hat (score 2) reviews of this ADR were incorporated b
 | Roster add minted at approve time needs the peer id | Minted at first successful login on the host instead (section 1) |
 | Test coverage gaps | Negative twin of test 0 (never-rostered clients refuse each other), revoke-before-entry order test, 4405 test, three-client tests use the real join flow |
 
+## Refusal evidence (amendment 2026-10-13)
+
+A refused device must learn that it was removed, because a revoked device is refused by every peer and cannot sync the revoke. Rules:
+
+1. **A refusal is never a verdict.** A device marks itself removed (`self:removed_from_camp`, `electron/sync/automerge/selfRemoval.js`) only when its own signed authority state (`authority_cache`, re-derived by projection) says it is revoked. A joining device with no roster refuses its own host, and a hostile peer can claim anything, so the refusal's reason text is only a prompt to re-check own state.
+2. **Evidence is real Automerge changes.** A revocation refusal (`device_revoked_by_authority`) carries the actual changes that wrote the revoke entries and the revoking signer's grant chain, never re-authored entries. The refused device validates them (`validateRefusalEvidence`: same camp lineage, only authority-log changes, revoke signers admin at their own causal position), applies them like ordinary sync, and re-derives. Wrong-camp, unrelated or oversized evidence is rejected whole.
+3. **Roster-bound recipient gate.** A peer is sent evidence only if the roster binds its peer id to the device id it claims (`mayReceiveRevocationEvidence`), so a stranger claiming a revoked device id learns nothing.
+4. **A false removal heals itself.** After every projection, a device marked removed whose own state no longer says revoked (a re-grant supersedes the revoke) clears the mark (`healRemovedMark`), tells the renderer (`shoresh:access-restored`), and resumes admission. A removed device keeps trying to reach peers (at most one attempt per peer per minute), because only a peer that admits it again lets it learn the removal was false. No re-pair is needed.
+
+**Accepted residual (v1, owner-delegated ruling):** a stale device that has not yet learned admin D was revoked can be made to sign itself out by D, using a backdated but causally valid revoke delivered in a refusal (insider with retained keys plus a stale victim). Effect: recoverable sign-out. Nothing leaks and nothing escalates. Recorded in `SECURITY.md` "Known limitations".
+
 ## Interface-contract check (`org-interface-contracts`)
 
 - **Idempotency / concurrent retries:** roster entries are keyed by `device_id`, signed over the id; writing the same entry twice is an identical-field write (no conflict); two hosts' simultaneous add of one device writes the same device_id with different `added_at`/sig, which can raise a `conflicts` row on a modeled field. Mitigation: entries are written once, at first login, which is skipped when `roster_cache` already holds the device; the projection verifies whichever signature wins and both are valid.

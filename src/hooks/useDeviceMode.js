@@ -215,6 +215,11 @@ export function useDeviceMode() {
         clearSessionState(reasonForAuthRejectedCode(code))
       })
     }
+    // The device's own authority state stopped saying it was removed (a re-grant superseded the revoke): drop the
+    // "access was removed" explanation so the sign-in screen is ordinary again.
+    if (localClient.onAccessRestored) {
+      localClient.onAccessRestored(() => setSessionEndedReason(null))
+    }
   }, [clearSessionState])
 
   const retry = useCallback(() => {

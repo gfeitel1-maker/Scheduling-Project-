@@ -9,7 +9,7 @@
 // heads advanced, projectAll into SQLite and re-broadcast to every OTHER
 // connected peer (mirrors test-cr4-live.mjs's except-self broadcast, which is
 // what lets a 3+ peer LAN mesh converge without a full connection graph).
-import { isRemovedFromCamp, markRemovedFromCamp } from './selfRemoval.js'
+import { isRemovedFromCamp, markRemovedFromCamp, healRemovedMark } from './selfRemoval.js'
 import { mayReceiveRevocationEvidence, collectRevocationEvidence, validateRefusalEvidence, ownHeadsForHandshake, isRevokedByOwnAuthority, REVOCATION_REFUSAL_REASONS } from './removalEvidence.js'
 import * as A from '@automerge/automerge'
 import { createJoinTagAdvertiser } from './joinTagDiscovery.js'
@@ -86,7 +86,7 @@ export function isSyncCompatible(incomingVersion, localVersion) {
 // installed builds in one process: overriding this alone lets a test node ANNOUNCE a version other
 // than this checkout's real CURRENT_SCHEMA_VERSION, to construct a genuine peer-version mismatch
 // without needing a second codebase.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingNew, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, joinDiscoveryFor, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, onPunchPeerAdmitted, onRelayReservationRefused, relaunch, onHandoffChanged, handoffRetryMs, handoffFaults, inboundConnectionThreshold } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingNew, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, joinDiscoveryFor, onAuthRejected, onRemovalCleared, removedRetryMs, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, onPunchPeerAdmitted, onRelayReservationRefused, relaunch, onHandoffChanged, handoffRetryMs, handoffFaults, inboundConnectionThreshold } = {}) {
   const getLocalSchemaVersion = () =>
     typeof localSchemaVersion === 'function' ? localSchemaVersion() : localSchemaVersion
   const getHandshakeSchemaVersion = () =>
@@ -172,9 +172,19 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     }
   }
 
+  // A removed mark is only as true as this device's own authority state: once that stops saying revoked (a re-grant
+  // supersedes the revoke), the mark clears itself and the renderer is told. No re-pair.
+  function healFalseRemoval() {
+    try {
+      if (healRemovedMark(db, deviceId)) onRemovalCleared?.()
+    } catch (err) {
+      console.error(`syncNode: could not re-check this device's removed state after projection (non-fatal): ${err?.message ?? err}`)
+    }
+  }
   function projectAndNotify(merged, before, fromPeerId) {
     try {
       const contained = projectAll(db, merged)
+      healFalseRemoval()
       tearDownRevokedConnectedPeers()
       runRendezvousRotation(db, { deviceId, broadcast: syncAllAuthenticatedPeers })
       onProjected?.(merged)
@@ -975,7 +985,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
 
   mutualAuth = wireMutualAuth(
     { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },
-    { deviceId, onRejected: handleAuthRejected, isSelfRemoved: () => isRemovedFromCamp(db), isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion, getAppliedTombstones, getRosterEntry: () => readOwnRosterEntry(getCurrentDoc(db), deviceId), getHeads: () => ownHeadsForHandshake(getCurrentDoc(db)) }
+    { deviceId, onRejected: handleAuthRejected, isSelfRemoved: () => isRemovedFromCamp(db), removedRetryMs, isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion, getAppliedTombstones, getRosterEntry: () => readOwnRosterEntry(getCurrentDoc(db), deviceId), getHeads: () => ownHeadsForHandshake(getCurrentDoc(db)) }
   )
 
   return {
