@@ -4039,8 +4039,9 @@ describe('T175 sticky at-rest encryption wiring', () => {
     const preload = fs.readFileSync(new URL('./preload.js', import.meta.url), 'utf8')
     expect(preload).not.toMatch(/setAtRestEncryption|enableAtRestEncryption/i)
     expect(preload.match(/disable\w*Encrypt/gi)).toEqual(['disableAtRestEncrypt'])
-    expect(src.match(/ipcMain\.handle\('shoresh:[^']*(disable|set|enable)-?[^']*encrypt[^']*'/gi)).toEqual([
-      "ipcMain.handle('shoresh:disable-at-rest-encryption'",
+    // Registered through registerHandlers' handle(), which removes a channel before registering it.
+    expect(src.match(/(?<!\w)(?:ipcMain\.)?handle\('shoresh:[^']*(disable|set|enable)-?[^']*encrypt[^']*'/gi)).toEqual([
+      "handle('shoresh:disable-at-rest-encryption'",
     ])
     expect(src).toMatch(/requireAuthorized\(db, \{ token, action: 'security\.disable_at_rest_encryption' \}\)/)
   })
@@ -4141,6 +4142,6 @@ describe('getPortMappingStatus (T359 slice 4)', () => {
     const preload = fs.readFileSync(new URL('./preload.js', import.meta.url), 'utf8')
     const main = fs.readFileSync(new URL('./main.js', import.meta.url), 'utf8')
     expect(preload).toContain("getPortMappingStatus: () => ipcRenderer.invoke('shoresh:get-port-mapping-status')")
-    expect(main).toContain("ipcMain.handle('shoresh:get-port-mapping-status'")
+    expect(main).toMatch(/(?<!\w)(?:ipcMain\.)?handle\('shoresh:get-port-mapping-status'/)
   })
 })
