@@ -55,6 +55,15 @@ describe('StartFreshOnThisComputer', () => {
     expect(screen.getByRole('button', { name: 'Yes, start fresh' })).toBeTruthy()
   })
 
+  // Red Hat: the recent list keeps only 5 camps, so an older camp can't be named, yet its key is shredded too.
+  it('always warns that any other camp opened on this computer will no longer open here, even when none is listed', async () => {
+    const user = userEvent.setup()
+    localClient.getSyncStatus.mockResolvedValue(REMOVED)
+    render(<StartFreshOnThisComputer />)
+    await user.click(await screen.findByRole('button', { name: 'Start fresh on this computer' }))
+    expect(await screen.findByText(/Any other camp you have opened on this computer will no longer open here either\./)).toBeTruthy()
+  })
+
   it('is driven by the verified gate, not by any close-code reason string', async () => {
     localClient.getSyncStatus.mockResolvedValue(HEALTHY)
     const { container } = render(<StartFreshOnThisComputer notice={DEVICE_REVOKED_REASON} />)

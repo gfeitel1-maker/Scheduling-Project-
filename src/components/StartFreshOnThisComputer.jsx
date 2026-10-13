@@ -70,6 +70,7 @@ export default function StartFreshOnThisComputer({ notice = null }) {
             This clears Shoresh on this computer only, including its backups (they only open on this computer as it was).
             The camp&apos;s information is still on your other computers. Anything changed here after it was removed will be lost.
             A &lsquo;Save whole camp&rsquo; file you kept elsewhere is not affected and can still be opened.
+            Any other camp you have opened on this computer will no longer open here either.
           </p>
           {camps.map((c) => (
             <p key={c.file} style={styles.note}>
