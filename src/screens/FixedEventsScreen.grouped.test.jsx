@@ -82,6 +82,11 @@ describe('Fixed/Recurring Events grouped by name (T377)', () => {
     expect(screen.getAllByRole('button', { name: 'Edit Lineup' })).toHaveLength(1)
   })
 
+  it('the heading counts events, and the days they make up when that differs', async () => {
+    setup()
+    await waitFor(() => expect(screen.queryByText('1 fixed event · 3 days')).not.toBeNull())
+  })
+
   it('shows "times vary" when the days have different time blocks', async () => {
     setup([ev('e1', 'd1'), ev('e2', 'd2', { time_block_id: 'block-2' })])
     await waitFor(() => expect(screen.queryByText('times vary')).not.toBeNull())

@@ -277,6 +277,13 @@ function FixedEventModal({ fixedEvent, group = null, kind, tiers, groups, days, 
   )
 }
 
+// The heading counts events as the table shows them, one per name (T377), and the event-days they
+// make up when that differs: "12 recurring events · 37 days".
+function eventCountLabel(events, eventDays, kind) {
+  const head = `${events} ${kind} event${events !== 1 ? 's' : ''}`
+  return eventDays !== events ? `${head} · ${eventDays} days` : head
+}
+
 function Field({ label, children }) {
   return (
     <div style={{ marginBottom: 14 }}>
@@ -1103,7 +1110,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
       <SetupScreenShell
         screenKey={kind === 'fixed' ? 'fixedevents' : 'recurringevents'}
         onNavigate={onNavigate}
-        countLabel={`${fixedEvents.length} ${kind} event${fixedEvents.length !== 1 ? 's' : ''}`}
+        countLabel={eventCountLabel(groupFixedEvents(fixedEvents, days).length, fixedEvents.length, kind)}
         role={role}
         actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
         fileInputRef={fileRef}
