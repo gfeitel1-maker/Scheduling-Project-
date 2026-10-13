@@ -33,6 +33,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: the final audit's featureIn checks ask whether each feature's merge commit is an
+          # ancestor of the build; a shallow clone makes every feature look newer than the build.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           # Release builds use Node 22: the encrypting SQLite driver has no prebuilt for, and does not
