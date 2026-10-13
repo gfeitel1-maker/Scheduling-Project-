@@ -196,6 +196,10 @@ When a peer refuses a device, the refusal can carry the signed revoke entries th
 
 Admin removal works by votes: in a camp with three or more admin devices, removing one takes votes from several admins. Suppose one admin has voted to remove admin device X but not enough others have yet, and then a director pairs X again with "make admin". That fresh grant cancels the old vote, as intended. But any paired device can copy the old signed vote into a branch of the camp history that runs alongside the new grant, and the copy counts again. Effect: X can then be removed with one fewer fresh vote than it should need. Nobody gains admin rights, nothing leaks, and a device that has been fully removed can never be made admin again: approving it is refused, and the authority replay ignores any later grant to a removed device id (`electron/automerge/authorityReplay.js`). Recovery: pair X again as a new device. Fix (after v1): bind each signed authority entry to its position in the history (sign the change's dependencies), so a copy anywhere else fails verification. Accepted for v1 under delegated owner authority. Evidence: the 2026-10-13 amendment in `docs/adr/2026-10-02-distributed-revocation-authority.md`.
 
+### A removed admin could be restored by a later admin grant (post-v1, unreachable in v1)
+
+The removal threshold is recomputed from the current number of admin devices, so in a camp with several granted admin devices a later grant could bring a removed admin back. No screen in v1 grants device admin, so this cannot happen in the app as shipped. Tracked as T382 (`docs/work/tickets/T382-admin-removal-undone-by-later-admin-grant.md`).
+
 ### Rendezvous secrets rotate on revocation, but old records and stragglers linger (v1, accepted)
 
 When the revocation set changes, the elected admin device rotates the rendezvous namespace and the
