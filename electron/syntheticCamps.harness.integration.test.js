@@ -820,6 +820,56 @@ describe('a double-period elective imports as one span (T219)', () => {
   })
 })
 
+// T378 (owner rule: a week the file shows fits, Generate fills again). Generate draws its choices from a
+// PRNG seeded by the camp id, so one seed passing proves little: the r9 week left an Otters minimum short
+// on 136 of 200 seeds because the repair could not move a span that took the wrong pair of blocks.
+// Every seed must come out with nothing still needed and nothing unfillable.
+describe('a fitting week with a double period is filled again on every seed (T378)', () => {
+  it('r9: 0 still needed and 0 unfillable for camp ids seed-0..seed-199', () => {
+    const { d, id } = seedCamp('t378')
+    importFile(d, id, fs.readFileSync(path.join(DIR, 'repro/r9-double-period-elective.txt'), 'utf8'))
+    const input = scheduleInput(d, id)
+    // Positive control: the case is the audit's, an activity spanning two blocks with a weekly minimum.
+    expect(input.activities.some((a) => (a.span_blocks ?? 1) > 1 && (a.min_per_week ?? 0) > 0)).toBe(true)
+    const short = []
+    for (let i = 0; i < 200; i++) {
+      const { slots, findings } = buildSchedule({ ...input, campId: `seed-${i}` })
+      const under = (findings ?? []).filter((f) => f.kind === 'UNDERSERVED').length
+      const unfillable = slots.filter((s) => s.flags?.UNFILLABLE).length
+      if (under || unfillable) short.push(`seed-${i}: ${under} still needed, ${unfillable} unfillable`)
+    }
+    expect(short).toEqual([])
+    d.close()
+  })
+  it('never moves a locked span, and a double period still counts as one session', () => {
+    const { d, id } = seedCamp('t378-locked')
+    importFile(d, id, fs.readFileSync(path.join(DIR, 'repro/r9-double-period-elective.txt'), 'utf8'))
+    const input = scheduleInput(d, id)
+    const span = input.activities.find((a) => (a.span_blocks ?? 1) > 1)
+    const eligible = input.groups.filter((g) => span.eligible_group_ids.length === 0 || span.eligible_group_ids.includes(g.id))
+    const problems = []
+    for (let i = 0; i < 50; i++) {
+      // Lock one seed's span cells (head and tail) as a director would, then Generate under another seed.
+      const first = buildSchedule({ ...input, campId: `seed-${i}` }).slots
+      const lockedCells = first.filter((s) => s.activityId === span.id && s.is_span_head)
+        .map((s) => ({ groupId: s.groupId, dayId: s.dayId, blockId: s.blockId, activityId: s.activityId }))
+      const { slots } = buildSchedule({ ...input, campId: `seed-${i + 100}`, preplacedSlots: lockedCells })
+      for (const c of lockedCells) {
+        const at = slots.find((s) => s.groupId === c.groupId && s.dayId === c.dayId && s.blockId === c.blockId)
+        if (at?.activityId !== span.id || !at.is_span_head) problems.push(`seed-${i}: a locked span moved`)
+      }
+      for (const g of eligible) {
+        const heads = slots.filter((s) => s.groupId === g.id && s.activityId === span.id && s.is_span_head).length
+        const cells = slots.filter((s) => s.groupId === g.id && s.activityId === span.id).length
+        if (cells !== heads * span.span_blocks) problems.push(`seed-${i}: ${g.name} has a split double period`)
+        if (heads < span.min_per_week) problems.push(`seed-${i}: ${g.name} below its double-period minimum`)
+      }
+    }
+    expect(problems).toEqual([])
+    d.close()
+  })
+})
+
 // Final audit (packaged 5813133): with nothing confirmed the list cell stays an ACTIVITY with
 // span_blocks 2. Generate re-spans it; the imported version must too, or a Manual restore shows
 // one session as two cells.
@@ -1035,3 +1085,4 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
     expect(total).toBeGreaterThan(0)
   })
 })
+
