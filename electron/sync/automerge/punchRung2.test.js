@@ -14,7 +14,7 @@ import { tmpHighWater, makeDevice, registerAll, revokeOn, makeGatedNode, authent
 import { createPunchSignaling } from './punchSignaling.js'
 import { publishReflexive, readReflexive, deviceRegistryFromDb } from './punchGossip.js'
 import { EVENTS } from './connectivityEvents.js'
-import { attemptRung2 } from './punchRung2.js'
+import { attemptRung2, RUNG2_BUDGET_MS } from './punchRung2.js'
 import { punchTransport } from './punchTransport.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -136,13 +136,44 @@ describe('attemptRung2', () => {
     expect(dialed).toBe(0)
   }, 30000)
 
+  it('retries a candidate once: first dial fails, second succeeds -> connected', async () => {
+    const { a, b, sa, bindChannel } = await buildCamp()
+    const doc = pub(freshCampDoc(), b, [CANDIDATE])
+    const tried = []
+    const r = await attemptRung2({
+      peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: tmpHighWater(), signaling: sa, bindChannel,
+      dial: async (addr) => { tried.push(addr); if (tried.length === 1) throw new Error('lost packet') },
+      sleep: async () => {},
+    })
+    expect(r).toEqual({ ok: true, candidate: CANDIDATE })
+    expect(tried).toHaveLength(2)
+  }, 30000)
+
+  it('stays within RUNG2_BUDGET_MS: every dial gets a signal bounded by the remaining budget, and no retry starts past it', async () => {
+    const { a, b, sa, bindChannel } = await buildCamp()
+    const doc = pub(freshCampDoc(), b, [CANDIDATE, '/ip4/127.0.0.1/udp/10'])
+    let t = 0
+    const budgets = []
+    const r = await attemptRung2({
+      peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: tmpHighWater(), signaling: sa, bindChannel,
+      now: () => t,
+      sleep: async (ms) => { t += ms },
+      dial: async (_addr, opts) => { budgets.push(opts?.timeoutMs); t += RUNG2_BUDGET_MS / 2; throw new Error('slow') },
+    })
+    expect(r).toEqual({ ok: false, reason: 'dial-failed' })
+    expect(budgets.every((ms) => typeof ms === 'number' && ms > 0 && ms <= RUNG2_BUDGET_MS)).toBe(true)
+    expect(t).toBeLessThanOrEqual(RUNG2_BUDGET_MS + RUNG2_BUDGET_MS / 2)
+    expect(budgets.length).toBeLessThan(4)
+  }, 30000)
+
   it('when every candidate fails to dial: { ok: false, reason: dial-failed }', async () => {
     const { a, b, sa, bindChannel } = await buildCamp()
     const doc = pub(freshCampDoc(), b, [CANDIDATE, '/ip4/127.0.0.1/udp/10'])
     const tried = []
-    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: tmpHighWater(), signaling: sa, bindChannel, dial: async (addr) => { tried.push(addr); throw new Error('unreachable') } })
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: tmpHighWater(), signaling: sa, bindChannel, dial: async (addr) => { tried.push(addr); throw new Error('unreachable') }, sleep: async () => {} })
     expect(r).toEqual({ ok: false, reason: 'dial-failed' })
-    expect(tried).toHaveLength(2)
+    // each of the two candidates is tried, then retried once
+    expect(tried).toHaveLength(4)
   }, 30000)
 })
 
