@@ -487,7 +487,7 @@ export default function Sidebar({
             }}
           >
             {/* When it was made stays on this line after "Backup saved" fades (director test 2026-10-12). */}
-            {lastBackupAt ? `Last backup ${new Date(lastBackupAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · ` : ''}Show in Finder
+            {lastBackupAt ? `Last backup ${new Date(lastBackupAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })} · ` : ''}Show in Finder
           </button>
         )}</div>}
         {role === 'admin' && <RestoreControl />}
