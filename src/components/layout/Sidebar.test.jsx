@@ -718,13 +718,15 @@ describe('Sidebar: footer cannot-reach-camp flag', () => {
 describe('Sidebar: footer removed-from-camp flag', () => {
   const REMOVED = { mode: 'client', connected: false, state: 'client-disconnected', unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1, peersUnreachable: true, removedFromCamp: true }
 
-  it('is present with Pair again when this device was removed', () => {
+  it('is present with sign-out guidance, and no Pair again, when this device was removed', () => {
     const onNavigate = vi.fn()
     renderSidebar({ syncStatus: REMOVED, onNavigate })
     expect(screen.getByText('removed from this camp')).toBeTruthy()
+    expect(screen.getByText('sign out, then Start fresh')).toBeTruthy()
+    expect(screen.queryByText('pair again')).toBeNull()
     expect(screen.queryByText("can't reach the camp")).toBeNull()
-    fireEvent.click(screen.getByText('removed from this camp').closest('button'))
-    expect(onNavigate).toHaveBeenCalledWith('pairAgain')
+    fireEvent.click(screen.getByText('removed from this camp'))
+    expect(onNavigate).not.toHaveBeenCalled()
   })
 
   it('is absent otherwise', () => {

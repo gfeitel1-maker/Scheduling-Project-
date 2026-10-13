@@ -1991,7 +1991,7 @@ export const mockShoresh = {
   // Browser preview of the can't-reach-the-camp flag: ?syncFlag=unreachable.
   async getSyncStatus() {
     if (mockRemoved()) {
-      return { mode: 'client', connected: false, state: 'client-disconnected', unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1, peersUnreachable: true, removedFromCamp: true }
+      return { mode: 'client', connected: false, state: 'client-disconnected', unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1, peersUnreachable: true, removedFromCamp: true, startFreshAvailable: true }
     }
     if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('syncFlag') === 'unreachable') {
       return { mode: 'client', connected: false, state: 'client-disconnected', unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1, peersUnreachable: true }
@@ -2013,6 +2013,9 @@ export const mockShoresh = {
   // no-op ack, matching the real handler's shape when no starter is wired.
   async retrySync() {
     return { ok: true }
+  },
+  async startFreshPreview() {
+    return mockRemoved() ? { ok: true, camps: [{ name: 'Another Camp', file: 'another.sqlite', outsideShoresh: false }] } : { ok: false, error: 'not_removed' }
   },
   // Seeded with ?syncFlag=removed; a healthy mock refuses, like the real handler.
   async startFreshOnThisComputer() {

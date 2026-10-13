@@ -26,7 +26,7 @@ import { runLocalReset, recoverInterruptedLocalReset, LOCAL_RESET_JOURNAL } from
 import { createEmptyDoc, applyWrite } from './automerge/campDocument.js'
 import { signAuthorityEntry } from './automerge/authorityLogSignature.js'
 import { projectAll } from './automerge/projector.js'
-import { markRemovedFromCamp, isLocallyRemoved } from './sync/automerge/selfRemoval.js'
+import { markRemovedFromCamp, isLocallyRemoved, isRemovedFromCamp } from './sync/automerge/selfRemoval.js'
 import { resetForTests as resetLiveDocForTests } from './sync/automerge/liveDoc.js'
 
 const tmpFiles = []
@@ -100,7 +100,7 @@ beforeEach(async () => {
   doc = signedEntry(doc, 'grant', founder.db, 'founder', deviceId, { target_peer_id: founder.peerId })
   runner = buildRunner()
   setLocalResetRunner(runner)
-  handlers = makeHandlers(db, deviceId)
+  handlers = makeHandlers(db, deviceId, { userDataPath: userData, dbPath: path.join(userData, 'shoresh.sqlite') })
 })
 afterEach(() => {
   setLocalResetRunner(null)
@@ -183,6 +183,19 @@ describe('startFreshOnThisComputer: refusals touch nothing', () => {
     await expectUntouched(before, await handlers.startFreshOnThisComputer({ confirm: 'START_FRESH' }))
   })
 
+  it('PLANT: an unsigned entry targeting this device plus a bare refusal sets both old halves, yet the gate refuses and touches nothing', async () => {
+    const lone = genesis(createEmptyDoc(), 'founder', founder.peerId)
+    doc = signedEntry(lone, 'revoke', founder.db, 'founder', deviceId, {}, { sign: false })
+    projectAll(db, doc)
+    markRemovedFromCamp(db, { peerId: 'peer-x', reason: 'device_revoked' })
+    expect(db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(deviceId).status).toBe('revoked')
+    expect(isRemovedFromCamp(db)).toBe(true)
+    expect(handlers.getSyncStatus().startFreshAvailable).toBe(false)
+    const before = snapshot(userData)
+    await expectUntouched(before, await handlers.startFreshOnThisComputer({ confirm: 'START_FRESH' }))
+    expect(await handlers.startFreshPreview()).toEqual({ ok: false, error: 'not_removed' })
+  })
+
   it('a missing or wrong confirmation is refused before anything is checked or stopped', async () => {
     revokeThisDevice()
     const before = snapshot(userData)
@@ -224,6 +237,41 @@ describe('startFreshOnThisComputer: refusals touch nothing', () => {
     revokeThisDevice()
     setLocalResetRunner(null)
     expect(await handlers.startFreshOnThisComputer({ confirm: 'START_FRESH' })).toEqual({ ok: false, error: 'unavailable' })
+  })
+})
+
+describe('startFreshPreview: the other camps on this computer', () => {
+  it('names every other camp, inside and outside userData, and touches none of them', async () => {
+    revokeThisDevice()
+    expect(handlers.getSyncStatus().startFreshAvailable).toBe(true)
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-startfresh-out-'))
+    tmpDirs.push(outside)
+    fs.mkdirSync(path.join(userData, 'projects'))
+    const b = path.join(userData, 'projects', 'b.sqlite'); const c = path.join(userData, 'projects', 'c.sqlite'); const o = path.join(outside, 'elsewhere.sqlite')
+    for (const f of [b, c, o]) fs.writeFileSync(f, `bytes of ${path.basename(f)}`)
+    fs.writeFileSync(path.join(userData, 'recent-projects.json'), JSON.stringify([
+      { path: path.join(userData, 'shoresh.sqlite'), campName: 'This Camp' },
+      { path: b, campName: 'Camp B' }, { path: c }, { path: o, campName: 'Outside Camp' },
+    ]))
+    const before = snapshot(userData); const outBefore = snapshot(outside)
+    const res = await handlers.startFreshPreview()
+    expect(res.ok).toBe(true)
+    expect(res.camps).toEqual([
+      { name: 'Camp B', file: path.join('projects', 'b.sqlite'), outsideShoresh: false },
+      { name: 'c.sqlite', file: path.join('projects', 'c.sqlite'), outsideShoresh: false },
+      { name: 'Outside Camp', file: o, outsideShoresh: true },
+    ])
+    expect(snapshot(userData)).toEqual(before)
+    expect(snapshot(outside)).toEqual(outBefore)
+    await handlers.startFreshOnThisComputer({ confirm: 'START_FRESH' })
+    recoverInterruptedLocalReset({ userDataDir: userData })
+    expect(fs.readFileSync(o, 'utf8')).toBe('bytes of elsewhere.sqlite')
+    expect(snapshot(outside)).toEqual(outBefore)
+  })
+
+  it('lists nothing when this is the only camp', async () => {
+    revokeThisDevice()
+    expect(await handlers.startFreshPreview()).toEqual({ ok: true, camps: [] })
   })
 })
 

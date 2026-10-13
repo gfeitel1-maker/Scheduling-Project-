@@ -98,7 +98,7 @@ import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled, latchEncrypt
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
 import { isRemovedFromCamp, clearRemovedFromCamp, isLocallyRemoved } from './sync/automerge/selfRemoval.js'
-import { runLocalReset, recoverInterruptedLocalReset } from './db/localReset.js'
+import { runLocalReset, recoverInterruptedLocalReset, describeOtherCamps } from './db/localReset.js'
 import { createLocalResetRunner } from './localResetRunner.js'
 import { codeForAuthRejectedReason } from './authRejectedSender.js'
 import { mintJoinSecret, formatJoinCode } from './sync/joinCode.js'
@@ -944,7 +944,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   }
 
   function getSyncStatus() {
-    const status = { ...computeSyncStatus(), removedFromCamp: isRemovedFromCamp(db) }
+    const status = { ...computeSyncStatus(), removedFromCamp: isRemovedFromCamp(db), startFreshAvailable: isLocallyRemoved(db, deviceId) }
     // During Pair again the persistent node is stopped on purpose: the footer must not offer a retry.
     return activeJoin && activeJoinIsRejoin ? { ...status, pairingAgain: true } : status
   }
@@ -2524,6 +2524,15 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return await localResetRunner()
   }
 
+  // Read-only, gated like the action itself: the other camps on this computer the confirm step must name.
+  function startFreshPreviewHandler() {
+    if (!isLocallyRemoved(db, deviceId)) return { ok: false, error: 'not_removed' }
+    return {
+      ok: true,
+      camps: describeOtherCamps({ userDataDir: handlersUserDataPath, currentDbPath: dbPath, recentProjects: readRecentProjects(handlersUserDataPath) }),
+    }
+  }
+
   function deleteWeekHandler({ token, weekId } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // ADMIN-ONLY, deliberately '.delete' not '.write': deleteWeek() is a
@@ -3419,6 +3428,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     deleteWeek: deleteWeekHandler,
     disableAtRestEncryption: disableAtRestEncryptionHandler,
     startFreshOnThisComputer: startFreshOnThisComputerHandler,
+    startFreshPreview: startFreshPreviewHandler,
     attributeSubject: attributeSubjectHandler,
     saveCampFile: saveCampFileHandler,
     pickCampFile: pickCampFileHandler,
@@ -3767,6 +3777,7 @@ if (isElectronEntryPoint()) {
     handle('shoresh:get-port-mapping-status', () => handlers.getPortMappingStatus())
     handle('shoresh:retry-sync', () => handlers.retrySync())
     handle('shoresh:disable-at-rest-encryption', (_event, args) => handlers.disableAtRestEncryption(args))
+    handle('shoresh:start-fresh-preview', () => handlers.startFreshPreview())
     handle('shoresh:start-fresh-on-this-computer', (_event, args) => handlers.startFreshOnThisComputer(args))
     handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
     handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))

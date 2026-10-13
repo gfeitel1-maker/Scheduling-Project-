@@ -34,6 +34,8 @@ function crashingFs(crashAt, log = []) {
 }
 
 describe('resetTargets', () => {
+  it('includes the sign-out cut-off file', () => { expect(LOCAL_RESET_FILES).toContain('sessions-valid-after.json') })
+
   it('lists the key first, only paths inside userData, and the sidecars of in-userData project dbs', () => {
     const root = tmp()
     const outside = tmp()

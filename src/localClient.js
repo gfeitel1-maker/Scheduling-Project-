@@ -117,6 +117,7 @@ export const localClient = {
   retrySync: () => shoresh.retrySync(),
   saveCampFile: () => shoresh.saveCampFile({ token: currentToken() }),
   loadCampFile: () => shoresh.loadCampFile({ token: currentToken() }),
+  startFreshPreview: () => shoresh.startFreshPreview(),
   startFreshOnThisComputer: () => shoresh.startFreshOnThisComputer({ confirm: 'START_FRESH' }),
   disableAtRestEncryption: (phrase) => shoresh.disableAtRestEncryption({ token: currentToken(), phrase }),
   // T16 — commit an approved import proposal. The preview is built in the

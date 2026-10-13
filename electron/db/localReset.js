@@ -9,6 +9,7 @@ import { atomicWrite, syncDir, DISABLE_JOURNAL_FILE } from './disableRecovery.js
 import { KEY_FILE } from './dbEncryptionKey.js'
 import { OPT_OUT_FILE } from './atRestEncryption.js'
 import { RECENT_PROJECTS_FILE, CURRENT_PROJECT_FILE, BACKUP_DIR_NAME } from './projectManager.js'
+import { FILE as SESSIONS_FILE } from '../sessionsValidAfter.js'
 import { TOOL_AUTH_FILE } from '../auth/toolAuthorizations.js'
 import { TCP_PORT_FILE } from '../sync/automerge/pinnedListenPort.js'
 import { GRANT_FILE } from '../sync/automerge/portMappingGrantStore.js'
@@ -32,6 +33,7 @@ export const LOCAL_RESET_FILES = [
   DISABLE_JOURNAL_FILE,
   TCP_PORT_FILE,
   GRANT_FILE,
+  SESSIONS_FILE,
   'punch-gossip-highwater.json',
   'punch-signal-replay.json',
 ]
@@ -39,6 +41,24 @@ export const LOCAL_RESET_FILES = [
 const isPlainRelative = (rel) => typeof rel === 'string' && rel !== '' && !path.isAbsolute(rel) && !rel.split(path.sep).includes('..')
 const stagingDir = (userDataDir, stamp) => path.join(userDataDir, `.reset-${stamp}`)
 const journalPath = (userDataDir) => path.join(userDataDir, LOCAL_RESET_JOURNAL)
+
+/**
+ * Every OTHER camp database this computer remembers, for the confirm step to name. Read-only: the camp name is the one
+ * recent-projects.json stored, else the file name. A database outside userData is named too (and flagged), never touched.
+ */
+export function describeOtherCamps({ userDataDir, currentDbPath, recentProjects }) {
+  const here = path.resolve(currentDbPath ?? '')
+  const out = []
+  for (const e of recentProjects ?? []) {
+    const abs = path.resolve(e.path)
+    if (abs === here) continue
+    const rel = path.relative(userDataDir, abs)
+    const outsideShoresh = !isPlainRelative(rel)
+    const file = outsideShoresh ? abs : rel
+    out.push({ name: e.campName || path.basename(abs), file, outsideShoresh })
+  }
+  return out
+}
 
 /** Names relative to userData, key first. Project dbs outside userData are dropped here and again at move time. */
 export function resetTargets(userDataDir, extraDbPaths = []) {

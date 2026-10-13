@@ -430,8 +430,10 @@ document is not supported: older builds cannot read either. The ruling is no dow
   `docs/adr/2026-09-28-at-rest-encryption-disable-control.md` and
   `docs/adr/2026-10-08-at-rest-encryption-sticky-no-ambient-disable.md`.
 - **A removed device can clear itself ("Start fresh on this computer").** Offered and executable only when
-  this device's own signed authority state says it was removed (`isLocallyRemoved`: the removed mark and a
-  verified `authority_cache` revoke, re-checked on the quiesced database before anything moves). It clears
+  a trusted revoke entry names this device (`applied_authority_log`), `authority_cache` says revoked and the removed
+  mark is set (`isLocallyRemoved`; the cache and mark alone can be set by one forged unsigned entry plus a bare
+  refusal), re-checked on the quiesced database before anything moves. The confirm step first names every other
+  camp on the computer (read-only, same gate); a camp database outside the user-data directory is never touched. It clears
   only this device's data inside the user-data directory (the list is `LOCAL_RESET_FILES` in
   `electron/db/localReset.js`; the sealed `db.key.enc` is the first thing moved and the first thing
   deleted), crash-safely: targets are renamed into `.reset-<stamp>/` under a durable journal and the next

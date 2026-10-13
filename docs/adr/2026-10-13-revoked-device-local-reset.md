@@ -32,11 +32,14 @@ new device.
 
 ## Decision
 
-1. **Gate.** The action is offered and executable only when this device's own signed authority state says it was
-   removed: `isLocallyRemoved(db, deviceId)` = `isRemovedFromCamp(db)` (a mark recorded only after verified
-   revocation evidence) AND `isRevokedByOwnAuthority(db, deviceId)` (`authority_cache` says revoked). A healthy
-   device is refused with `not_removed` before anything is touched. The renderer shows the button from
-   `getSyncStatus().removedFromCamp`, never from a close-code string; a peer-identity mismatch (4405) gets no button.
+1. **Gate.** The action is offered and executable only when `isLocallyRemoved(db, deviceId)` holds: (a) a row in
+   `applied_authority_log` with `kind = 'revoke'` and `target_device_id` = this device (that table is written only
+   after `isEntryTrusted`), AND (b) `authority_cache` says revoked for this device (a revoked-then-re-granted device
+   keeps its revoke row, so this is still needed), AND (c) `isRemovedFromCamp(db)`. Neither the cache nor the mark
+   is enough alone: one forged, unsigned entry targeting a device plus a bare refusal sets both. A healthy device
+   is refused with `not_removed` before anything is touched. The same check runs before and after the quiesce, and
+   the renderer shows the button from `getSyncStatus().startFreshAvailable` (the same function), never from a
+   close-code string; a peer-identity mismatch (4405) gets no button.
 2. **Handler.** `startFreshOnThisComputer({ confirm: 'START_FRESH' })`, channel
    `shoresh:start-fresh-on-this-computer`. No token: a removed device is signed out and the revoke is the gate.
    Single-flight. The runner re-checks the gate on the quiesced database (a re-grant can land while sync stops);
@@ -51,7 +54,13 @@ new device.
    into `.reset-<stamp>/`; the journal becomes `moved`; the app restarts. Before any database opens, the next launch
    deletes the staged key first, then the staging directory, then the journal last. A kill at any step leaves
    either the untouched device (the journal never became durable) or a state the next launch completes.
-5. **Not a sync mechanism.** This clears one computer. It says nothing to the camp, and the camp's information
+5. **Other camps are named first (owner ruling).** The confirm step lists every other camp this computer remembers
+   (recent projects; the stored camp name, else the file name) through the read-only, identically gated
+   `shoresh:start-fresh-preview`. For each: "Before you continue, use Save whole camp in <camp> so you can open it
+   again." A project database outside userData is named with its path, is never touched, and will no longer open
+   (its key is cleared). The director still chooses. `sessions-valid-after.json` is also cleared;
+   `encryption.disabled` is cleared too, so a fresh join comes back encrypted.
+6. **Not a sync mechanism.** This clears one computer. It says nothing to the camp, and the camp's information
    remains on the other computers.
 
 ## authority_cache writer
@@ -64,4 +73,4 @@ the removed mark, which is recorded only after verified revocation evidence.
 
 ## Consequences
 
-The removed-device sidebar flag still links to Pair again, which a removed device cannot complete; it is left as is.
+The removed-device sidebar flag is text only and reads "sign out, then Start fresh"; it no longer links to Pair again.

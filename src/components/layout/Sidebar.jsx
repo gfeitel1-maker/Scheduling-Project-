@@ -406,7 +406,7 @@ export default function Sidebar({
             onNavigate={onNavigate}
           />
         )}
-        {syncStatus?.removedFromCamp && <RemovedFromCampRow onNavigate={onNavigate} />}
+        {syncStatus?.removedFromCamp && <RemovedFromCampRow />}
         {!syncStatus?.removedFromCamp && syncStatus?.otherDeviceCount > 0 && syncStatus.peersUnreachable && (
           <CampUnreachableRow onNavigate={onNavigate} />
         )}
@@ -567,30 +567,22 @@ function CampUnreachableRow({ onNavigate }) {
   )
 }
 
-// A camp device authoritatively refused this one as removed (electron/sync/automerge/selfRemoval.js).
-// Durable until Pair again lets it back in; this device's own data stays as it was. Same quiet
-// footer-row shape as CampUnreachableRow, and the same one action.
-function RemovedFromCampRow({ onNavigate }) {
+// A camp device authoritatively refused this one as removed (electron/sync/automerge/selfRemoval.js). Text only: a
+// removed device cannot pair again; the way back is Start fresh on the sign-in screen (docs/adr/2026-10-13-revoked-device-local-reset.md).
+function RemovedFromCampRow() {
   const transition = useEnterTransition('slideFade', {})
   return (
-    <button
-      type="button"
-      title="A director removed this device from the camp, so it no longer syncs. Its own copy is kept. Pair again on the camp's network to ask to be let back in."
-      onClick={() => onNavigate('pairAgain')}
-      style={{
-        display: 'flex', alignItems: 'baseline', gap: 6, width: '100%',
-        padding: '4px 0 8px', border: 'none', background: 'none', cursor: 'pointer',
-        textAlign: 'left',
-        ...transition,
-      }}
+    <div
+      title="A director removed this device from the camp, so it no longer syncs. Sign out, then use Start fresh on this computer to join the camp again as a new device."
+      style={{ display: 'flex', alignItems: 'baseline', gap: 6, width: '100%', padding: '4px 0 8px', cursor: 'default', ...transition }}
     >
       <span style={{ flexShrink: 0, fontSize: 8, color: 'var(--danger)' }}>●</span>
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
         <span style={{ color: 'var(--danger)' }}>removed from this camp</span>
         {' · '}
-        <span style={{ color: 'var(--text-secondary)' }}>pair again</span>
+        <span style={{ color: 'var(--text-secondary)' }}>sign out, then Start fresh</span>
       </span>
-    </button>
+    </div>
   )
 }
 
