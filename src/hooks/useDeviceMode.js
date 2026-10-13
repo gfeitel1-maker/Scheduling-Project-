@@ -215,10 +215,10 @@ export function useDeviceMode() {
         clearSessionState(reasonForAuthRejectedCode(code))
       })
     }
-    // The device's own authority state stopped saying it was removed (a re-grant superseded the revoke): drop the
-    // "access was removed" explanation so the sign-in screen is ordinary again.
+    // The device's own authority state stopped saying it was removed: drop the "access was removed" explanation
+    // (only that one; a benign "session ended" reason stays) so the sign-in screen is ordinary again.
     if (localClient.onAccessRestored) {
-      localClient.onAccessRestored(() => setSessionEndedReason(null))
+      localClient.onAccessRestored(() => setSessionEndedReason((r) => (r === DEVICE_REVOKED_REASON ? null : r)))
     }
   }, [clearSessionState])
 
