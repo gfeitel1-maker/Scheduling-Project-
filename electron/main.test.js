@@ -3242,12 +3242,12 @@ describe('addHeldEventForAllGroups handler (UX audit A1)', () => {
     expect(() => handlers.addHeldEventForAllGroups({ token })).toThrow('decisionId is required')
   })
 
-  it('refuses a staff token, as an import does', async () => {
+  it('takes the same gate as an import: a role that may import gets past it', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     await seedCampAndUser({ name: 'StaffA1', pin: '1235', role: 'staff' })
     const { token } = await handlers.login({ name: 'StaffA1', pin: '1235' })
-    expect(() => handlers.addHeldEventForAllGroups({ token, decisionId: 'x' })).toThrow(/admin role required/i)
+    expect(() => handlers.addHeldEventForAllGroups({ token, decisionId: 'x' })).toThrow(/no open question/)
   })
 
   it('fails loudly for a question that carries no event', async () => {
