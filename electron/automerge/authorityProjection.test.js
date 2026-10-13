@@ -246,7 +246,7 @@ describe('projector gate C — upsertCampAuthorityLogEntity (real signatures, re
     ).toBe(1)
   })
 
-  it('a vote cast before a re-grant does not count against the device\'s NEW tenure after it is re-granted', async () => {
+  it('a removed device stays removed: a later grant to the same device id is ignored (a removed machine returns as a new device)', async () => {
     const founder = await makeDevice()
     const otherOld = await makeDevice()
     const otherNew = await makeDevice()
@@ -259,12 +259,12 @@ describe('projector gate C — upsertCampAuthorityLogEntity (real signatures, re
     projectAll(dbMid, doc)
     expect(cacheStatus(dbMid, 'other')).toBe('revoked')
 
-    // 'other' is re-granted (re-paired under a new key) causally AFTER the revoke above. The
-    // stale vote must NOT still be sitting there, instantly re-removing the fresh grant.
+    // A grant to 'other' causally AFTER its removal is ignored (#1024): approveDevice refuses it, and the replay ignores
+    // it too, so a replayed copy of the old revoke has no re-grant to cancel. Start fresh gives the machine a new id.
     doc = writeGrant(doc, { targetDeviceId: 'other', targetPeerId: otherNew.peerId, signerDeviceId: 'founder', signerDb: founder.db })
     const db = campDb()
     projectAll(db, doc)
-    expect(cacheStatus(db, 'other')).toBe('admin')
+    expect(cacheStatus(db, 'other')).toBe('revoked')
   })
 
   it('SECURITY CRITICAL (round-3 correction) — a captured genuine grant signature replayed under a NEW record id does NOT resurrect a revoked device', async () => {

@@ -337,6 +337,11 @@ export function createAuthorityReplayContext(automerge, doc, { root, founderDevi
         if (entry.signer_device_id === entry.target_device_id) continue // never counts toward own removal
         if (!isValidSignerAt(entry.signer_device_id, h)) continue // signer's OWN ancestor-relative state
         if (entry.kind === 'grant') {
+          // A removed device is never granted admin again: a grant whose target was granted and then removed in the state
+          // strictly before this grant is ignored. approveDevice refuses such a mint too; this makes a re-grant after removal
+          // impossible by construction, which a replayed copy of an old revoke would otherwise need (#1024 round 3).
+          const before = stateAt(h)
+          if (before.everGranted.has(entry.target_device_id) && !before.grantedSet.has(entry.target_device_id)) continue
           grantedSet.add(entry.target_device_id)
           if (!grantHashesByTarget.has(entry.target_device_id)) grantHashesByTarget.set(entry.target_device_id, new Set())
           grantHashesByTarget.get(entry.target_device_id).add(h)
@@ -386,7 +391,7 @@ export function createAuthorityReplayContext(automerge, doc, { root, founderDevi
       }
     }
 
-    const result = { grantedSet, votes: votesByTarget }
+    const result = { grantedSet, votes: votesByTarget, everGranted: new Set([resolvedFounderDeviceId, ...grantHashesByTarget.keys()].filter((d) => d != null)) }
     stateCache.set(changeHash, result)
     return result
   }

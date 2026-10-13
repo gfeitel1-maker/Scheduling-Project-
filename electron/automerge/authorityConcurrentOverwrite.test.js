@@ -131,4 +131,18 @@ describe('a record whose kind names an Object.prototype member is ignored, never
       expect(stateOf(doc)).toEqual(before)
     })
   }
+
+  it('a removed device cannot be granted admin again: a later grant to a revoked id is ignored (replay precondition closed)', async () => {
+    const F = await makeDevice()
+    const X = await makeDevice()
+    let doc = createEmptyDoc()
+    doc = genesis(doc, 'g', { deviceId: 'F', peerId: F.peerId })
+    doc = grant(doc, 'gr1', { target: 'X', targetPeerId: X.peerId, signer: 'F', signerDb: F.db })
+    doc = revoke(doc, 'rv1', { target: 'X', signer: 'F', signerDb: F.db })
+    expect(stateOf(doc).revoked).toEqual(['X'])
+    doc = grant(doc, 'gr2', { target: 'X', targetPeerId: X.peerId, signer: 'F', signerDb: F.db })
+    const after = stateOf(doc)
+    expect(after.admins).toEqual(['F'])
+    expect(after.revoked).toEqual(['X'])
+  })
 })
