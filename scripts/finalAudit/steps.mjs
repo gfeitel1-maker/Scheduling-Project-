@@ -425,17 +425,25 @@ export async function run(h) {
       await peer.click('Join with a camp code', false)
       await peer.waitFor(`const i=__inp('input[placeholder="K4P7-2MRQ"]'); if(!i) return false; __set(i, ${JSON.stringify(code)}); return true`, 15000, `${peer.label}: code field`)
       await sleep(300); await peer.click('Continue', true, 10000)
+      h.log(`[t13] ${new Date().toISOString()} ${peer.label}: pairing request sent (code ${code})`)
       await waitFor(`return [...document.querySelectorAll('button')].filter(__vis).some(b=>b.innerText.trim()==='Approve'&&!b.disabled)`, 90000, `${peer.label}'s pairing request on A`)
       await ev(`[...document.querySelectorAll('button')].filter(__vis).find(b=>b.innerText.trim()==='Approve'&&!b.disabled).click(); return true`)
+      h.log(`[t13] ${new Date().toISOString()} A: Approve clicked for ${peer.label}`)
       await peer.waitFor(`return !!__inp('#join-name')`, 90000, `${peer.label}: sign-in after approval`)
       await peer.ev(`__set(__inp('#join-name'), ${JSON.stringify(h.ADMIN)}); __set(__inp('#join-pin'), ${JSON.stringify(h.PIN)}); return true`)
       await sleep(300); await peer.click('Sign in', true, 10000)
       // The join completes only once the camp document has arrived from A (the host must stay on until then).
       await peer.waitFor(`return __click('Continue', true) || document.body.innerText.includes('Log out')`, 120000, `${peer.label}: camp arrived`)
       await peer.waitFor(`return document.body.innerText.includes('Log out')`, 60000, `${peer.label}: signed in`)
+      h.log(`[t13] ${new Date().toISOString()} ${peer.label}: first sign-in complete`)
       return code
     }
+    // Timeline for diagnosis (T376 host self-sign-out): the instant A shows it lost access is logged.
+    let signedOutAt = null
+    const watch = setInterval(() => { if (!signedOutAt) ev(`return document.body.innerText.includes("This device's access was removed")`).then((v) => { if (v && !signedOutAt) { signedOutAt = new Date().toISOString(); h.log(`[t13] ${signedOutAt} A: shows "access was removed"`) } }).catch(() => {}) }, 500)
+    h.log(`[t13] ${new Date().toISOString()} launching peers B and C`)
     const B = await h.launchPeer('B', h.PORT + 10), C = await h.launchPeer('C', h.PORT + 20)
+    h.log(`[t13] ${new Date().toISOString()} peers B and C up`)
     try {
       const codeB = await pair(B), codeC = await pair(C)
       await click('Stop adding devices', true, 5000).catch(() => {})
@@ -464,6 +472,7 @@ export async function run(h) {
       if (off.s == null) throw new Error(note)
       return note
     } finally {
+      clearInterval(watch)
       await B.stop(); await C.stop()
     }
   })
