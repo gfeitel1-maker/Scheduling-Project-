@@ -16,7 +16,7 @@ import { ensureHostSigningKey } from '../../auth/localAuth.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { setUserDataDirGetter, resetForTests, getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from '../../automerge/authorityLog.js'
-import { applyWrite } from '../../automerge/campDocument.js'
+import { writeAuthorityEntry } from '../../automerge/genesisTestKit.js'
 import { readCampRoot } from '../../automerge/genesisSignature.js'
 import { mintRendezvousNamespace, readRendezvousNamespace } from './rendezvousNamespace.js'
 import { computeRotatingServiceTag, prepareDocForSync } from './syncStarter.js'
@@ -74,9 +74,7 @@ describe('computeRotatingServiceTag — the production wiring, with the real ver
     // granted admin) — authorityReplay.js's stateAt always ignores a self-targeted entry
     // (signer === target), so the target must differ for this to actually exercise the trust
     // gate rather than being filtered out for an unrelated reason.
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'forged-1', field: 'kind', value: 'revoke' })
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'forged-1', field: 'target_device_id', value: 'signer-1' })
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'forged-1', field: 'signer_device_id', value: 'founder-1' })
+    doc = writeAuthorityEntry(doc, 'forged-1', { kind: 'revoke', target_device_id: 'signer-1', signer_device_id: 'founder-1', signature: 'unsigned' })
     const after = computeRotatingServiceTag(doc, CAMP_ID, readCampRoot(db))
 
     expect(after).toBe(before) // the forged, unsigned revoke never moved the production tag

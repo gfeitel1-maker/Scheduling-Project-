@@ -15,7 +15,7 @@ import { createEmptyDoc, applyWrite } from './campDocument.js'
 import { signAuthorityEntry } from './authorityLogSignature.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './authorityLog.js'
 import { projectAll } from './projector.js'
-import { makeTestCamp } from './genesisTestKit.js'
+import { makeTestCamp, writeAuthorityEntry } from './genesisTestKit.js'
 import {
   createAuthorityReplayContext, createVerifiedEntryTrust, currentAuthorityState, currentRevokedDeviceIds,
   isValidAdminAt, resolveAuthorityPeerIds,
@@ -67,15 +67,12 @@ function hostDb() {
   return { db, publicKey: key.public_key }
 }
 
-function put(doc, id, fields) {
-  let d = doc
-  for (const [field, value] of Object.entries(fields)) d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
-  return d
-}
+const put = writeAuthorityEntry
 
 function signed(doc, id, kind, { target, signer, signerDb, peer }) {
-  const signature = signAuthorityEntry(signerDb, { id, kind, target_device_id: target, signer_device_id: signer })
-  return put(doc, id, { kind, target_device_id: target, signer_device_id: signer, ...(peer ? { target_peer_id: peer } : {}), signature })
+  const targetPeerId = kind === 'grant' ? (peer ?? '') : undefined
+  const signature = signAuthorityEntry(signerDb, { id, kind, target_device_id: target, target_peer_id: targetPeerId, signer_device_id: signer })
+  return put(doc, id, { kind, target_device_id: target, signer_device_id: signer, ...(kind === 'grant' ? { target_peer_id: targetPeerId } : {}), signature })
 }
 
 const status = (db, id) => db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(id)?.status ?? null
@@ -88,7 +85,7 @@ describe('forged genesis', () => {
     const counselor = await makeDevice()
     let doc = createEmptyDoc()
     doc = put(doc, 'f-real', camp.genesisFields({ id: 'f-real', deviceId: 'founder', peerId: founder.peerId }))
-    doc = put(doc, '0000-forged', { kind: 'genesis', target_device_id: 'counselor', target_peer_id: counselor.peerId })
+    doc = put(doc, '0000-forged', { kind: 'genesis', target_device_id: 'counselor', target_peer_id: counselor.peerId, signature: 'unsigned' })
     doc = signed(doc, 'r1', 'revoke', { target: 'founder', signer: 'counselor', signerDb: counselor.db })
     const db = projectionDb(camp.publicKey)
     projectAll(db, doc)
@@ -126,7 +123,7 @@ describe('forged genesis', () => {
   it('an unsigned genesis alone yields no founder and no admin, and projection does not throw', async () => {
     const camp = makeTestCamp('camp-1')
     const founder = await makeDevice()
-    const doc = put(createEmptyDoc(), 'g', { kind: 'genesis', target_device_id: 'founder', target_peer_id: founder.peerId })
+    const doc = put(createEmptyDoc(), 'g', { kind: 'genesis', target_device_id: 'founder', target_peer_id: founder.peerId, signature: 'unsigned' })
     const db = projectionDb(camp.publicKey)
     expect(() => projectAll(db, doc)).not.toThrow()
     expect(db.prepare('SELECT COUNT(*) AS n FROM authority_cache').get().n).toBe(0)
@@ -224,7 +221,7 @@ describe('a paired non-admin cannot rewrite who holds authority', () => {
     const founder = await makeDevice()
     const attacker = await makeDevice()
     let doc = put(createEmptyDoc(), 'g', camp.genesisFields({ id: 'g', deviceId: 'founder', peerId: founder.peerId }))
-    doc = put(doc, 'rebind', { kind: 'grant', target_device_id: 'founder', target_peer_id: attacker.peerId, signer_device_id: 'counselor' })
+    doc = put(doc, 'rebind', { kind: 'grant', target_device_id: 'founder', target_peer_id: attacker.peerId, signer_device_id: 'counselor', signature: 'unsigned' })
     doc = signed(doc, 'evil-revoke', 'revoke', { target: 'victim', signer: 'founder', signerDb: attacker.db })
     doc = signed(doc, 'evil-grant', 'grant', { target: 'counselor', signer: 'founder', signerDb: attacker.db, peer: attacker.peerId })
     expect(currentRevokedDeviceIds(Automerge, doc, trusted(doc, camp.root))).toEqual([])

@@ -7,7 +7,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { createEmptyDoc, applyWrite } from './campDocument.js'
+import { createEmptyDoc } from './campDocument.js'
+import { writeAuthorityEntry } from './genesisTestKit.js'
 import { revocationDigest, encodeRevokedIds } from './authorityRevocationDigest.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -24,12 +25,7 @@ function initDoc() {
 }
 
 function pushEntry(doc, entry) {
-  const id = uid()
-  let d = doc
-  for (const [field, value] of Object.entries(entry)) {
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
-  }
-  return d
+  return writeAuthorityEntry(doc, uid(), { target_peer_id: '', signature: 'unsigned', ...entry })
 }
 
 describe('revocationDigest', () => {

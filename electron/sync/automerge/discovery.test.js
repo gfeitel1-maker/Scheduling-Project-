@@ -16,9 +16,9 @@ import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { identify } from '@libp2p/identify'
 import * as Automerge from '@automerge/automerge'
-import { makeTestCamp } from '../../automerge/genesisTestKit.js'
+import { makeTestCamp, writeAuthorityEntry } from '../../automerge/genesisTestKit.js'
 import { createMdnsDiscovery, campDiscoveryTag, belongsToCamp, rotatingServiceTag } from './discovery.js'
-import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
+import { createEmptyDoc } from '../../automerge/campDocument.js'
 import { mintRendezvousNamespace } from './rendezvousNamespace.js'
 
 let node
@@ -173,16 +173,10 @@ describe('rotatingServiceTag — pure, derives from the signed revocation digest
 
   it('a revocation changes the tag used for mDNS advertisement', () => {
     let doc = mintedDoc()
-    for (const [field, value] of Object.entries(camp.genesisFields({ id: 'g', deviceId: 'FOUNDER', peerId: 'pF' }))) {
-      doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'g', field, value })
-    }
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'e1', field: 'kind', value: 'grant' })
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'e1', field: 'target_device_id', value: 'C' })
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'e1', field: 'signer_device_id', value: 'FOUNDER' })
+    doc = writeAuthorityEntry(doc, 'g', camp.genesisFields({ id: 'g', deviceId: 'FOUNDER', peerId: 'pF' }))
+    doc = writeAuthorityEntry(doc, 'e1', { kind: 'grant', target_device_id: 'C', target_peer_id: '', signer_device_id: 'FOUNDER', signature: 'unsigned' })
     const before = rotatingServiceTag(Automerge, doc, CAMP_ID, { root: camp.root })
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'e2', field: 'kind', value: 'revoke' })
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'e2', field: 'target_device_id', value: 'C' })
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'e2', field: 'signer_device_id', value: 'FOUNDER' })
+    doc = writeAuthorityEntry(doc, 'e2', { kind: 'revoke', target_device_id: 'C', signer_device_id: 'FOUNDER', signature: 'unsigned' })
     const after = rotatingServiceTag(Automerge, doc, CAMP_ID, { root: camp.root })
     expect(after).not.toBe(before)
   })

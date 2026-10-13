@@ -7,7 +7,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { setupThreeJoinedDevices, AmClient, cleanupDirs, waitFor } from '../../../test/integration/harnessAutomerge.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
-import { applyWrite, readRecord } from '../../automerge/campDocument.js'
+import { applyWrite, applyWrites, readRecord } from '../../automerge/campDocument.js'
 import { hostGenesisSignature } from '../../automerge/genesisTestKit.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 import { signRosterEntry } from '../../automerge/deviceRosterSignature.js'
@@ -53,25 +53,32 @@ async function writeEntries(device, entries) {
   await device.node.applyLocal(doc)
 }
 
+// An authority entry is one change: each group of writes lands through a single applyWrites.
+async function writeEntryGroups(device, groups) {
+  let doc = device.getDoc()
+  for (const g of groups) doc = applyWrites(doc, g)
+  await device.node.applyLocal(doc)
+}
+
 function authorityEntry(signerDb, id, fields) {
   const signature = fields.kind === 'genesis'
     ? hostGenesisSignature(signerDb, { id, target_device_id: fields.target_device_id, target_peer_id: fields.target_peer_id })
-    : signAuthorityEntry(signerDb, { id, kind: fields.kind, target_device_id: fields.target_device_id, signer_device_id: fields.signer_device_id })
+    : signAuthorityEntry(signerDb, { id, kind: fields.kind, target_device_id: fields.target_device_id, target_peer_id: fields.kind === 'grant' ? fields.target_peer_id : undefined, signer_device_id: fields.signer_device_id })
   return Object.entries({ ...fields, ...(signature ? { signature } : {}) }).map(([field, value]) => ({ entity: 'camp_authority_log', entity_id: id, field, value }))
 }
 
 // The Host is the founder; it grants admin to `admin`, and every client waits to see it.
 async function makeAdmin(host, admin, everyone) {
   const { peerId: hostPeer } = await ensureDeviceIdentity(host.db)
-  await writeEntries(host, [
-    ...authorityEntry(host.db, 'e-genesis', { kind: 'genesis', target_device_id: host.deviceId, target_peer_id: hostPeer }),
-    ...authorityEntry(host.db, 'e-grant', { kind: 'grant', target_device_id: admin.deviceId, target_peer_id: admin.node.peerId, signer_device_id: host.deviceId }),
+  await writeEntryGroups(host, [
+    authorityEntry(host.db, 'e-genesis', { kind: 'genesis', target_device_id: host.deviceId, target_peer_id: hostPeer }),
+    authorityEntry(host.db, 'e-grant', { kind: 'grant', target_device_id: admin.deviceId, target_peer_id: admin.node.peerId, signer_device_id: host.deviceId }),
   ])
   for (const d of everyone) await waitFor(() => authority(d, admin.deviceId) === 'admin', 8000)
 }
 
 async function revoke(admin, target) {
-  await writeEntries(admin, authorityEntry(admin.db, `e-revoke-${target.deviceId}`, { kind: 'revoke', target_device_id: target.deviceId, signer_device_id: admin.deviceId }))
+  await writeEntryGroups(admin, [authorityEntry(admin.db, `e-revoke-${target.deviceId}`, { kind: 'revoke', target_device_id: target.deviceId, signer_device_id: admin.deviceId })])
 }
 
 // A device with a libp2p node but no roster entry anywhere: the "stranger" in the forgery tests.

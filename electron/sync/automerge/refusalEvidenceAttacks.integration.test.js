@@ -19,7 +19,7 @@ vi.mock('../../auth/connectionAuth.js', async (importOriginal) => {
 
 import { setupTwoJoinedDevices, AmHost, makeTmpDir, cleanupDirs, waitFor } from '../../../test/integration/harnessAutomerge.js'
 import { startSyncNode } from './syncNode.js'
-import { applyWrite, readRecord } from '../../automerge/campDocument.js'
+import { applyWrites, readRecord } from '../../automerge/campDocument.js'
 import { hostGenesisSignature } from '../../automerge/genesisTestKit.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
@@ -39,7 +39,7 @@ afterEach(async () => {
 
 const settleMs = (ms) => new Promise((r) => setTimeout(r, ms))
 const fieldWrites = (id, fields) => Object.entries(fields).map(([field, value]) => ({ entity: 'camp_authority_log', entity_id: id, field, value }))
-const withEntry = (doc, id, fields) => fieldWrites(id, fields).reduce((d, w) => applyWrite(d, w), doc)
+const withEntry = (doc, id, fields) => applyWrites(doc, fieldWrites(id, fields))
 const signed = (signerDb, signerDeviceId, kind, targetDeviceId, extra = {}) => {
   const id = randomUUID()
   const base = { kind, target_device_id: targetDeviceId, signer_device_id: signerDeviceId, ...extra }

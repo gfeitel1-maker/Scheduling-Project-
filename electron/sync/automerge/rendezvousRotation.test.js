@@ -7,6 +7,7 @@ import * as A from '@automerge/automerge'
 import { openLocalDb } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
+import { writeAuthorityEntry } from '../../automerge/genesisTestKit.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { revocationDigest } from '../../automerge/authorityRevocationDigest.js'
 import { createVerifiedEntryTrust } from '../../automerge/authorityReplay.js'
@@ -35,13 +36,11 @@ afterEach(() => {
 
 function entry(doc, fields, signed = true, fixedId) {
   const id = fixedId ?? `entry-${Math.random()}`
-  let d = doc
-  for (const [field, value] of Object.entries(fields)) d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
-  if (signed) {
-    const signature = signAuthorityEntry(db, { id, kind: fields.kind, target_device_id: fields.target_device_id, signer_device_id: fields.signer_device_id })
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature })
-  }
-  return d
+  const all = { target_peer_id: '', ...fields }
+  all.signature = fields.signature ?? (signed
+    ? signAuthorityEntry(db, { id, kind: all.kind, target_device_id: all.target_device_id, target_peer_id: all.kind === 'grant' ? all.target_peer_id : undefined, signer_device_id: all.signer_device_id })
+    : 'unsigned')
+  return writeAuthorityEntry(doc, id, all)
 }
 const revoke = (doc, target, signer) => entry(doc, { kind: 'revoke', target_device_id: target, signer_device_id: signer })
 

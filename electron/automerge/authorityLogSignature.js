@@ -35,7 +35,7 @@ import { peerIdFromString } from '@libp2p/peer-id'
 // `id` — see SIGNED_FIELDS below — so this is bumped to make the two shapes structurally
 // non-interchangeable even if a future bug ever tried to verify a v1-shaped message against a
 // v2 signer or vice versa (pre-production; no v1-signed entry has ever shipped).
-const AUTHORITY_SIG_CONTEXT = 'shoresh-authority-sig-v2'
+const AUTHORITY_SIG_CONTEXT = 'shoresh-authority-sig-v3'
 
 // Fixed signed-field order. `id` — the entry's own camp_authority_log record id — is bound
 // DELIBERATELY (round-3 security correction): without it, a genuine signed (kind, target, signer)
@@ -47,7 +47,10 @@ const AUTHORITY_SIG_CONTEXT = 'shoresh-authority-sig-v2'
 // id, so an identical id is an idempotent no-op, not a fresh signal. No `seq` field, deliberately
 // — ordering comes from Automerge's own change-dependency graph (authorityReplay.js), never from
 // a self-reported counter.
-const SIGNED_FIELDS = ['id', 'kind', 'target_device_id', 'signer_device_id']
+//
+// v3 added `target_peer_id`: a grant binds the peer id its target will be known by, so that binding is signed by the
+// admin rather than being a free field. A revoke has no peer id and signs the empty string in that slot.
+const SIGNED_FIELDS = ['id', 'kind', 'target_device_id', 'target_peer_id', 'signer_device_id']
 
 // RFC 8410 fixed prefixes for a RAW (headerless) Ed25519 key: PKCS8 wraps a 32-byte private seed,
 // SPKI wraps a 32-byte public key. Confirmed empirically (org-source-verification) against this

@@ -356,11 +356,12 @@ describe('T331 end-to-end — N=3 admin-target quorum, driven through the REAL r
     // private key, never dbF's).
     const entryId = randomUUID()
     const sig = signAuthorityEntry(keyB, { id: entryId, kind: 'revoke', target_device_id: 'device-a', signer_device_id: 'device-b' })
-    const { appendOp } = await import('./ops/operations.js')
-    appendOp(dbF, { entity: 'camp_authority_log', entity_id: entryId, field: 'kind', value: 'revoke', device_id: 'device-b' })
-    appendOp(dbF, { entity: 'camp_authority_log', entity_id: entryId, field: 'target_device_id', value: 'device-a', device_id: 'device-b' })
-    appendOp(dbF, { entity: 'camp_authority_log', entity_id: entryId, field: 'signer_device_id', value: 'device-b', device_id: 'device-b' })
-    appendOp(dbF, { entity: 'camp_authority_log', entity_id: entryId, field: 'signature', value: sig, device_id: 'device-b' })
+    const { appendOp, runAtomic } = await import('./ops/operations.js')
+    runAtomic(dbF, () => {
+      for (const [field, value] of Object.entries({ kind: 'revoke', target_device_id: 'device-a', signer_device_id: 'device-b', signature: sig })) {
+        appendOp(dbF, { entity: 'camp_authority_log', entity_id: entryId, field, value, device_id: 'device-b' })
+      }
+    })
     projectEntity(dbF, getCurrentDoc(dbF), 'camp_authority_log')
 
     expect(authorityCacheStatus(dbF, 'device-a')).toBe('revoked')

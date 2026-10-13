@@ -43,7 +43,7 @@ describe('canonicalAuthorityMessage', () => {
 
   it('is domain-separated from a tombstone or auth-field signature context', () => {
     const msg = canonicalAuthorityMessage({ id: 'e1', kind: 'grant', target_device_id: 'd1', signer_device_id: 's1' })
-    expect(msg).toMatch(/^shoresh-authority-sig-v2\n/)
+    expect(msg).toMatch(/^shoresh-authority-sig-v3\n/)
   })
 })
 

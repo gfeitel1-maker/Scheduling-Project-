@@ -19,26 +19,31 @@
 // MODELED_ENTITIES entity uses (campDocument.js's recordKey/readRecord/listRecordIds — NOT a plain
 // array), so this module reads them the same way projector.js reads any other entity, rather than
 // assuming a bespoke array shape.
-import { listRecordIds, readRecord, splitRecordKey } from './campDocument.js'
+import { splitRecordKey } from './campDocument.js'
 import { verifyAuthorityEntry } from './authorityLogSignature.js'
 import { verifyGenesisEntry } from './genesisSignature.js'
 
 export const AUTHORITY_LOG_ENTITY = 'camp_authority_log'
 
-// A "complete" entry has the fields the CAUSAL/QUORUM replay needs (kind, target, signer) — this
-// module does not check signatures at all; that is the SEPARATE authenticity concern
-// authorityLogSignature.js/projector.js's upsertCampAuthorityLogEntity own (an entry's signature,
-// when present, must be verified by the CALLER before this module is asked to replay it; an entry
-// that merely lacks a `signature` field yet is still structurally complete by this module's own
-// lights, matching the real write order in authorityLog.js where kind/target/signer land before
-// the signature field in the SAME multi-field write but each field is its own change).
+// An authority entry (genesis, grant, revoke) is defined by ONE Automerge change that writes ALL of the record's
+// fields (kind, its signed fields, and its signature) at once; values are taken from that change and from no other.
+// A later write to the same record by any other change is ignored, so authority is a function of the SET of changes
+// and never of which write won a field, nor of the order changes happen to be listed in. This map is the required
+// fields per kind. It is a Map, not an object: a record whose `kind` is 'constructor' or '__proto__' is an unknown
+// kind, ignored, never a property lookup that could throw.
+const ENTRY_FIELDS = new Map([
+  ['genesis', ['target_device_id', 'target_peer_id', 'signature']],
+  ['grant', ['target_device_id', 'target_peer_id', 'signer_device_id', 'signature']],
+  ['revoke', ['target_device_id', 'signer_device_id', 'signature']],
+])
+// A peer id that is not yet known is signed and stored as ''.
+const MAY_BE_EMPTY = new Set(['target_peer_id'])
+
 export function isCompleteEntry(row) {
-  if (!row || !row.kind) return false
-  if (row.kind === 'genesis') return typeof row.target_device_id === 'string' && row.target_device_id.length > 0
-  return (
-    typeof row.target_device_id === 'string' && row.target_device_id.length > 0 &&
-    typeof row.signer_device_id === 'string' && row.signer_device_id.length > 0
-  )
+  if (!row || typeof row.kind !== 'string') return false
+  const required = ENTRY_FIELDS.get(row.kind)
+  if (!required) return false
+  return required.every((f) => typeof row[f] === 'string' && (row[f].length > 0 || MAY_BE_EMPTY.has(f)))
 }
 
 // The camp root: { campId, publicKey } read from THIS device's local camps row (genesisSignature.js's
@@ -57,12 +62,10 @@ export function requireRoot(root) {
 export function campGenesis(automerge, doc, root) {
   requireRoot(root)
   if (!root.publicKey) return null
-  const rows = firstWrittenEntries(automerge, doc)
-  for (const id of [...rows.keys()].sort()) {
-    const row = rows.get(id)
-    if (row.kind !== 'genesis' || !isCompleteEntry(row)) continue
-    const fields = { id, camp_id: root.campId, target_device_id: row.target_device_id, target_peer_id: row.target_peer_id }
-    if (verifyGenesisEntry(root.publicKey, fields, row.signature)) return { id, deviceId: row.target_device_id, peerId: row.target_peer_id ?? null }
+  for (const row of signedEntries(automerge, doc)) {
+    if (row.kind !== 'genesis') continue
+    const fields = { id: row.id, camp_id: root.campId, target_device_id: row.target_device_id, target_peer_id: row.target_peer_id }
+    if (verifyGenesisEntry(root.publicKey, fields, row.signature)) return { id: row.id, deviceId: row.target_device_id, peerId: row.target_peer_id || null, changeHash: row.changeHash }
   }
   return null
 }
@@ -97,40 +100,21 @@ function byHashOf(automerge, doc) {
   return cache.byHash
 }
 
-// Reads the camp_authority_log collection as it stood at `heads` (except entries in `skipIds`),
-// straight from the document's
-// backend: keys and values at historical heads, without materialising the document. Same
-// result as listRecordIds/readRecord on the document at those heads, as far as isCompleteEntry
-// can tell: the collection is the root key's winning object, a field's text is its string, and
-// every other value maps to what the proxy would return (see PLAIN_SCALAR_TYPES).
-// Value types readRecord returns as the same JS primitive: the proxy's own scalars, plus a raw
-// 'str' (ImmutableString), which readRecord turns into a plain string (campDocument.js's
-// plainValue). Every other type (a counter is a Counter object, a timestamp a Date, bytes a
-// Uint8Array, a map/list an object) is an object: truthy and never a string, which is all
-// isCompleteEntry can see of it.
-const PLAIN_SCALAR_TYPES = new Set(['int', 'uint', 'f64', 'boolean', 'str'])
+// Value types a field can hold. A text object (how every string is stored) is read through backend.text; a raw
+// string is its own value; every other type is an object that is never a string, which is all isCompleteEntry can
+// see of it.
 const NON_STRING_VALUE = Object.freeze({})
 
-function authorityRowsAt(backend, heads, skipIds) {
-  const root = backend.getWithType('_root', AUTHORITY_LOG_ENTITY, heads)
-  if (!root || (root[0] !== 'map' && root[0] !== 'table')) return new Map()
-  const logId = root[1]
-  const rows = new Map()
-  for (const key of backend.keys(logId, heads)) {
-    const parsed = splitRecordKey(key)
-    if (!parsed || skipIds.has(parsed.entityId)) continue
-    const value = backend.getWithType(logId, key, heads)
-    if (!value) continue
-    let field
-    if (value[0] === 'text') field = backend.text(value[1], heads)
-    else if (PLAIN_SCALAR_TYPES.has(value[0])) field = value[1]
-    else if (value[0] === 'null') field = null
-    else field = NON_STRING_VALUE
-    if (!rows.has(parsed.entityId)) rows.set(parsed.entityId, {})
-    rows.get(parsed.entityId)[parsed.field] = field
-  }
-  return rows
+// True when op `opId` ("counter@actor") was written by the change described by `meta`.
+function opWrittenBy(opId, meta) {
+  const at = typeof opId === 'string' ? opId.indexOf('@') : -1
+  if (at < 0 || opId.slice(at + 1) !== meta.actor) return false
+  const counter = Number(opId.slice(0, at))
+  return counter >= meta.startOp && counter <= meta.maxOp
 }
+
+// A change must write at least this many ops to hold a complete entry: one object per field plus a character each.
+const MIN_ENTRY_OPS = 8
 
 // BFS over `deps`, transitively, EXCLUDING changeHash itself.
 function ancestorsOf(changeHash, byHash) {
@@ -169,59 +153,72 @@ function headsClosure(byHash) {
   return closure
 }
 
-// Maps each COMPLETE camp_authority_log entry's stable id to the hash of the change that FIRST
-// completed it (i.e. the change after which every required field is present), by reading the
-// collection after each change in turn (see the loop below).
-// Works for ANY peer's doc, not just the authoring device's — the only robust way to answer "which
-// change authored this entry" without a self-reported field.
-// Each field of an entry as it was FIRST written. An authority record's fields are writable by every paired peer and
-// Automerge resolves each independently, so a later overwrite of a signed field (or of the peer id, which a grant's
-// signature does not bind) would otherwise silently rewrite who holds authority. The genesis signature is verified
-// against, and peer ids are resolved from, these first values, never the current ones.
-const FIRST_WRITE_FIELDS = {
-  genesis: ['kind', 'target_device_id', 'target_peer_id', 'signature'],
-  grant: ['kind', 'target_device_id', 'target_peer_id', 'signer_device_id', 'signature'],
-  revoke: ['kind', 'target_device_id', 'signer_device_id', 'signature'],
-}
-
-export function firstWrittenEntries(automerge, doc) {
-  buildEntryChangeIndexFrom(automerge, doc)
-  return cacheFor(doc).firstRows
-}
-
-function buildEntryChangeIndexFrom(automerge, doc) {
+// Every authority entry the document holds, as the single change that wrote it. For each change the collection is read
+// at THAT CHANGE'S OWN heads (its causal closure, which is a set, not a listing order) and only the fields whose
+// winning write belongs to that very change are taken; a record counts only if that one change wrote every field it
+// requires. Fields written by other changes, whether before, after or concurrent, play no part, so a concurrent
+// overwrite of a signed value can neither change an entry nor erase it, and merge order cannot matter.
+//
+// Nothing is replayed or decoded: reading at a change's heads is a backend query, and an import-sized change is no more
+// expensive than a one-op change. Changes too small to hold an entry are skipped without a query.
+//
+// A signature binds every value (see authorityLogSignature.js / genesisSignature.js), so a complete change someone else
+// wrote with different values simply does not verify. Identical copies are collapsed to the causally earliest one: a
+// copy that has an identical copy among its ancestors is a replay and is dropped, concurrent copies are both kept.
+// Sorted by (id, changeHash).
+export function signedEntries(automerge, doc) {
   const cache = cacheFor(doc)
-  if (cache.entryIndex) return cache.entryIndex
+  if (!cache.signedEntries) cache.signedEntries = readSignedEntries(automerge, doc)
+  return cache.signedEntries
+}
+
+function readSignedEntries(automerge, doc) {
   const backend = automerge.getBackend(doc)
-  const index = new Map()
-  // The collection after the first i+1 changes is read at that prefix's heads: changes come in
-  // causal order, so every prefix is causally closed and its heads name exactly that prefix.
-  // Nothing is replayed or decoded. Rebuilding a scratch document cost 17s of applyChanges, and
-  // decoding every change 18s, on the imported camp that hung (229 changes, 2.9 million ops).
-  const heads = new Set()
-  const seen = new Set()
-  const firstRows = new Map()
-  const settled = new Set()
-  for (const change of changeMeta(automerge, doc)) {
-    for (const dep of change.deps) {
-      if (!seen.has(dep)) throw new Error('authority replay: change history is not in causal order')
-      heads.delete(dep)
+  const byHash = byHashOf(automerge, doc)
+  const found = []
+  for (const meta of changeMeta(automerge, doc)) {
+    if (meta.maxOp - meta.startOp + 1 < MIN_ENTRY_OPS) continue
+    const heads = [meta.hash]
+    const logRoot = backend.getWithType('_root', AUTHORITY_LOG_ENTITY, heads)
+    if (!logRoot || (logRoot[0] !== 'map' && logRoot[0] !== 'table')) continue
+    const logId = logRoot[1]
+    const rows = new Map()
+    for (const key of backend.keys(logId, heads)) {
+      const parsed = splitRecordKey(key)
+      if (!parsed) continue
+      for (const [type, value, opIdOfScalar] of backend.getAll(logId, key, heads)) {
+        const opId = type === 'text' ? value : opIdOfScalar
+        if (!opWrittenBy(opId, meta)) continue
+        const field = type === 'text' ? backend.text(value, heads) : type === 'str' ? value : NON_STRING_VALUE
+        if (!rows.has(parsed.entityId)) rows.set(parsed.entityId, {})
+        rows.get(parsed.entityId)[parsed.field] = field
+      }
     }
-    seen.add(change.hash)
-    heads.add(change.hash)
-    // Entries already indexed are skipped before their values are read, so after most changes
-    // this costs one key listing of the collection.
-    for (const [id, row] of authorityRowsAt(backend, [...heads], settled)) {
-      if (!index.has(id) && isCompleteEntry(row)) index.set(id, change.hash)
-      const first = firstRows.get(id) ?? {}
-      for (const [field, value] of Object.entries(row)) if (!(field in first)) first[field] = value
-      firstRows.set(id, first)
-      if (index.has(id) && FIRST_WRITE_FIELDS[first.kind]?.every((f) => f in first)) settled.add(id)
+    for (const [id, row] of rows) {
+      if (isCompleteEntry(row)) found.push({ id, changeHash: meta.hash, ...pickEntryFields(row) })
     }
   }
-  cache.entryIndex = index
-  cache.firstRows = firstRows
-  return index
+  const identity = (e) => JSON.stringify([e.id, e.kind, e.target_device_id, e.target_peer_id, e.signer_device_id, e.signature])
+  const copies = new Map()
+  for (const e of found) {
+    const k = identity(e)
+    if (!copies.has(k)) copies.set(k, [])
+    copies.get(k).push(e)
+  }
+  const kept = []
+  for (const group of copies.values()) {
+    for (const e of group) {
+      const ancestors = group.length > 1 ? ancestorsOf(e.changeHash, byHash) : null
+      if (!ancestors || !group.some((o) => o !== e && ancestors.has(o.changeHash))) kept.push(e)
+    }
+  }
+  return kept.sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : x.changeHash < y.changeHash ? -1 : x.changeHash > y.changeHash ? 1 : 0))
+}
+
+function pickEntryFields(row) {
+  const out = { kind: row.kind }
+  for (const f of ENTRY_FIELDS.get(row.kind)) out[f] = row[f]
+  return out
 }
 
 // Used by resolveAuthorityPeerIds (now in this module; T335 factored it out of projector.js into the
@@ -239,13 +236,6 @@ export function isCausallyAtLeastAsLate(automerge, doc, hashA, hashB) {
   if (ancestorsOf(hashA, byHash).has(hashB)) return true
   if (ancestorsOf(hashB, byHash).has(hashA)) return false
   return hashA >= hashB // concurrent — deterministic, merge-order-independent tie-break
-}
-
-// Exposed so a caller (projector.js) can map an entry id to the change that completed it, without
-// re-deriving the whole replay context — same index `createAuthorityReplayContext` builds
-// internally.
-export function entryChangeHashIndex(automerge, doc) {
-  return new Map(buildEntryChangeIndexFrom(automerge, doc))
 }
 
 // --- public replay API ---------------------------------------------------
@@ -275,19 +265,13 @@ export function createAuthorityReplayContext(automerge, doc, { root, founderDevi
   requireRoot(root)
   const genesis = campGenesis(automerge, doc, root)
   const byHash = byHashOf(automerge, doc)
-  const entryChangeHash = buildEntryChangeIndexFrom(automerge, doc)
+  const entries = signedEntries(automerge, doc)
   const entriesByChangeHash = new Map()
   const resolvedFounderDeviceId = founderDeviceId ?? genesis?.deviceId ?? null
-  for (const id of listRecordIds(doc, AUTHORITY_LOG_ENTITY)) {
-    const row = readRecord(doc, AUTHORITY_LOG_ENTITY, id)
-    if (!isCompleteEntry(row)) continue
-    const h = entryChangeHash.get(id)
-    if (!h) continue
-    if (id === genesis?.id) continue
-    const entry = { id, ...row }
-    if (entry.kind !== 'genesis' && !isEntryTrusted(entry)) continue
-    if (!entriesByChangeHash.has(h)) entriesByChangeHash.set(h, [])
-    entriesByChangeHash.get(h).push(entry)
+  for (const entry of entries) {
+    if (entry.kind === 'genesis' || !isEntryTrusted(entry)) continue
+    if (!entriesByChangeHash.has(entry.changeHash)) entriesByChangeHash.set(entry.changeHash, [])
+    entriesByChangeHash.get(entry.changeHash).push(entry)
   }
   // RED HAT HIGH / round-3 correction: `getAllChanges` does NOT give a merge-order-independent
   // sequence for changes that are mutually concurrent (org-source-verification, confirmed
@@ -421,7 +405,7 @@ export function createAuthorityReplayContext(automerge, doc, { root, founderDevi
     return stateAt(FOUNDER_MARKER)
   }
 
-  return { isValidAdminAt, currentState, entryChangeHash, founderDeviceId: resolvedFounderDeviceId, founderGenesisId: genesis?.id ?? null }
+  return { isValidAdminAt, currentState, entries, founderDeviceId: resolvedFounderDeviceId, founderGenesisId: genesis?.id ?? null, founderGenesisChangeHash: genesis?.changeHash ?? null }
 }
 
 /** Convenience one-shot for callers that don't need to reuse a context across calls. */
@@ -453,13 +437,11 @@ export function resolveAuthorityPeerIds(automerge, doc, root) {
   const base = new Map()
   if (!genesis?.peerId) return base
   base.set(genesis.deviceId, genesis.peerId)
-  const entryChangeHash = entryChangeHashIndex(automerge, doc)
   const grants = []
-  for (const [id, row] of firstWrittenEntries(automerge, doc)) {
-    if (id === genesis.id || row.kind !== 'grant' || !isCompleteEntry(row) || !row.target_peer_id) continue
+  for (const row of signedEntries(automerge, doc)) {
+    if (row.kind !== 'grant' || !row.target_peer_id) continue
     if (row.target_device_id === genesis.deviceId || row.target_device_id === row.signer_device_id) continue
-    const h = entryChangeHash.get(id)
-    if (h) grants.push({ entry: { id, ...row }, h })
+    grants.push({ entry: row, h: row.changeHash })
   }
   // A grant may bind a peer id only if its signature verifies against its signer's already-bound peer id and the
   // signer was an admin at that point in the causal history. Admin standing itself depends on which entries are
@@ -490,7 +472,13 @@ function trustFromPeerIds(peerIdByDevice) {
     if (!signerPeerId) return false // signer's own identity never established — fail closed
     return verifyAuthorityEntry(
       signerPeerId,
-      { id: entry.id, kind: entry.kind, target_device_id: entry.target_device_id, signer_device_id: entry.signer_device_id },
+      {
+        id: entry.id,
+        kind: entry.kind,
+        target_device_id: entry.target_device_id,
+        target_peer_id: entry.kind === 'grant' ? entry.target_peer_id : '',
+        signer_device_id: entry.signer_device_id,
+      },
       entry.signature
     )
   }
@@ -516,17 +504,14 @@ export function currentRevokedDeviceIds(automerge, doc, { root, founderDeviceId,
   const ctx = createAuthorityReplayContext(automerge, doc, { root, founderDeviceId, isEntryTrusted })
   const { grantedSet } = ctx.currentState()
   const everyTargetDeviceId = new Set(grantedSet)
-  for (const id of listRecordIds(doc, AUTHORITY_LOG_ENTITY)) {
-    const row = readRecord(doc, AUTHORITY_LOG_ENTITY, id)
-    if (!isCompleteEntry(row)) continue
-    const entry = { id, ...row }
+  for (const entry of ctx.entries) {
     // Genesis only ever grants the founder, who is already in grantedSet; it never names a revoked device.
-    if (entry.kind === 'genesis' || id === ctx.founderGenesisId) continue
+    if (entry.kind === 'genesis') continue
     if (!isEntryTrusted(entry)) continue
     // A signed revoke counts only if its signer was an admin at the entry's own causal position (the same test stateAt
     // applies to votes); a signature alone proves who wrote it, not that they were entitled to.
-    if (!ctx.isValidAdminAt(entry.signer_device_id, ctx.entryChangeHash.get(id))) continue
-    if (entry.target_device_id) everyTargetDeviceId.add(entry.target_device_id)
+    if (!ctx.isValidAdminAt(entry.signer_device_id, entry.changeHash)) continue
+    everyTargetDeviceId.add(entry.target_device_id)
   }
   return [...everyTargetDeviceId].filter((id) => !grantedSet.has(id)).sort()
 }

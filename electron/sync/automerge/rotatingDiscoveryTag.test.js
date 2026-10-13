@@ -2,7 +2,8 @@
 // before-green tests for the rotating discovery tag: HMAC(campDhtSecret, revocationDigest).
 import * as Automerge from '@automerge/automerge'
 import { describe, expect, it } from 'vitest'
-import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
+import { createEmptyDoc } from '../../automerge/campDocument.js'
+import { writeAuthorityEntry } from '../../automerge/genesisTestKit.js'
 import { mintRendezvousNamespace } from './rendezvousNamespace.js'
 import { rotatingDiscoveryDigest } from './rotatingDiscoveryTag.js'
 
@@ -15,12 +16,7 @@ function uid() {
 }
 
 function pushEntry(doc, entry) {
-  const id = uid()
-  let d = doc
-  for (const [field, value] of Object.entries(entry)) {
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
-  }
-  return d
+  return writeAuthorityEntry(doc, uid(), { target_peer_id: '', signature: 'unsigned', ...entry })
 }
 
 function mintedDoc() {

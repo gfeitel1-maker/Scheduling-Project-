@@ -11,8 +11,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { initSchema, openLocalDb } from '../db/localDb.js'
 import { ensureDeviceIdentity } from '../auth/deviceIdentity.js'
-import { createEmptyDoc, applyWrite, listRecordIds, readRecord } from './campDocument.js'
-import { makeTestCamp } from './genesisTestKit.js'
+import { createEmptyDoc, listRecordIds, readRecord } from './campDocument.js'
+import { makeTestCamp, writeAuthorityEntry } from './genesisTestKit.js'
 import { signAuthorityEntry } from './authorityLogSignature.js'
 import { projectAll, rebuildFromDoc } from './projector.js'
 import { isRevokedByOwnAuthority } from '../sync/automerge/removalEvidence.js'
@@ -49,32 +49,19 @@ function uid() {
 
 function writeGenesis(doc, { founderDeviceId, founderPeerId }) {
   const id = uid()
-  let d = doc
-  for (const [field, value] of Object.entries(camp.genesisFields({ id, deviceId: founderDeviceId, peerId: founderPeerId }))) {
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
-  }
-  return d
+  return writeAuthorityEntry(doc, id, camp.genesisFields({ id, deviceId: founderDeviceId, peerId: founderPeerId }))
 }
 
 function writeGrant(doc, { targetDeviceId, targetPeerId, signerDeviceId, signerDb }) {
   const id = uid()
-  const signature = signAuthorityEntry(signerDb, { id, kind: 'grant', target_device_id: targetDeviceId, signer_device_id: signerDeviceId })
-  let d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field: 'kind', value: 'grant' })
-  d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_device_id', value: targetDeviceId })
-  d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_peer_id', value: targetPeerId })
-  d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signer_device_id', value: signerDeviceId })
-  d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature })
-  return d
+  const signature = signAuthorityEntry(signerDb, { id, kind: 'grant', target_device_id: targetDeviceId, target_peer_id: targetPeerId, signer_device_id: signerDeviceId })
+  return writeAuthorityEntry(doc, id, { kind: 'grant', target_device_id: targetDeviceId, target_peer_id: targetPeerId, signer_device_id: signerDeviceId, signature })
 }
 
 function writeRevoke(doc, { targetDeviceId, signerDeviceId, signerDb }) {
   const id = uid()
   const signature = signAuthorityEntry(signerDb, { id, kind: 'revoke', target_device_id: targetDeviceId, signer_device_id: signerDeviceId })
-  let d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field: 'kind', value: 'revoke' })
-  d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_device_id', value: targetDeviceId })
-  d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signer_device_id', value: signerDeviceId })
-  d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature })
-  return d
+  return writeAuthorityEntry(doc, id, { kind: 'revoke', target_device_id: targetDeviceId, signer_device_id: signerDeviceId, signature })
 }
 
 function campDb() {
@@ -111,12 +98,8 @@ describe('projector gate C — upsertCampAuthorityLogEntity (real signatures, re
     // Attacker claims to BE the founder (signer_device_id: 'founder') but signs with their OWN key
     // — the signature will not verify against the founder's real peer id.
     const id = uid()
-    const forgedSig = signAuthorityEntry(attacker.db, { id, kind: 'grant', target_device_id: 'attacker-device', signer_device_id: 'founder' })
-    let d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field: 'kind', value: 'grant' })
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_device_id', value: 'attacker-device' })
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_peer_id', value: attacker.peerId })
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signer_device_id', value: 'founder' })
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: forgedSig })
+    const forgedSig = signAuthorityEntry(attacker.db, { id, kind: 'grant', target_device_id: 'attacker-device', target_peer_id: attacker.peerId, signer_device_id: 'founder' })
+    const d = writeAuthorityEntry(doc, id, { kind: 'grant', target_device_id: 'attacker-device', target_peer_id: attacker.peerId, signer_device_id: 'founder', signature: forgedSig })
 
     const db = campDb()
     projectAll(db, d)
@@ -131,10 +114,7 @@ describe('projector gate C — upsertCampAuthorityLogEntity (real signatures, re
     let doc = createEmptyDoc()
     doc = writeGenesis(doc, { founderDeviceId: 'founder', founderPeerId: founder.peerId })
     const id = uid()
-    let d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field: 'kind', value: 'revoke' })
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_device_id', value: 'victim' })
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signer_device_id', value: 'founder' })
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: 'AAAA' })
+    const d = writeAuthorityEntry(doc, id, { kind: 'revoke', target_device_id: 'victim', signer_device_id: 'founder', signature: 'AAAA' })
     const db = campDb()
     projectAll(db, d)
     expect(cacheStatus(db, 'victim')).toBe(null)
@@ -146,8 +126,7 @@ describe('projector gate C — upsertCampAuthorityLogEntity (real signatures, re
     const founder = await makeDevice()
     let doc = createEmptyDoc()
     doc = writeGenesis(doc, { founderDeviceId: 'founder', founderPeerId: founder.peerId })
-    const d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: 'zzzz-forged-genesis', field: 'kind', value: 'genesis' })
-    const d2 = applyWrite(d, { entity: 'camp_authority_log', entity_id: 'zzzz-forged-genesis', field: 'target_device_id', value: 'victim' })
+    const d2 = writeAuthorityEntry(doc, 'zzzz-forged-genesis', { kind: 'genesis', target_device_id: 'victim', target_peer_id: '', signature: 'unsigned' })
     const db = campDb()
     projectAll(db, d2)
     expect(cacheStatus(db, 'victim')).toBe(null)
@@ -309,11 +288,7 @@ describe('projector gate C — upsertCampAuthorityLogEntity (real signatures, re
     // tuple — unchanged, including the real signature, which the founder is STILL a valid admin
     // for — under a BRAND NEW record id, hoping to resurrect 'other' as admin.
     const replayId = 'replayed-entry-id'
-    let replayed = applyWrite(doc, { entity: 'camp_authority_log', entity_id: replayId, field: 'kind', value: 'grant' })
-    replayed = applyWrite(replayed, { entity: 'camp_authority_log', entity_id: replayId, field: 'target_device_id', value: 'other' })
-    replayed = applyWrite(replayed, { entity: 'camp_authority_log', entity_id: replayId, field: 'target_peer_id', value: other.peerId })
-    replayed = applyWrite(replayed, { entity: 'camp_authority_log', entity_id: replayId, field: 'signer_device_id', value: 'founder' })
-    replayed = applyWrite(replayed, { entity: 'camp_authority_log', entity_id: replayId, field: 'signature', value: originalGrant.signature })
+    const replayed = writeAuthorityEntry(doc, replayId, { kind: 'grant', target_device_id: 'other', target_peer_id: other.peerId, signer_device_id: 'founder', signature: originalGrant.signature })
 
     const dbAfter = campDb()
     projectAll(dbAfter, replayed)

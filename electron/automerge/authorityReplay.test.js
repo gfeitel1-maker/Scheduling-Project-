@@ -3,14 +3,15 @@
 // SAME flat per-field document shape every other MODELED_ENTITIES entity uses (createEmptyDoc/
 // applyWrite) — the causal-ancestor rule is specifically about Automerge's real change/deps graph,
 // so a hand-rolled fake graph would not actually exercise it (mocks hid the T329 defect; the same
-// risk applies here). Entries are written field-by-field with no signature — signature
+// risk applies here). Entries are written as one change each, with a placeholder signature — signature
 // authenticity is a separate, already-built concern (authorityLogSignature.js), wired together in
 // projector.js's upsertCampAuthorityLogEntity; these tests exercise the causal-ancestor/quorum MATH
 // only, matching this module's own scope (see authorityLog.test.js for the signed, end-to-end
 // write path, and projector.test.js for the verify-and-replay integration).
 import * as Automerge from '@automerge/automerge'
 import { describe, expect, it } from 'vitest'
-import { createEmptyDoc, applyWrite } from './campDocument.js'
+import { createEmptyDoc } from './campDocument.js'
+import { writeAuthorityEntry } from './genesisTestKit.js'
 import { createAuthorityReplayContext, currentAuthorityState, currentRevokedDeviceIds, quorumThreshold } from './authorityReplay.js'
 
 // These tests exercise the causal/quorum math with an explicit founder; the root is required but unused then.
@@ -26,12 +27,7 @@ function initDoc() {
 }
 
 function pushEntry(doc, entry) {
-  const id = uid()
-  let d = doc
-  for (const [field, value] of Object.entries(entry)) {
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
-  }
-  return d
+  return writeAuthorityEntry(doc, uid(), { target_peer_id: '', signature: 'unsigned', ...entry })
 }
 
 describe('quorumThreshold', () => {

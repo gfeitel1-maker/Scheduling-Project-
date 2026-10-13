@@ -9,25 +9,22 @@ import { describe, it, expect, afterAll } from 'vitest'
 import { cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { createHostHandoff } from './hostHandoff.js'
 import { makeHandoffPair } from './hostHandoffTestSupport.js'
-import { createEmptyDoc, applyWrite } from '../automerge/campDocument.js'
+import { createEmptyDoc } from '../automerge/campDocument.js'
+import { writeAuthorityEntry } from '../automerge/genesisTestKit.js'
 import { signAuthorityEntry } from '../automerge/authorityLogSignature.js'
 import { signGenesisEntry, readCampRoot } from '../automerge/genesisSignature.js'
 import { createAuthorityReplayContext, createVerifiedEntryTrust } from '../automerge/authorityReplay.js'
 
 afterAll(() => cleanupTemplatedDbs())
 
-function put(doc, id, fields) {
-  let d = doc
-  for (const [field, value] of Object.entries(fields)) d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
-  return d
-}
+const put = writeAuthorityEntry
 
 describe('host handoff and the camp-signed genesis', () => {
   it('leaves the founder and admin set unchanged on both devices, and the new Host grants still apply', async () => {
     const { campId, H, S } = await makeHandoffPair()
     const gSig = signGenesisEntry(H.db, { id: 'g', camp_id: campId, target_device_id: H.deviceId, target_peer_id: H.identity.peerId })
     let doc = put(createEmptyDoc(), 'g', { kind: 'genesis', target_device_id: H.deviceId, target_peer_id: H.identity.peerId, signature: gSig })
-    const grantS = signAuthorityEntry(H.db, { id: 'grant-s', kind: 'grant', target_device_id: S.deviceId, signer_device_id: H.deviceId })
+    const grantS = signAuthorityEntry(H.db, { id: 'grant-s', kind: 'grant', target_device_id: S.deviceId, target_peer_id: S.identity.peerId, signer_device_id: H.deviceId })
     doc = put(doc, 'grant-s', { kind: 'grant', target_device_id: S.deviceId, target_peer_id: S.identity.peerId, signer_device_id: H.deviceId, signature: grantS })
 
     const state = (root, d) => {
@@ -56,7 +53,7 @@ describe('host handoff and the camp-signed genesis', () => {
 
     expect({ h: state(readCampRoot(H.db), doc), s: state(readCampRoot(S.db), doc) }).toEqual(before)
 
-    const grantNew = signAuthorityEntry(S.db, { id: 'grant-new', kind: 'grant', target_device_id: 'new-device', signer_device_id: S.deviceId })
+    const grantNew = signAuthorityEntry(S.db, { id: 'grant-new', kind: 'grant', target_device_id: 'new-device', target_peer_id: 'peer-new', signer_device_id: S.deviceId })
     doc = put(doc, 'grant-new', { kind: 'grant', target_device_id: 'new-device', target_peer_id: 'peer-new', signer_device_id: S.deviceId, signature: grantNew })
     const after = { h: state(readCampRoot(H.db), doc), s: state(readCampRoot(S.db), doc) }
     expect(after.h).toEqual(after.s)

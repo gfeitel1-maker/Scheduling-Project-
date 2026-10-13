@@ -15,8 +15,9 @@ vi.mock('@automerge/automerge', async (importOriginal) => {
 })
 
 const { openLocalDb } = await import('../../db/localDb.js')
-const { createEmptyDoc, applyWrites, applyWrite } = await import('../../automerge/campDocument.js')
+const { createEmptyDoc, applyWrites } = await import('../../automerge/campDocument.js')
 const { signAuthorityEntry } = await import('../../automerge/authorityLogSignature.js')
+const { writeAuthorityEntry } = await import('../../automerge/genesisTestKit.js')
 const { ensureDeviceIdentity } = await import('../../auth/deviceIdentity.js')
 const { mintRendezvousNamespace } = await import('./rendezvousNamespace.js')
 const { mintRendezvousAddressKey } = await import('./rendezvousAddressKey.js')
@@ -41,12 +42,11 @@ afterEach(() => {
 
 function entry(doc, fields, signed = true, fixedId) {
   const id = fixedId ?? `entry-${Math.random()}`
-  for (const [field, value] of Object.entries(fields)) doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field, value })
-  if (signed) {
-    const signature = signAuthorityEntry(db, { id, kind: fields.kind, target_device_id: fields.target_device_id, signer_device_id: fields.signer_device_id })
-    doc = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature })
-  }
-  return doc
+  const all = { target_peer_id: '', ...fields }
+  all.signature = fields.signature ?? (signed
+    ? signAuthorityEntry(db, { id, kind: all.kind, target_device_id: all.target_device_id, target_peer_id: all.kind === 'grant' ? all.target_peer_id : undefined, signer_device_id: all.signer_device_id })
+    : 'unsigned')
+  return writeAuthorityEntry(doc, id, all)
 }
 
 describe('rotation check cost on an import-sized camp', () => {

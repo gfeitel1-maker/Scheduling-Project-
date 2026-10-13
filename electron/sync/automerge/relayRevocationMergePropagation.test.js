@@ -19,7 +19,7 @@
 // Reuses the real-signed-entry fixture shape already established by syncNode.test.js's "T331 gate
 // C" test (signAuthorityEntry + applyWrite-per-field, genesis/grant/revoke) rather than hand-
 // rolling a second way to produce a real merged revoke.
-import { hostGenesisSignature } from '../../automerge/genesisTestKit.js'
+import { hostGenesisSignature, writeAuthorityEntry } from '../../automerge/genesisTestKit.js'
 import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -35,7 +35,7 @@ import { pbStream } from '@libp2p/utils'
 import { multiaddr } from '@multiformats/multiaddr'
 import { peerIdFromString } from '@libp2p/peer-id'
 import { openLocalDb, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
-import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
+import { createEmptyDoc } from '../../automerge/campDocument.js'
 import { ensureHostSigningKey } from '../../auth/localAuth.js'
 import { rosterEveryone } from './rosterTestSupport.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
@@ -100,15 +100,10 @@ async function waitFor(predicate, { timeout = 25000, interval = 50 } = {}) {
 function mintEntry(db, doc, fields, signed) {
   const id = `entry-${Math.random()}`
   if (fields.kind === 'genesis') fields = { ...fields, signature: hostGenesisSignature(hostKeyDb, { id, target_device_id: fields.target_device_id, target_peer_id: fields.target_peer_id }) }
-  let d = doc
-  for (const [field, value] of Object.entries(fields)) {
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
-  }
-  if (signed) {
-    const signature = signAuthorityEntry(db, { id, kind: fields.kind, target_device_id: fields.target_device_id, signer_device_id: fields.signer_device_id })
-    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature })
-  }
-  return d
+  const all = { target_peer_id: '', ...fields }
+  if (signed) all.signature = signAuthorityEntry(db, { id, kind: all.kind, target_device_id: all.target_device_id, target_peer_id: all.kind === 'grant' ? all.target_peer_id : undefined, signer_device_id: all.signer_device_id })
+  else all.signature ??= 'unsigned'
+  return writeAuthorityEntry(doc, id, all)
 }
 
 async function startRawNode() {

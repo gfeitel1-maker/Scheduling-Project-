@@ -2,6 +2,7 @@
 // whose genesis verifies against a root without standing up a Host database.
 import { generateKeyPairSync } from 'node:crypto'
 import { signGenesisEntry } from './genesisSignature.js'
+import { applyWrites } from './campDocument.js'
 
 export function makeTestCamp(campId = 'camp-test') {
   const { publicKey, privateKey } = generateKeyPairSync('ed25519')
@@ -24,4 +25,10 @@ export function makeTestCamp(campId = 'camp-test') {
 export function hostGenesisSignature(hostDb, { id, target_device_id, target_peer_id }) {
   const camp_id = hostDb.prepare('SELECT id FROM camps LIMIT 1').get().id
   return signGenesisEntry(hostDb, { id, camp_id, target_device_id, target_peer_id })
+}
+
+// An authority entry is defined by ONE change that writes all of its fields (authorityReplay.js's signedEntries), so
+// fixtures write a record with a single applyWrites rather than a change per field.
+export function writeAuthorityEntry(doc, id, fields) {
+  return applyWrites(doc, Object.entries(fields).map(([field, value]) => ({ entity: 'camp_authority_log', entity_id: id, field, value })))
 }
