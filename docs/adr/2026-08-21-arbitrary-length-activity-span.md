@@ -488,3 +488,15 @@ rewrite — both are ADR-bar triggers per the constitution.
 13. **R4 + double-fire edges:** extend targeting a since-deleted block drops
     it gracefully (no write to a dead id); an identical-range double-fired
     extend is idempotent (settles at the same N-length span, no data loss).
+
+## Amendment 2026-10-13 (T380): capped single-block activities are matched before the greedy rounds
+
+Pass order in the high round is now: high-priority spans first (unchanged), then, only in a tight week
+(some group has no spare cell) with a scarce activity (single-block, weekly minimum, per-slot cap below the
+number of groups it serves), the low-priority spans and a slot-by-slot bipartite matching of free groups to
+those activities, then the greedy singles, `repair`, `minRepair`, `fillRepair`. Spans are not part of the
+matching: a span needs a free run over several slots, so they stay first, and they are placed before the
+matching so it cannot spend their runs. Detail and evidence: `docs/work/tickets/T380-capped-activities-matched-in-a-tight-week.md`.
+
+
+> 2026-10-13 (T380 round 2): the matching orders groups by cells left in this slot and later less scarce sessions owed, matches urgency-1 activities first, checks shared-location headroom, and does not honour priority between scarce activities and greedy ones inside a tight week.

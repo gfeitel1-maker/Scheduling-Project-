@@ -87,6 +87,8 @@ const MEAL_ALL = 'confirm all: every group gets its meal on every day and block 
 const FAITHFUL_ZERO = 'zero answers: every inferred rule admits the file it was read from'
 const FAITHFUL_ALL = 'confirm all: every inferred rule admits the file it was read from'
 const FILLS_ZERO = 'zero answers: Generate fills the week again (nothing short, no empty cell)'
+const SEEDS_ZERO = 'zero answers: a week the inferred rules admit is filled on every seed'
+const SEEDS_ALL = 'confirm all: a week the inferred rules admit is filled on every seed'
 const FILLS_ALL = 'confirm all: Generate fills the week again (nothing short, no empty cell)'
 const ALLDAY_NOT_ACTIVITY = 'zero answers: no trip or whole-day item becomes a catalog activity'
 const ALLDAY_NOT_ACTIVITY_ALL = 'confirm all: no trip or whole-day item becomes a catalog activity'
@@ -261,6 +263,43 @@ function scheduleInput(d, id) {
   const weekId = weeks.length === 1 ? weeks[0].id : null
   return { ...flat, activities: resolvePriorityForGeneration(flat.activities), campId: id, replacedDayIds: [], weekId }
 }
+
+
+// Generate draws its choices from a PRNG seeded by the camp id, so one stable id proving a week fills proves
+// little (T380: s02 came out clean on 13 of 50 seeds). The sweep re-runs Generate under SEEDS camp ids.
+// SEED_SWEEP_OUT=<file> appends one JSON line per sweep (the before/after evidence); a plain run writes nothing.
+const SEEDS = Number(process.env.SYNTHETIC_SEEDS ?? 50)
+function seedSweep(d, id, label) {
+  const input = scheduleInput(d, id)
+  const out = { label, seeds: SEEDS, shortSeeds: 0, stillNeeded: 0, unfillable: 0, findings: 0, cpuMs: 0, firstShort: [], byActivity: {} }
+  for (let i = 0; i < SEEDS; i++) {
+    const t0 = process.cpuUsage()
+    const { slots, findings } = buildSchedule({ ...input, campId: `seed-${i}` })
+    const cpu = process.cpuUsage(t0)
+    out.cpuMs += (cpu.user + cpu.system) / 1000
+    const under = (findings ?? []).filter((f) => f.kind === 'UNDERSERVED')
+    const needed = under.reduce((n, f) => n + Math.max(0, (f.needed ?? 0) - (f.got ?? 0)), 0)
+    const unfillable = slots.filter((s) => s.type === 'activity' && s.flags?.UNFILLABLE).length
+    out.stillNeeded += needed
+    for (const f of under) { const a = input.activities.find((x) => x.id === f.activityId); const k = `${a?.name} cap${a?.max_groups_per_slot} min${a?.min_per_week} span${a?.span_blocks}`; out.byActivity[k] = (out.byActivity[k] ?? 0) + 1 }
+    out.unfillable += unfillable
+    out.findings += (findings ?? []).length
+    if (needed || unfillable) {
+      out.shortSeeds++
+      if (out.firstShort.length < 3) out.firstShort.push(`seed-${i}: ${needed} still needed, ${unfillable} unfillable`)
+    }
+  }
+  out.cpuMs = Math.round(out.cpuMs)
+  if (process.env.SEED_SWEEP_OUT) fs.appendFileSync(process.env.SEED_SWEEP_OUT, JSON.stringify(out) + '\n')
+  return out
+}
+// null when the camp's own inferred rules reject its file: those weeks may not fit, so no promise is made.
+const fillsOnEverySeed = (faithful, sweep) => {
+  if (faithful.count !== 0) return null
+  if (!sweep.ok) return { sweepError: sweep.error }
+  return { shortSeeds: sweep.value.shortSeeds, firstShort: sweep.value.firstShort }
+}
+const SWEPT_FLOOR = 30
 
 function safe(fn) {
   try { return { ok: true, value: fn() } } catch (err) { return { ok: false, error: String(err?.message ?? err).slice(0, 300) } }
@@ -737,6 +776,7 @@ async function runCamp(m) {
     rec.alldayAsActivity = dayItemsAsActivity(m, zero.d, zero.id)
     rec.faithful = evaluateFaithful(m, zero.d, zero.id, z.value)
     rec.generate = evaluateGenerate(m, zero.d, zero.id, z.value)
+    rec.seedSweepZero = safe(() => seedSweep(zero.d, zero.id, `${m.slug}:zero`))
     rec.manual = await evaluateManual(m, zero.d, zero.id, z.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
     rec.specialDayFiles = await evaluateSpecialDayFiles(m, zero.d, zero.id).catch((e) => [{ error: String(e?.message ?? e).slice(0, 300) }])
 
@@ -777,6 +817,7 @@ async function runCamp(m) {
     rec.confirmAllDayItemsAsActivity = dayItemsAsActivity(m, all.d, all.id)
     rec.confirmAllFaithful = evaluateFaithful(m, all.d, all.id, a.value)
     rec.confirmAllGenerate = evaluateGenerate(m, all.d, all.id, a.value)
+    rec.seedSweepAll = safe(() => seedSweep(all.d, all.id, `${m.slug}:all`))
     rec.confirmAllManual = await evaluateManual(m, all.d, all.id, a.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
     // Owner, 2026-10-12: the review never asks what a schedule file cannot say (priority, frequency).
     rec.confirmAllPriorityOrFrequencyFlags = a.value.report.unknownFields ?? null
@@ -1076,7 +1117,7 @@ describe('the owner\'s camp and its variants fill again', () => {
       for (const [key, answerFor] of [['zero', undefined], ['all', CONFIRM_ALL]]) {
         const { d, id } = seedCamp(`${slug}:${key}`)
         const imp = importFile(d, id, text, answerFor ? { answerFor } : {})
-        rec[key] = { faithful: evaluateFaithful(m, d, id, imp), generate: evaluateGenerate(m, d, id, imp) }
+        rec[key] = { faithful: evaluateFaithful(m, d, id, imp), generate: evaluateGenerate(m, d, id, imp), sweep: safe(() => seedSweep(d, id, `${slug}:${key}`)) }
         d.close()
       }
       realResults[slug] = rec
@@ -1084,6 +1125,8 @@ describe('the owner\'s camp and its variants fill again', () => {
     const hard = (name, check) => (KNOWN_FAILING.has(`${slug}:${name}`) ? it.fails : it)(name, () => check(rec))
     hard(FAITHFUL_ZERO, (r) => { expect(r.zero.faithful.first).toEqual([]) })
     hard(FAITHFUL_ALL, (r) => { expect(r.all.faithful.first).toEqual([]) })
+    hard(SEEDS_ZERO, (r) => { expect(fillsOnEverySeed(r.zero.faithful, r.zero.sweep) ?? { shortSeeds: 0 }).toMatchObject({ shortSeeds: 0 }) })
+    hard(SEEDS_ALL, (r) => { expect(fillsOnEverySeed(r.all.faithful, r.all.sweep) ?? { shortSeeds: 0 }).toMatchObject({ shortSeeds: 0 }) })
     hard(FILLS_ZERO, (r) => { expect(fillsAgain(r.zero.generate)).toEqual({ stillNeeded: 0, unfillable: 0 }) })
     hard(FILLS_ALL, (r) => { expect(fillsAgain(r.all.generate)).toEqual({ stillNeeded: 0, unfillable: 0 }) })
   })
@@ -1188,6 +1231,8 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
     hard(FAITHFUL_ALL, (r) => { expect(r.confirmAllFaithful?.first).toEqual([]) })
     hard(FILLS_ZERO, (r) => { expect(fillsAgain(r.generate)).toEqual({ stillNeeded: 0, unfillable: 0 }) })
     hard(FILLS_ALL, (r) => { expect(fillsAgain(r.confirmAllGenerate)).toEqual({ stillNeeded: 0, unfillable: 0 }) })
+    hard(SEEDS_ZERO, (r) => { expect(fillsOnEverySeed(r.faithful, r.seedSweepZero) ?? { shortSeeds: 0 }).toMatchObject({ shortSeeds: 0 }) })
+    hard(SEEDS_ALL, (r) => { expect(fillsOnEverySeed(r.confirmAllFaithful, r.seedSweepAll) ?? { shortSeeds: 0 }).toMatchObject({ shortSeeds: 0 }) })
     hard('Manual from import leaves no placement unresolved (zero answers)', (r) => {
       expect(r.manual?.error).toBeUndefined()
       expect({ unresolvedCount: r.manual?.unresolvedCount, unresolvedNames: r.manual?.unresolvedNames }).toEqual({ unresolvedCount: 0, unresolvedNames: [] })
@@ -1217,6 +1262,21 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
     hard('re-import with Replace completes', (r) => {
       expect(r.reimportReplace?.ok).toBe(true)
     })
+  })
+
+  // The seed sweep promises nothing for a camp whose inferred rules reject its own file, so it must
+  // not quietly turn into a pass for every camp.
+  it('the seed sweep is not vacuous: most camp variants satisfy their own rules and were swept', () => {
+    const swept = []
+    const skipped = []
+    for (const [slug, r] of Object.entries(results)) {
+      for (const [key, f, sw] of [['zero', r.faithful, r.seedSweepZero], ['all', r.confirmAllFaithful, r.seedSweepAll]]) {
+        if (fillsOnEverySeed(f ?? { count: 1 }, sw ?? { ok: false }) && !fillsOnEverySeed(f, sw).sweepError) swept.push(`${slug}:${key}`)
+        else skipped.push(`${slug}:${key}`)
+      }
+    }
+    console.log(`seed sweep (${SEEDS} seeds): ${swept.length} variants swept, skipped: ${skipped.join(', ') || 'none'}`)
+    expect(swept.length).toBeGreaterThanOrEqual(SWEPT_FLOOR)
   })
 
   // The orphanMarkers invariant is only meaningful if markers exist to be checked.

@@ -281,7 +281,7 @@ const UNFILLABLE_TAGS = {
   overlap: 'Group busy at an overlapping time',
 }
 
-function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, fixedEventsOnly = false, weekId = null }) {
+function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, matchSeed, locationCapById, locationNameById, electiveSetActivities, events, fixedEventsOnly = false, weekId = null }) {
   const { cohort, timeBlocks, tiers: _tiers, groups, preplacedSlots, activityTargets, _legacyFixedEvents } = cohortEntry
   const cohortId = cohort?.id ?? null
 
@@ -817,8 +817,140 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
     }
   }
 
+  // T380: an activity capped to a few groups at once (an instructor, a boat) can be left one session
+  // short by the greedy rounds even in a week that fits: they fill one cell at a time and spend the
+  // capped slots on whichever activity is first in line. In a tight week the capped activities
+  // compete for the same cells (every group needs one session of each, one group per activity per
+  // slot), a Latin-square problem that no per-cell rule solves. So before the greedy rounds, each
+  // slot (day, block) in turn gets a bipartite matching of its free groups to the scarce activities
+  // they still need, each activity taking at most its remaining capacity in that slot. Kuhn's
+  // augmenting paths over groups offered most-pressed first (fewest spare cells against sessions
+  // still owed) give a matching that covers the most pressed groups possible; each group's
+  // candidates are tried most-urgent activity first (sessions owed against capacity left in the
+  // week). Every match lowers a group's spare cells and its owed sessions by one, so a match never
+  // makes another session of that group impossible by count. The greedy rounds and the repair fill
+  // everything the matching leaves.
+  // Scarce = a weekly minimum and a per-slot cap below the number of groups it serves: the cap, not
+  // the group count, is what limits the week. It runs only in a tight week, one where some group has
+  // no cell to spare after its owed sessions. A single-block activity only: a span needs a free run
+  // across several slots, which a slot-by-slot matching cannot say, so spans keep placeSpansFirst
+  // (high and low priority alike, ahead of the matching) and the T378 repair. The only randomness is the order ties are broken in,
+  // from a stream of its own (matchSeed, the camp and cohort seed), so it never moves the draws the
+  // rest of the build makes.
+  function isScarce(act) {
+    return (act.span_blocks || 1) === 1 && act.max_groups_per_slot > 0 && getMin(act.id) > 0
+      && act.max_groups_per_slot < (eligibility.get(act.id)?.size ?? 0)
+  }
+
+  // Free cells less the cells its owed sessions need, per group.
+  function spareCells() {
+    const spare = new Map()
+    for (const g of groups) {
+      let free = 0
+      for (const s of openSlotsByGroup.get(g.id) ?? []) if (!assigned.has(keyOf(s))) free++
+      let need = 0
+      for (const a of activities) if (eligibility.get(a.id)?.has(g.id)) need += Math.max(0, getMin(a.id) - getCount(g.id, a.id)) * (a.span_blocks || 1)
+      spare.set(g.id, free - need)
+    }
+    return spare
+  }
+
+  function placeScarceSessions(slotsToFill) {
+    const scarce = activities.filter(isScarce)
+    if (!scarce.length) return
+    // Only a tight week needs it: while every group has a cell to spare, the greedy rounds and the
+    // repair absorb a bad draw (every camp in the corpus with spare cells everywhere fills on every seed).
+    if (Math.min(...spareCells().values()) > 0) return
+    // Low-priority spans are placed now too, ahead of the matching: it spends the free runs a span needs.
+    placeSpansFirst(slotsToFill, 'low')
+    const matchRand = mulberry32(matchSeed)
+    const tie = new Map([...scarce.map(a => a.id), ...groups.map(g => g.id)].map(id => [id, matchRand()]))
+    const owed = (act, groupId) => {
+      let n = getMin(act.id) - getCount(groupId, act.id)
+      if (act.max_per_week != null) n = Math.min(n, act.max_per_week - getCount(groupId, act.id))
+      return n
+    }
+    const periods = []
+    for (const d of days) for (const b of timeBlocksSorted) {
+      const cells = openSlotsByPeriod.get(`${d.id}|${b.id}`)
+      if (cells) periods.push(cells)
+    }
+    for (let p = 0; p < periods.length; p++) {
+      const urgency = new Map(scarce.map(a => {
+        let owedTotal = 0
+        for (const g of groups) if (eligibility.get(a.id)?.has(g.id)) owedTotal += Math.max(0, owed(a, g.id))
+        return [a.id, owedTotal / (a.max_groups_per_slot * (periods.length - p))]
+      }))
+      // A group with no cell to spare for the activities the matching leaves to the greedy rounds (this slot
+      // and later ones, less the scarce sessions still owed; a cell the matching passed over is behind it) must be matched in every remaining slot: first in line.
+      const cellsLeft = new Map()
+      for (let q = p; q < periods.length; q++) for (const s of periods[q]) if (!assigned.has(keyOf(s))) cellsLeft.set(s.groupId, (cellsLeft.get(s.groupId) ?? 0) + 1)
+      const slack = new Map(groups.map(g => {
+        const cells = cellsLeft.get(g.id) ?? 0
+        let need = 0
+        for (const a of scarce) if (eligibility.get(a.id)?.has(g.id)) need += Math.max(0, owed(a, g.id))
+        return [g.id, cells - need]
+      }))
+      const free = periods[p].filter(s => !assigned.has(keyOf(s)))
+        .sort((x, y) => slack.get(x.groupId) - slack.get(y.groupId) || tie.get(x.groupId) - tie.get(y.groupId))
+      const candidates = new Map()
+      for (const s of free) {
+        candidates.set(s.groupId, scarce
+          .filter(a => s.eligibleActs.includes(a) && owed(a, s.groupId) > 0 && canPlace(a, s.groupId, s.dayId, s.blockId))
+          .sort((x, y) => scoreForPrefer(x, s.groupId, s.dayId) - scoreForPrefer(y, s.groupId, s.dayId)
+            || urgency.get(y.id) - urgency.get(x.id) || tie.get(x.id) - tie.get(y.id)))
+      }
+      const holders = new Map() // activity id -> group ids matched to it in this slot
+      const roomOf = (a, s) => a.max_groups_per_slot - (activityUsage.get(`${a.id}|${s.dayId}|${s.blockId}`) || 0)
+      // A shared location's capacity is a limit across activities, which a seat count per activity cannot see.
+      const locationHasRoom = (a, s) => {
+        const loc = a.location_id ?? null
+        if (loc == null || !locationCapById.has(loc)) return true
+        let n = (placeUsage.get(`${loc}|${s.dayId}|${s.blockId}`) || []).length
+        for (const [actId, gs] of holders) if (activityById.get(actId).location_id === loc) n += gs.length
+        return n < locationCapById.get(loc)
+      }
+      const slotOf = new Map(free.map(s => [s.groupId, s]))
+      let critical = null
+      const assign = (groupId, seen) => {
+        for (const a of candidates.get(groupId)) {
+          if (critical && !critical.has(a.id)) continue
+          if (seen.has(a.id)) continue
+          seen.add(a.id)
+          const held = holders.get(a.id) ?? []
+          if (held.length < roomOf(a, slotOf.get(groupId)) && locationHasRoom(a, slotOf.get(groupId))) { holders.set(a.id, [...held, groupId]); return true }
+          for (let i = 0; i < held.length; i++) {
+            if (assign(held[i], seen)) {
+              const now = holders.get(a.id) ?? []
+              holders.set(a.id, [...now.filter(x => x !== held[i]), groupId])
+              return true
+            }
+          }
+        }
+        return false
+      }
+      // An activity owed as many sessions as the week has seats left for it (urgency 1) is lost for good if
+      // any seat goes empty, so those are matched first; an augmenting path never unmatches an activity's
+      // seat, so the second pass over everything cannot take that coverage back.
+      critical = new Set(scarce.filter(a => urgency.get(a.id) >= 1 - 1e-9).map(a => a.id))
+      const matched = new Set()
+      if (critical.size) for (const s of free) if (assign(s.groupId, new Set())) matched.add(s.groupId)
+      critical = null
+      for (const s of free) if (!matched.has(s.groupId)) assign(s.groupId, new Set())
+      const pick = new Map()
+      for (const [actId, gs] of holders) for (const g of gs) pick.set(g, activityById.get(actId))
+      for (const s of free) {
+        // A pick can have lost its place to a shared location filled by another pick: the group's
+        // next candidate takes it instead.
+        const a = [pick.get(s.groupId), ...candidates.get(s.groupId)].find(x => x && canPlace(x, s.groupId, s.dayId, s.blockId))
+        if (a) place(a, s.groupId, s.dayId, s.blockId)
+      }
+    }
+  }
+
   function runRound(slotsToFill, priority) {
     placeSpansFirst(slotsToFill, priority)
+    if (priority === 'high') placeScarceSessions(slotsToFill)
     const roundSlots = slotsToFill.filter(s => {
       const acts = s.eligibleActs.filter(a => a.priority === priority)
       return acts.some(a => canPlace(a, s.groupId, s.dayId, s.blockId))
@@ -1526,7 +1658,7 @@ function buildSchedule(input) {
     const cohortEntry = cohorts[idx]
     const cohortSeed = campId + (cohortEntry.cohort?.id || String(idx))
     const rand = mulberry32(djb2(cohortSeed))
-    const { slots, findings } = scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, fixedEventsOnly, weekId })
+    const { slots, findings } = scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, matchSeed: djb2(`${cohortSeed}|match`), locationCapById, locationNameById, electiveSetActivities, events, fixedEventsOnly, weekId })
     allSlots.push(...slots)
     allFindings.push(...findings)
     allFixedEvents.push(...(cohortEntry._legacyFixedEvents || []))
