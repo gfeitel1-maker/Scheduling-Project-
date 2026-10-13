@@ -775,7 +775,8 @@ export async function run(h) {
     }
     await h.shot('s20-save-warning')
     await click('Choose where to save', true, 10000)
-    const savedLine = await waitFor(`const m=__main().match(/Saved [^\\n]*\\.shoresh-camp[^\\n]*/); return m && m[0]`, 60000, 'saved confirmation')
+    // The confirmation is in the sidebar footer (SaveCampControl), not the main area.
+    const savedLine = await waitFor(`const m=document.body.innerText.match(/Saved [^\\n]*\\.shoresh-camp[^\\n]*/); return m && m[0]`, 60000, 'saved confirmation')
     await h.shot('s20-saved')
     if (!fs.existsSync(saved) || fs.statSync(saved).size < 1000) throw new Error('the camp file was not written')
     if (fs.readdirSync(h.RUN).some((f) => f.includes('.tmp-'))) throw new Error('a temp file was left beside the camp file')
@@ -804,9 +805,11 @@ export async function run(h) {
       if (gone.length || added.length) problems.push(`locations differ: missing ${JSON.stringify(gone.slice(0, 3))}, extra ${JSON.stringify(added.slice(0, 3))}`)
       // Derived ids resolve: a regenerated Generated schedule still places.
       await W.nav('Generated Schedule')
-      const regen = await W.ev(`const b=[...document.querySelectorAll('button')].filter(__vis).find(b=>/^(Re-?generate|Generate again)/i.test(b.innerText.trim())); if(!b) return 'NO REGENERATE BUTTON: '+[...document.querySelectorAll('button')].filter(__vis).map(b=>b.innerText.trim()).filter(Boolean).slice(0,25).join(' | '); b.click(); return 'clicked'`)
+      const regen = await W.ev(`const b=[...document.querySelectorAll('button')].filter(__vis).find(b=>/^(Rebuild|Re-?generate|Generate again)$/i.test(b.innerText.trim())); if(!b) return 'NO REGENERATE BUTTON: '+[...document.querySelectorAll('button')].filter(__vis).map(b=>b.innerText.trim()).filter(Boolean).slice(0,25).join(' | '); b.click(); return 'clicked'`)
       if (regen !== 'clicked') problems.push(regen)
       else {
+        // The app's button is "Rebuild", and it asks before replacing the schedule ("Rebuild it").
+        await sleep(600); await W.click('Rebuild it', true, 5000).catch(() => {})
         await sleep(1500)
         const again = await W.waitFor(STATS, 120000, 'W: regenerated stats')
         if (!(again.placed > 0)) problems.push('regenerating on the opened camp placed nothing')
