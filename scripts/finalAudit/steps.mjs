@@ -421,7 +421,14 @@ export async function run(h) {
     await waitFor(`const i=[...document.querySelectorAll('label input')].filter(__vis)[0]; if(!i) return false; __set(i,'DISABLE ENCRYPTION'); return true`, 10000, 'confirmation input')
     await sleep(300); await guide('devices/turn-off-encryption', 'DISABLE ENCRYPTION'); await click('Turn off encryption', true, 10000)
     const said = await waitFor(`const m=__main().match(/Encryption is off[^\\n]*|Encryption is still on[^\\n]*/); return m && m[0]`, 120000, 'disable outcome')
-    if (/still on/.test(said)) throw new Error(`refused: "${said}"`)
+    if (/still on/.test(said)) {
+      // A refused disable still restarts the app ("Shoresh will restart"): re-attach before failing, so the
+      // steps after this one run against the live app instead of timing out on a dead connection.
+      await h.adopt().catch(() => {})
+      await waitFor(`return document.body.innerText.includes('Log out') || !!__inp('#login-name')`, 120000, 'app back up after the refusal').catch(() => {})
+      if (await ev(`return !!__inp('#login-name')`).catch(() => false)) { await h.signInIfAsked(); await waitFor(`return document.body.innerText.includes('Log out')`, 30000, 'signed in').catch(() => {}) }
+      throw new Error(`refused: "${said}"`)
+    }
     const ms = await h.adopt()
     await waitFor(`return document.body.innerText.includes('Log out') || !!__inp('#login-name')`, 120000, 'app back up')
     const signedIn = await ev(`return document.body.innerText.includes('Log out')`)
