@@ -33,7 +33,7 @@ import { findMovedPlacements } from '../ingest/movedPlacements'
 import { detectCompoundCellPatterns } from '../ingest/compoundCellPatterns'
 import { inferActivityRules } from '../ingest/activityRules'
 import { normalizeName } from '../ingest/preview'
-import { weeksForImport } from '../ingest/defaultWeek'
+import { weeksForImport, tripDefaultWeekId } from '../ingest/defaultWeek'
 import { emitTwoRowSplit, pinActivityAsserted, DEFAULT_SPLIT_SUFFIX } from '../ingest/twoRowSplit'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
@@ -224,6 +224,8 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
   const [tripAnswers, setTripAnswers] = useState({})
   const [tripWeeks, setTripWeeks] = useState({})
   const [tripTouched, setTripTouched] = useState({})
+  // Trips whose week picker the director opened with "Change week"; the rest show where they were placed.
+  const [tripWeekOpen, setTripWeekOpen] = useState({})
   const [wholeAnswers, setWholeAnswers] = useState({})
   const [wholeTouched, setWholeTouched] = useState({})
   // The week trips bind to by default: the week open in the app; else the only week; else none, and
@@ -231,9 +233,9 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
   // A camp with no weeks yet is offered the Week 1 this import will create (the commit makes it, with this
   // same deterministic id, before the week-bound writes), so trips and special days are offered, not withheld.
   const importWeeks = weeksForImport(weeks, campId)
-  const defaultTripWeekId = importWeeks.some((w) => w.id === openWeekId)
-    ? openWeekId
-    : (importWeeks.length === 1 ? importWeeks[0].id : null)
+  // The open week, else the camp's first week (board ruling 2026-10-13): a trip is never left without a
+  // week, so it never imports as an activity for want of one. The review says where it went and offers a change.
+  const defaultTripWeekId = tripDefaultWeekId(importWeeks, openWeekId)
   const tripPlan = planTripEvents({
     detections: tripDetections,
     answers: tripAnswers,
@@ -410,6 +412,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
     setTripAnswers({})
     setTripWeeks({})
     setTripTouched({})
+    setTripWeekOpen({})
     setWholeAnswers({})
     setWholeTouched({})
     setCompoundCellCandidates([])
@@ -848,6 +851,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
       setTripDetections(detections)
       setTripWeeks({})
       setTripTouched({})
+      setTripWeekOpen({})
       const recalledTrips = {}
       const recalledWhole = {}
       if (detections.length > 0) {
@@ -2457,18 +2461,32 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
                           <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 11 }}>· not {d.missingGroups.length > 3 ? `${d.missingGroups.length} groups` : d.missingGroups.join(', ')}</span>
                         )}
                       </span>
-                      <select
-                        aria-label={`Week for ${d.name}`}
-                        value={item.weekId ?? ''}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          setTripWeeks((w) => ({ ...w, [item.key]: v || undefined }))
-                        }}
-                        style={{ fontSize: 11, padding: '2px 4px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit' }}
-                      >
-                        {!item.weekId && <option value="">Choose a week</option>}
-                        {importWeeks.map((w) => <option key={w.id} value={w.id}>{w.willCreate ? `${w.name} (new)` : w.name}</option>)}
-                      </select>
+                      {item.weekId && !tripWeekOpen[item.key] ? (
+                        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                          {d.name} placed on {importWeeks.find((w) => w.id === item.weekId)?.name ?? 'its week'}
+                          {' · '}
+                          <button
+                            type="button"
+                            onClick={() => setTripWeekOpen((o) => ({ ...o, [item.key]: true }))}
+                            style={{ fontSize: 11, padding: 0, border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline', textUnderlineOffset: 2 }}
+                          >
+                            Change week
+                          </button>
+                        </span>
+                      ) : (
+                        <select
+                          aria-label={`Week for ${d.name}`}
+                          value={item.weekId ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setTripWeeks((w) => ({ ...w, [item.key]: v || undefined }))
+                          }}
+                          style={{ fontSize: 11, padding: '2px 4px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit' }}
+                        >
+                          {!item.weekId && <option value="">Choose a week</option>}
+                          {importWeeks.map((w) => <option key={w.id} value={w.id}>{w.willCreate ? `${w.name} (new)` : w.name}</option>)}
+                        </select>
+                      )}
                       <button type="button" onClick={() => answer('event')} style={pill(item.answer === 'event')}>Trip</button>
                       <button type="button" onClick={() => answer('activity')} style={pill(item.answer === 'activity')}>Activity</button>
                       {item.pending && (
