@@ -22,7 +22,7 @@ describe('applyPackagedWanDefaults (T340 switch-on)', () => {
 
   it('rendezvous: packaged + unset gets the Worker URL', () => {
     expect(run({}, true).SHORESH_RENDEZVOUS_URL).toBe(DEFAULT_RENDEZVOUS_URL)
-    expect(DEFAULT_RENDEZVOUS_URL).toBe('https://shoresh-rendezvous.jays-lives-dev.workers.dev')
+    expect(DEFAULT_RENDEZVOUS_URL).toBe('https://shoresh-rendezvous.at-knowledge.workers.dev')
   })
   it('rendezvous: a set value overrides', () => {
     expect(run({ SHORESH_RENDEZVOUS_URL: 'https://example.test' }, true).SHORESH_RENDEZVOUS_URL).toBe('https://example.test')

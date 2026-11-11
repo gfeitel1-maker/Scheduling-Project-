@@ -2,7 +2,7 @@
 // before sync starts, so syncStarter.js keeps reading SHORESH_PUNCH_ENABLED once with strict equality.
 // Lives outside electron/sync/** because the Worker URL is a hard-coded URL the Tier-4 egress scan
 // would flag there; rendezvousClient.js remains the only file that performs the egress.
-export const DEFAULT_RENDEZVOUS_URL = 'https://shoresh-rendezvous.jays-lives-dev.workers.dev'
+export const DEFAULT_RENDEZVOUS_URL = 'https://shoresh-rendezvous.at-knowledge.workers.dev'
 
 export function applyPackagedWanDefaults(env, isPackaged) {
   if (!isPackaged) return
